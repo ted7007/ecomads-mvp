@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcomAds · Рекомендации</title>
+    <!-- Inter font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <!-- Feather Icons -->
+    <script src="https://unpkg.com/feather-icons"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-page: #0F172A;           /* глубокий антрацит */
+            --card-bg: #F8FAFC;            /* холодный светло-серый */
+            --accent: #FF6B4A;              /* кораллово-оранжевый */
+            --accent-hover: #E85A3A;
+            --success: #10B981;              /* изумрудный */
+            --warning: #FBBF24;               /* янтарный */
+            --danger: #F87171;                /* кораллово-красный */
+            --neutral: #94A3B8;               /* серо-голубой */
+            --text-primary: #0F172A;           /* тёмный текст на карточках */
+            --text-secondary: #475569;          /* вторичный на карточках */
+            --text-on-dark-primary: #F8FAFC;
+            --text-on-dark-secondary: #94A3B8;
+            --sidebar-bg: #1E293B;             /* чуть светлее фона для сайдбара */
+            --border-dark: #334155;
+            --shadow: 0 20px 25px -12px rgba(0,0,0,0.5);
+            --radius-card: 16px;
+        }
+
+        body {
+            font-family: "Inter", system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-page);
+            color: var(--text-on-dark-primary);
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        .app {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* sidebar (без изменений) */
+        .sidebar {
+            width: 260px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-dark);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 16px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+        }
+        .sidebar-logo {
+            font-weight: 600;
+            font-size: 22px;
+            color: var(--text-on-dark-primary);
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .mvp-badge {
+            background: var(--accent);
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 30px;
+            margin-left: 8px;
+        }
+        .project-selector {
+            background: var(--bg-page);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 32px;
+            border: 1px solid var(--border-dark);
+            color: var(--text-on-dark-primary);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 10px;
+            color: var(--text-on-dark-secondary);
+            margin-bottom: 4px;
+            transition: 0.1s;
+            cursor: default;
+        }
+        .nav-item i { color: var(--neutral); }
+        .nav-item.active {
+            background: var(--accent);
+            color: white;
+        }
+        .nav-item.active i { color: white; }
+        .nav-badge {
+            background: var(--danger);
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 30px;
+            margin-left: auto;
+        }
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 24px;
+            border-top: 1px solid var(--border-dark);
+        }
+
+        .main {
+            flex: 1;
+            margin-left: 260px;
+            min-width: 0;
+        }
+
+        .header {
+            height: 72px;
+            padding: 0 32px;
+            background: var(--bg-page);
+            border-bottom: 1px solid var(--border-dark);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .header-left {
+            font-weight: 600;
+            font-size: 20px;
+            color: var(--text-on-dark-primary);
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        .search-box {
+            background: var(--sidebar-bg);
+            border: 1px solid var(--border-dark);
+            border-radius: 30px;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 260px;
+        }
+        .search-box input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-on-dark-primary);
+            font-family: 'Inter', sans-serif;
+            width: 100%;
+        }
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+        .theme-toggle {
+            background: var(--sidebar-bg);
+            border-radius: 30px;
+            padding: 4px;
+            border: 1px solid var(--border-dark);
+            display: flex;
+        }
+        .theme-toggle span {
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 13px;
+            color: var(--text-on-dark-secondary);
+            cursor: default;
+        }
+        .theme-toggle .active {
+            background: var(--accent);
+            color: white;
+        }
+
+        .content {
+            padding: 32px 40px;
+            max-width: 1600px;
+        }
+
+        /* типографика */
+        h2, .level-title {
+            font-weight: 600;
+            font-size: 20px;
+            color: var(--text-on-dark-primary);
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .text-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* карточки рекомендаций */
+        .rec-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .rec-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-card);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            color: var(--text-primary);
+            border-left: 6px solid transparent;
+        }
+
+        .rec-card.rule-1 { border-left-color: var(--danger); }      /* Р1: высокий риск */
+        .rec-card.rule-2 { border-left-color: var(--warning); }     /* Р2: средний */
+        .rec-card.rule-3 { border-left-color: var(--warning); }     /* Р3 */
+        .rec-card.rule-4 { border-left-color: var(--success); }     /* Р4: возможность */
+
+        .rec-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .rec-title {
+            font-weight: 700;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rec-rule-badge {
+            background: var(--neutral);
+            color: #0F172A;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 30px;
+            background: #E2E8F0;
+        }
+
+        .rec-detail {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 24px;
+            margin: 20px 0 24px;
+        }
+
+        .rec-item {
+            background: #F1F5F9;
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+
+        .rec-item i {
+            width: 20px;
+            height: 20px;
+            stroke-width: 1.5;
+            color: var(--text-secondary);
+            margin-right: 8px;
+        }
+
+        .rec-item strong {
+            display: block;
+            font-size: 15px;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .rec-item p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        /* действия */
+        .rec-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 24px 0 16px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            background: transparent;
+            border: 1.5px solid;
+            padding: 10px 22px;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: default;
+            transition: 0.1s;
+        }
+
+        .action-btn.accept {
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        .action-btn.later {
+            border-color: var(--warning);
+            color: #B45309; /* тёмный янтарь */
+        }
+
+        .action-btn.dismiss {
+            border-color: var(--neutral);
+            color: var(--text-secondary);
+        }
+
+        .rec-comment {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-top: 8px;
+        }
+
+        .rec-comment input {
+            flex: 1;
+            background: #F1F5F9;
+            border: 1px solid #E2E8F0;
+            border-radius: 40px;
+            padding: 12px 20px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            color: var(--text-primary);
+            outline: none;
+        }
+
+        .rec-comment input::placeholder {
+            color: var(--neutral);
+        }
+
+        .priority-tag {
+            font-size: 13px;
+            font-weight: 500;
+            padding: 4px 12px;
+            border-radius: 30px;
+            background: var(--danger);
+            color: white;
+        }
+
+        /* вспомогательные классы */
+        .mb-16 { margin-bottom: 16px; }
+        .mt-16 { margin-top: 16px; }
+        .text-success { color: var(--success); }
+        .text-warning { color: var(--warning); }
+        .text-danger { color: var(--danger); }
+
+        /* небольшая адаптация для узких экранов */
+        @media (max-width: 1000px) {
+            .rec-detail {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+            .rec-actions {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar – пункт "Рекомендации" активен -->
+        <div class="sidebar">
+            <div class="sidebar-logo">
+                <span>EcomAds</span>
+                <span class="mvp-badge">MVP</span>
+            </div>
+            <div class="project-selector">
+                <i data-feather="grid"></i> Мой магазин WB
+                <i data-feather="chevron-down" style="margin-left: auto;"></i>
+            </div>
+            <nav>
+                <div class="nav-item"><i data-feather="pie-chart"></i> Дашборд</div>
+                <div class="nav-item"><i data-feather="layers"></i> Кампании</div>
+                <div class="nav-item active"><i data-feather="zap"></i> Рекомендации <span class="nav-badge">4</span></div>
+                <div class="nav-item"><i data-feather="bell"></i> Уведомления</div>
+                <div class="nav-item"><i data-feather="bar-chart-2"></i> Отчёт «Эффект»</div>
+                <div class="nav-item"><i data-feather="settings"></i> Настройки</div>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="nav-item"><i data-feather="log-out"></i> Выход</div>
+            </div>
+        </div>
+
+        <!-- Основной контент -->
+        <div class="main">
+            <!-- Header без изменений -->
+            <div class="header">
+                <div class="header-left">Рекомендации</div>
+                <div class="header-right">
+                    <div class="search-box">
+                        <i data-feather="search"></i>
+                        <input type="text" placeholder="Поиск...">
+                    </div>
+                    <div class="theme-toggle">
+                        <span class="active">☀️</span>
+                        <span>🌙</span>
+                    </div>
+                    <i data-feather="bell"></i>
+                    <div class="avatar">A</div>
+                </div>
+            </div>
+
+            <!-- Контент страницы рекомендаций -->
+            <div class="content">
+                <h2>
+                    <i data-feather="zap" style="color: var(--accent);"></i>
+                    Рекомендации на основе правил
+                    <span class="priority-tag" style="background: var(--accent);">4 новых</span>
+                </h2>
+
+                <div class="rec-grid">
+                    <!-- Р1: Ключ/фраза с расходом > N и заказов = 0 -->
+                    <div class="rec-card rule-1">
+                        <div class="rec-header">
+                            <span class="rec-title">
+                                <i data-feather="alert-triangle" style="color: var(--danger);"></i>
+                                Р1 · Неэффективные ключи
+                            </span>
+                            <span class="rec-rule-badge">высокий приоритет</span>
+                        </div>
+                        <div class="rec-detail">
+                            <div class="rec-item">
+                                <i data-feather="info"></i>
+                                <strong>Причина</strong>
+                                <p>Ключ «подарки новогодние»: расход 1 520 ₽, заказов 0 (цель: минимум 1 заказ).</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="trending-up"></i>
+                                <strong>Ожидаемый эффект</strong>
+                                <p>Снижение неэффективных расходов до 0 ₽ (экономия ~1 500 ₽/нед).</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="alert-circle"></i>
+                                <strong>Риск</strong>
+                                <p>Возможная потеря релевантного трафика, если ключ всё же приводит к продажам по модели атрибуции.</p>
+                            </div>
+                        </div>
+                        <!-- Действия пользователя -->
+                        <div class="rec-actions">
+                            <span class="action-btn accept"><i data-feather="check-circle"></i> Принял</span>
+                            <span class="action-btn later"><i data-feather="clock"></i> Отложил</span>
+                            <span class="action-btn dismiss"><i data-feather="x-circle"></i> Не актуально</span>
+                        </div>
+                        <div class="rec-comment">
+                            <input type="text" placeholder="Комментарий (необязательно)">
+                        </div>
+                    </div>
+
+                    <!-- Р2: ДРР стабильно выше цели -->
+                    <div class="rec-card rule-2">
+                        <div class="rec-header">
+                            <span class="rec-title">
+                                <i data-feather="bar-chart-2" style="color: var(--warning);"></i>
+                                Р2 · Высокий ДРР
+                            </span>
+                            <span class="rec-rule-badge">кампания «Новогодняя»</span>
+                        </div>
+                        <div class="rec-detail">
+                            <div class="rec-item">
+                                <i data-feather="info"></i>
+                                <strong>Причина</strong>
+                                <p>ДРР кампании 28,7% (цель 15%) стабильно 2 недели. Топ-расходные ключи: «подарки», «ёлка».</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="trending-up"></i>
+                                <strong>Ожидаемый эффект</strong>
+                                <p>Снижение ставок по 3 ключам на 20% → ДРР опустится до ~22%.</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="alert-circle"></i>
+                                <strong>Риск</strong>
+                                <p>Падение объёма трафика и заказов на 10–15%.</p>
+                            </div>
+                        </div>
+                        <div class="rec-actions">
+                            <span class="action-btn accept"><i data-feather="check-circle"></i> Принял</span>
+                            <span class="action-btn later"><i data-feather="clock"></i> Отложил</span>
+                            <span class="action-btn dismiss"><i data-feather="x-circle"></i> Не актуально</span>
+                        </div>
+                        <div class="rec-comment">
+                            <input type="text" placeholder="Комментарий (необязательно)">
+                        </div>
+                    </div>
+
+                    <!-- Р3: Низкий CTR при больших показах -->
+                    <div class="rec-card rule-3">
+                        <div class="rec-header">
+                            <span class="rec-title">
+                                <i data-feather="eye" style="color: var(--warning);"></i>
+                                Р3 · Низкий CTR
+                            </span>
+                            <span class="rec-rule-badge">креативы</span>
+                        </div>
+                        <div class="rec-detail">
+                            <div class="rec-item">
+                                <i data-feather="info"></i>
+                                <strong>Причина</strong>
+                                <p>Кампания «Зимняя распродажа»: показы 124 000, CTR = 2,1% (средний по рынку 4,5%).</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="trending-up"></i>
+                                <strong>Ожидаемый эффект</strong>
+                                <p>Обновление креативов/обложки → рост CTR до 3,5% и доп. клики.</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="alert-circle"></i>
+                                <strong>Риск</strong>
+                                <p>Бюджет на тестирование креативов может не окупиться.</p>
+                            </div>
+                        </div>
+                        <div class="rec-actions">
+                            <span class="action-btn accept"><i data-feather="check-circle"></i> Принял</span>
+                            <span class="action-btn later"><i data-feather="clock"></i> Отложил</span>
+                            <span class="action-btn dismiss"><i data-feather="x-circle"></i> Не актуально</span>
+                        </div>
+                        <div class="rec-comment">
+                            <input type="text" placeholder="Комментарий (необязательно)">
+                        </div>
+                    </div>
+
+                    <!-- Р4: Кампания в норме, есть эффективные ключи -->
+                    <div class="rec-card rule-4">
+                        <div class="rec-header">
+                            <span class="rec-title">
+                                <i data-feather="thumbs-up" style="color: var(--success);"></i>
+                                Р4 · Расширение эффективных ключей
+                            </span>
+                            <span class="rec-rule-badge">upside</span>
+                        </div>
+                        <div class="rec-detail">
+                            <div class="rec-item">
+                                <i data-feather="info"></i>
+                                <strong>Причина</strong>
+                                <p>Кампания «Товары для дома»: ДРР 12% (цель 15%), ключи «светильник», «ковёр» дают CTR >7%.</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="trending-up"></i>
+                                <strong>Ожидаемый эффект</strong>
+                                <p>Поднять ставку на 15% по этим ключам → рост заказов на 20% в пределах ДРР.</p>
+                            </div>
+                            <div class="rec-item">
+                                <i data-feather="alert-circle"></i>
+                                <strong>Риск</strong>
+                                <p>Увеличение ставок может привести к временному росту ДРР выше цели.</p>
+                            </div>
+                        </div>
+                        <div class="rec-actions">
+                            <span class="action-btn accept"><i data-feather="check-circle"></i> Принял</span>
+                            <span class="action-btn later"><i data-feather="clock"></i> Отложил</span>
+                            <span class="action-btn dismiss"><i data-feather="x-circle"></i> Не актуально</span>
+                        </div>
+                        <div class="rec-comment">
+                            <input type="text" placeholder="Комментарий (необязательно)">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace({ strokeWidth: 1.5, width: 18, height: 18 });
+    </script>
+</body>
+</html>

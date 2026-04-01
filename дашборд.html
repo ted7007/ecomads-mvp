@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcomAds · Технологичный рассвет</title>
+    <!-- Inter font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <!-- Feather Icons (линейные, толщина 1.5px) -->
+    <script type="text/javascript" src="/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=O_IHKSnARhK1kFqOp4TKbOv3To5ILFnyxDR4LYbupltkbVmVaAIepmCD1etqlhrjMenu9s3XQ6s-zvGJwNqSykhjzWUU9cL1zYUWzdnfzHjawQXl8nqzipWcfn1C_m3zK0JGYxIWVSV_XQwcdf9_cvV0GqbncorS3Y_pz354yGXMbmO3Luy1-YFHmNyCsrtJy7Dm619tww43FpgRU9CeuHxB7loX1PdAuGp6fF_uT_FgOSq-Et43hw9paYKOGyaF80v3TONxNMjcZVK_hRNuqxR80GXmlH2mXljKDlaGRwv2WbS0xVdDE6xMt_mVkYLfqA1Tiu9ZSr3Uka6PKkYL_pCo2foKQW5DwicDOKudPmFSY1MfMHWOI5QsuJtLr8KJ7cBQceQhI8C1KNzOitwp1W2X7NlESAxKzQmBt-5yeXfK2XBvEuuUC3Ddtd2GM7wsZaGXtwU_jScwBpM0uxWqfEdJyPAiO4xmLai3rx1Y2vkAG61kA7odqTZepHjuUUWXD18fQdeicWE5Tg2cQwH5VFpTnc73W0eBjpbic-e4SS53eStqTOaGunG0fNUzEGcBzpTq7QsUNc_OeKrLsMtXDCKUUxNtVXymeP_oQbgwhpwYsbCmbX4kQlUHpVb3xVzSgB6E_KfrBS47M1lNs9r1IudtUxxHUBxlE4Oc-UfDyH6YPa4gKLSXoJ8vb832WBK-st2twrn3rQpdNheq8Ph9nKEOCQ0M0G05P3B7Aux6V7xskSif6rmDtqgSIREj78U1hDSelFo7UWwfK28j8QNLFFG-0qiyqRZPEK4tn4fcMdoi5SgSHPfOI5dgPgL0CBclDfQt5zX-FIOPb7dARhRoR1PtilPPash9gkK3i3TMPbpFIKCnWh0L6Fyo1JPuU12JoEOwQQrOmaxWyxu92KOYkSXZK1e-MP6V523HOA0G1b6d9d6bZGkk3iJKBb5PMzxEvU5PVYTz7GRGILfSPsoImb44u-S_OTLcG_jTejyOghFxjCQeJnhjUBRVDJCaBh0njJFZr0-Hbp0T_UXur3W7p80I0fAsXNxCCd3IgjRUgV4XAshFEDd6ITsKltw5XZxM" charset="UTF-8"></script><script src="https://unpkg.com/feather-icons"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* переменные "Технологичный рассвет" */
+        :root {
+            --bg-page: #0F172A;           /* глубокий антрацит */
+            --card-bg: #F8FAFC;            /* холодный светло-серый */
+            --accent: #FF6B4A;              /* кораллово-оранжевый */
+            --accent-hover: #E85A3A;
+            --success: #10B981;              /* изумрудный */
+            --warning: #FBBF24;               /* янтарный */
+            --danger: #F87171;                /* кораллово-красный */
+            --neutral: #94A3B8;               /* серо-голубой */
+            --text-primary: #0F172A;           /* тёмный текст на карточках */
+            --text-secondary: #475569;          /* вторичный на карточках */
+            --text-on-dark-primary: #F8FAFC;
+            --text-on-dark-secondary: #94A3B8;
+            --sidebar-bg: #1E293B;             /* чуть светлее фона для сайдбара */
+            --border-dark: #334155;
+            --shadow: 0 20px 25px -12px rgba(0,0,0,0.5);
+            --radius-card: 16px;
+        }
+
+        body {
+            font-family: "Inter", system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-page);
+            color: var(--text-on-dark-primary);
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        /* layout */
+        .app {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* sidebar */
+        .sidebar {
+            width: 260px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-dark);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 16px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+        }
+        .sidebar-logo {
+            font-weight: 600;
+            font-size: 22px;
+            color: var(--text-on-dark-primary);
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .mvp-badge {
+            background: var(--accent);
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 30px;
+            margin-left: 8px;
+        }
+        .project-selector {
+            background: var(--bg-page);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 32px;
+            border: 1px solid var(--border-dark);
+            color: var(--text-on-dark-primary);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 10px;
+            color: var(--text-on-dark-secondary);
+            margin-bottom: 4px;
+            transition: 0.1s;
+            cursor: default;
+        }
+        .nav-item i { color: var(--neutral); }
+        .nav-item.active {
+            background: var(--accent);
+            color: white;
+        }
+        .nav-item.active i { color: white; }
+        .nav-badge {
+            background: var(--danger);
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 30px;
+            margin-left: auto;
+        }
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 24px;
+            border-top: 1px solid var(--border-dark);
+        }
+
+        /* основной контент */
+        .main {
+            flex: 1;
+            margin-left: 260px;
+            min-width: 0;
+        }
+        /* header */
+        .header {
+            height: 72px;
+            padding: 0 32px;
+            background: var(--bg-page);
+            border-bottom: 1px solid var(--border-dark);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .header-left {
+            font-weight: 600;
+            font-size: 20px;
+            color: var(--text-on-dark-primary);
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        .search-box {
+            background: var(--sidebar-bg);
+            border: 1px solid var(--border-dark);
+            border-radius: 30px;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 260px;
+        }
+        .search-box input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-on-dark-primary);
+            font-family: 'Inter', sans-serif;
+            width: 100%;
+        }
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+        .theme-toggle {
+            background: var(--sidebar-bg);
+            border-radius: 30px;
+            padding: 4px;
+            border: 1px solid var(--border-dark);
+            display: flex;
+        }
+        .theme-toggle span {
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 13px;
+            color: var(--text-on-dark-secondary);
+            cursor: default;
+        }
+        .theme-toggle .active {
+            background: var(--accent);
+            color: white;
+        }
+
+        /* контентная область */
+        .content {
+            padding: 32px 40px;  /* внешние отступы 40px */
+            max-width: 1600px;
+        }
+
+        /* 12-колоночная сетка */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 24px;
+        }
+
+        /* карточки (светлые) */
+        .card {
+            background: var(--card-bg);
+            border-radius: var(--radius-card);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            color: var(--text-primary);
+        }
+
+        /* типографика */
+        h2, .level-title {
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .kpi-number {
+            font-weight: 700;
+            font-size: 36px;
+            color: var(--text-primary);
+            line-height: 1.2;
+        }
+        .text-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .text-secondary { color: var(--text-secondary); font-size: 14px; }
+        .text-success { color: var(--success); }
+        .text-warning { color: var(--warning); }
+        .text-danger { color: var(--danger); }
+        .text-accent { color: var(--accent); }
+
+        /* KPI карточка */
+        .kpi-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-card);
+            padding: 20px;
+            box-shadow: var(--shadow);
+        }
+        .kpi-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .trend {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .dot-yellow { background: var(--warning); }
+        .chip-danger {
+            background: var(--danger);
+            color: white;
+            font-size: 12px;
+            padding: 2px 10px;
+            border-radius: 30px;
+        }
+
+        /* пульс компании — две колонки */
+        .pulse-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .pulse-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .pulse-percent {
+            font-weight: 700;
+            font-size: 24px;
+            min-width: 70px;
+        }
+        .pulse-desc {
+            flex: 1;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .micro-trend {
+            font-size: 13px;
+            color: var(--neutral);
+        }
+        .spark-container {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .spark-svg {
+            width: 100%;
+            height: 60px;
+        }
+        .metric-row {
+            display: flex;
+            gap: 24px;
+            margin-top: 12px;
+        }
+        .metric-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* таблица */
+        .table-wrapper {
+            background: var(--card-bg);
+            border-radius: var(--radius-card);
+            overflow-x: auto;
+            box-shadow: var(--shadow);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1000px;
+        }
+        th {
+            background: var(--card-bg);
+            padding: 16px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid #E2E8F0;
+        }
+        td {
+            padding: 14px 12px;
+            border-bottom: 1px solid #E2E8F0;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .row-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .indicator-red { background: var(--danger); }
+        .indicator-yellow { background: var(--warning); }
+        .indicator-green { background: var(--success); }
+        .drr-red { color: var(--danger); font-weight: 600; background: rgba(248,113,113,0.1); padding: 2px 8px; border-radius: 20px; }
+        .drr-yellow { color: var(--warning); font-weight: 600; background: rgba(251,191,36,0.1); padding: 2px 8px; border-radius: 20px; }
+        .drr-green { color: var(--success); font-weight: 600; background: rgba(16,185,129,0.1); padding: 2px 8px; border-radius: 20px; }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status-dot-green { background: var(--success); width: 10px; height: 10px; border-radius: 50%; }
+        .status-dot-red { background: var(--danger); width: 10px; height: 10px; border-radius: 50%; }
+
+        /* сигналы тревоги */
+        .signal-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-card);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            border-top: 4px solid transparent;
+            height: 100%;
+        }
+        .signal-red { border-top-color: var(--danger); }
+        .signal-yellow { border-top-color: var(--warning); }
+        .signal-green { border-top-color: var(--success); }
+        .signal-icon {
+            font-size: 24px;
+            margin-right: 8px;
+        }
+        .signal-title {
+            font-weight: 600;
+            font-size: 16px;
+            margin: 8px 0 4px;
+        }
+        .signal-reason {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin: 8px 0 4px;
+        }
+        .signal-detail {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+        .signal-effect {
+            font-weight: 600;
+            font-size: 14px;
+            margin: 12px 0 16px;
+        }
+        .signal-btn {
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            cursor: default;
+        }
+        .counter-chip {
+            background: var(--danger);
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 30px;
+            margin-left: 12px;
+        }
+
+        /* отступы */
+        .mb-16 { margin-bottom: 16px; }
+        .mb-24 { margin-bottom: 24px; }
+        .mb-32 { margin-bottom: 32px; }
+
+        /* иконки */
+        i { stroke-width: 1.5; width: 18px; height: 18px; color: var(--neutral); }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Левая панель (sidebar) -->
+        <div class="sidebar">
+            <div class="sidebar-logo">
+                <span>EcomAds</span>
+                <span class="mvp-badge">MVP</span>
+            </div>
+            <div class="project-selector">
+                <i data-feather="grid"></i> Мой магазин WB
+                <i data-feather="chevron-down" style="margin-left: auto;"></i>
+            </div>
+            <nav>
+                <div class="nav-item active"><i data-feather="pie-chart"></i> Дашборд</div>
+                <div class="nav-item"><i data-feather="layers"></i> Кампании</div>
+                <div class="nav-item"><i data-feather="zap"></i> Рекомендации <span class="nav-badge">3</span></div>
+                <div class="nav-item"><i data-feather="bell"></i> Уведомления</div>
+                <div class="nav-item"><i data-feather="bar-chart-2"></i> Отчёт «Эффект»</div>
+                <div class="nav-item"><i data-feather="settings"></i> Настройки</div>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="nav-item"><i data-feather="log-out"></i> Выход</div>
+            </div>
+        </div>
+
+        <!-- Основной контент -->
+        <div class="main">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-left">Главный дашборд</div>
+                <div class="header-right">
+                    <div class="search-box">
+                        <i data-feather="search"></i>
+                        <input type="text" placeholder="Поиск...">
+                    </div>
+                    <div class="theme-toggle">
+                        <span class="active">☀️</span>
+                        <span>🌙</span>
+                    </div>
+                    <i data-feather="bell"></i>
+                    <div class="avatar">A</div>
+                </div>
+            </div>
+
+            <!-- Контент с отступами 40px -->
+            <div class="content">
+                <!-- УРОВЕНЬ 1. KPI (4 карточки) -->
+                <div class="grid mb-32">
+                    <!-- Расход -->
+                    <div class="kpi-card" style="grid-column: span 3;">
+                        <div class="kpi-header">
+                            <span class="text-label"><i data-feather="wallet"></i> Расход</span>
+                            <span class="trend text-success"><i data-feather="trending-up"></i> +8% vs 7д</span>
+                        </div>
+                        <div class="kpi-number">124 560 ₽</div>
+                    </div>
+                    <!-- Заказы -->
+                    <div class="kpi-card" style="grid-column: span 3;">
+                        <div class="kpi-header">
+                            <span class="text-label"><i data-feather="shopping-bag"></i> Заказы</span>
+                            <span class="trend text-success"><i data-feather="trending-up"></i> +124 вчера</span>
+                        </div>
+                        <div class="kpi-number">847</div>
+                    </div>
+                    <!-- ДРР -->
+                    <div class="kpi-card" style="grid-column: span 3;">
+                        <div class="kpi-header">
+                            <span class="text-label"><i data-feather="target"></i> ДРР</span>
+                            <span class="status-dot dot-yellow"></span>
+                        </div>
+                        <div class="kpi-number" style="display: flex; align-items: center; gap: 8px;">18.5% <span class="chip-danger">+3.2%</span></div>
+                        <div class="text-secondary" style="margin-top:4px;">цель 15%</div>
+                    </div>
+                    <!-- CTR -->
+                    <div class="kpi-card" style="grid-column: span 3;">
+                        <div class="kpi-header">
+                            <span class="text-label"><i data-feather="trending-up"></i> CTR</span>
+                            <span class="trend text-success"><i data-feather="trending-up"></i> +0.7% выше рынка</span>
+                        </div>
+                        <div class="kpi-number">4.2%</div>
+                    </div>
+                </div>
+
+                <!-- УРОВЕНЬ 2. Пульс компании (широкая карточка) -->
+                <div class="card mb-32">
+                    <h2><i data-feather="activity" style="color:#475569;"></i> Пульс компании</h2>
+                    <div class="grid" style="gap:24px;">
+                        <!-- левая колонка: пульс кампаний -->
+                        <div style="grid-column: span 6;">
+                            <div class="pulse-stats">
+                                <div class="pulse-item">
+                                    <span class="pulse-percent text-success">65%</span>
+                                    <span class="pulse-desc">13 кампаний в норме</span>
+                                    <span class="micro-trend">+2% за нед.</span>
+                                </div>
+                                <div class="pulse-item">
+                                    <span class="pulse-percent text-warning">20%</span>
+                                    <span class="pulse-desc">4 требуют внимания</span>
+                                    <span class="micro-trend">+1% за нед.</span>
+                                </div>
+                                <div class="pulse-item">
+                                    <span class="pulse-percent text-danger">15%</span>
+                                    <span class="pulse-desc">3 в критической зоне</span>
+                                    <span class="micro-trend">-0.5% за нед.</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- правая колонка: активность продаж -->
+                        <div style="grid-column: span 6;">
+                            <div class="spark-container">
+                                <svg class="spark-svg" viewBox="0 0 300 50" preserveAspectRatio="none">
+                                    <polyline points="0,40 30,20 60,35 90,15 120,30 150,10 180,25 210,5 240,30 270,20 300,25" stroke="#FF6B4A" stroke-width="2.5" fill="none"/>
+                                </svg>
+                            </div>
+                            <div class="metric-row">
+                                <div class="metric-item"><span style="font-size:20px;">🔥</span> 15:00 — 47/ч</div>
+                                <div class="metric-item"><span style="font-size:20px;">💰</span> 1 850 ₽</div>
+                                <div class="metric-item"><span style="font-size:20px;">⏰</span> 12:00-15:00</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- УРОВЕНЬ 3. Таблица кампаний -->
+                <div class="mb-32">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                        <h2 class="level-title" style="color: var(--text-on-dark-primary);">Рекламные кампании</h2>
+                        <div style="display: flex; gap: 16px;">
+                            <i data-feather="search" style="color:var(--neutral);"></i>
+                            <i data-feather="filter" style="color:var(--neutral);"></i>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Название</th>
+                                    <th>Тип</th>
+                                    <th>Расход <i data-feather="arrow-up" width="14"></i></th>
+                                    <th>ДРР <i data-feather="arrow-down" width="14"></i></th>
+                                    <th>Клики</th>
+                                    <th>CTR</th>
+                                    <th>Статус</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="row-indicator indicator-red"></span> Новогодняя распродажа</td>
+                                    <td>Авто</td>
+                                    <td>45 200 ₽</td>
+                                    <td><span class="drr-red">28.7% ▲</span></td>
+                                    <td>1 245</td>
+                                    <td>3.2%</td>
+                                    <td><span class="status-badge"><span class="status-dot-green"></span> Активна</span></td>
+                                    <td><i data-feather="eye"></i></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="row-indicator indicator-yellow"></span> Поиск. Косметика</td>
+                                    <td>Ручной</td>
+                                    <td>32 100 ₽</td>
+                                    <td><span class="drr-yellow">15.2% ▼</span></td>
+                                    <td>892</td>
+                                    <td>4.8%</td>
+                                    <td><span class="status-badge"><span class="status-dot-green"></span> Активна</span></td>
+                                    <td><i data-feather="eye"></i></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="row-indicator indicator-green"></span> Товары для дома</td>
+                                    <td>Ручной</td>
+                                    <td>18 430 ₽</td>
+                                    <td><span class="drr-green">12.1% ▼</span></td>
+                                    <td>1 890</td>
+                                    <td>5.1%</td>
+                                    <td><span class="status-badge"><span class="status-dot-green"></span> Активна</span></td>
+                                    <td><i data-feather="eye"></i></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="row-indicator indicator-red"></span> Зимняя распродажа</td>
+                                    <td>Авто</td>
+                                    <td>28 750 ₽</td>
+                                    <td><span class="drr-red">22.4% ▲</span></td>
+                                    <td>567</td>
+                                    <td>2.1%</td>
+                                    <td><span class="status-badge"><span class="status-dot-red"></span> Пауза</span></td>
+                                    <td><i data-feather="eye"></i></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- УРОВЕНЬ 4. Сигналы тревоги (горизонтальные карточки) -->
+                <div>
+                    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+                        <h2 class="level-title" style="color: var(--text-on-dark-primary);">Сигналы тревоги</h2>
+                        <span class="counter-chip">3 новых</span>
+                    </div>
+
+                    <div class="grid" style="gap:24px;">
+                        <!-- красный сигнал -->
+                        <div class="signal-card signal-red" style="grid-column: span 4;">
+                            <div style="display: flex; align-items: center;">
+                                <span class="signal-icon">⚡</span>
+                                <span class="signal-title">Кампания «Новогодняя распродажа»</span>
+                            </div>
+                            <div class="signal-reason">ДРР 28.7% (цель 15%)</div>
+                            <div class="signal-detail">Ключ 'подарки' без продаж</div>
+                            <div class="signal-effect text-danger">↓ Снижение ДРР до 22%</div>
+                            <span class="signal-btn">Принять меры →</span>
+                        </div>
+                        <!-- желтый сигнал -->
+                        <div class="signal-card signal-yellow" style="grid-column: span 4;">
+                            <div style="display: flex; align-items: center;">
+                                <span class="signal-icon">⚠️</span>
+                                <span class="signal-title">Кампания «Поиск. Косметика»</span>
+                            </div>
+                            <div class="signal-reason">3 ключа с расходом >1000₽ без заказов</div>
+                            <div class="signal-effect text-warning">💰 Экономия 3 200₽</div>
+                            <span class="signal-btn">Проверить →</span>
+                        </div>
+                        <!-- зеленый сигнал -->
+                        <div class="signal-card signal-green" style="grid-column: span 4;">
+                            <div style="display: flex; align-items: center;">
+                                <span class="signal-icon">💡</span>
+                                <span class="signal-title">Кампания «Товары для дома»</span>
+                            </div>
+                            <div class="signal-reason">2 ключа с CTR >7% и ДРР <10%</div>
+                            <div class="signal-effect text-success">↑ Рост заказов на 15%</div>
+                            <span class="signal-btn">Расширить →</span>
+                        </div>
+                    </div>
+
+                    <div style="text-align: right; margin-top: 16px;">
+                        <span style="color: var(--neutral); font-size:14px; cursor:default;">Все сигналы →</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace({ strokeWidth: 1.5, width: 18, height: 18 });
+    </script>
+</body>
+</html>

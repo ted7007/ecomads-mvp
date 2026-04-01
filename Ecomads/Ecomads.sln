@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ecomads.WebApplication", "Ecomads.WebApplication\Ecomads.WebApplication.csproj", "{4A36AA5E-674A-4045-A015-30EF14BC88A3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestConsoleApp", "TestConsoleApp\TestConsoleApp.csproj", "{46C2C717-F5E4-4D46-8C95-006E64A581CF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4A36AA5E-674A-4045-A015-30EF14BC88A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4A36AA5E-674A-4045-A015-30EF14BC88A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4A36AA5E-674A-4045-A015-30EF14BC88A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4A36AA5E-674A-4045-A015-30EF14BC88A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{46C2C717-F5E4-4D46-8C95-006E64A581CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{46C2C717-F5E4-4D46-8C95-006E64A581CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{46C2C717-F5E4-4D46-8C95-006E64A581CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{46C2C717-F5E4-4D46-8C95-006E64A581CF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
