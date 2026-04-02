@@ -17,8 +17,14 @@ public class ProjectsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetProjects([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+    public async Task<IActionResult> GetProjects([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
     {
+        if (startDate is null)
+            startDate = DateTime.MinValue;
+        
+        if (endDate is null)
+            endDate = DateTime.MaxValue;
+        
         var campaigns = await _context.Compaigns
             .Select(c => new ProjectDashboardDto(
                 c.Id,
