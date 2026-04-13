@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcomAds · Вход</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        .auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .auth-card {
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: var(--radius-card);
+            width: 100%;
+            max-width: 400px;
+            box-shadow: var(--shadow);
+        }
+        .auth-card h2 { margin-bottom: 24px; text-align: center; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px; }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--neutral);
+            font-family: inherit;
+        }
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <h2>Вход в EcomAds</h2>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" placeholder="example@mail.ru">
+            </div>
+            <div class="form-group">
+                <label>Пароль</label>
+                <input type="password" placeholder="••••••••">
+            </div>
+            <button class="btn-primary" onclick="window.location.href='/dashboard.html'">Войти</button>
+        </div>
+    </div>
+</body>
+</html>
