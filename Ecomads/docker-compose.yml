@@ -11,6 +11,21 @@ services:
       POSTGRES_DB: ecomads_db
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Ecomads.WebApplication/Dockerfile
+    container_name: ecomads-web
+    restart: always
+    ports:
+      - "80:8080"
+    depends_on:
+      - db
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=db;Database=ecomads_db;Username=ecomads_user;Password=your_secure_password"
 
 volumes:
   postgres_data:

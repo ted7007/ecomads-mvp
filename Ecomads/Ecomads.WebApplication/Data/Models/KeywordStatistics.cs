@@ -1,10 +1,19 @@
-namespace Ecomads.WebApplication.Models;
+using System.ComponentModel.DataAnnotations;
 
-public class KeywordStatDto
+namespace Ecomads.WebApplication.Data.Models;
+
+public class KeywordStatistics
 {
-    public string Phrase { get; set; } = null!;
+    [Key]
+    public Guid Id { get; set; }
+    
     public Guid CompaignId { get; set; }
-    public DateTime Datetime { get; set; }
+    public Compaign Compaign { get; set; } = null!;
+
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+
+    public string Phrase { get; set; } = null!;
     public int? Frequency { get; set; }
     public decimal? Cpm { get; set; }
     public double? AvgPosition { get; set; }

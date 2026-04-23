@@ -26,7 +26,7 @@
             <div class="content">
                 <!-- Кнопка обновления статистики -->
                 <div style="display: flex; justify-content: flex-end; margin-bottom: 24px;">
-                    <button class="refresh-btn" onclick="alert('Обновление статистики (демо)')">
+                    <button class="refresh-btn" onclick="document.getElementById('upload-modal').style.display='flex'">
                         <i data-feather="refresh-cw"></i> Загрузить новую статистику
                     </button>
                 </div>
@@ -50,22 +50,50 @@
                         <div class="kpi-number">3.2%</div>
                     </div>
                 </div>
+
+                <!-- Статистика по ключевым словам -->
+                <div class="card">
+                    <h2 class="level-title">Статистика по ключевым словам</h2>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Фраза</th>
+                                    <th>Показы</th>
+                                    <th>Клики</th>
+                                    <th>CTR</th>
+                                    <th>Затраты</th>
+                                    <th>Заказы</th>
+                                    <th>Выручка</th>
+                                    <th>ДРР</th>
+                                </tr>
+                            </thead>
+                            <tbody id="keywords-body">
+                                <!-- Сюда JS вставит данные -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
     <script type="module">
         import { renderSidebar } from '/js/sidebar.js';
-        renderSidebar('campaign');
-    </script>
-    <script>
-        feather.replace({ strokeWidth: 1.5, width: 18, height: 18 });
+        import { createUploadModal } from '/js/modal.js';
+        import { loadKeywordStats } from '/js/main.js';
         
-        // Чтение ID из URL
+        renderSidebar('campaign');
+        
         const params = new URLSearchParams(window.location.search);
         const id = params.get('id');
         if (id) {
             document.getElementById('campaign-name').textContent = 'Кампания #' + id;
+            loadKeywordStats(id);
         }
+        createUploadModal(true, id);
+    </script>
+    <script>
+        feather.replace({ strokeWidth: 1.5, width: 18, height: 18 });
     </script>
 </body>
 </html>

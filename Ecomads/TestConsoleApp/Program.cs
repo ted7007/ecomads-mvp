@@ -1,242 +1,191 @@
-﻿using System.Globalization;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Spreadsheet;
+﻿using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Ecomads.WebApplication.Data;
+using Ecomads.WebApplication.Data.Models;
 
-var filePath = "C:\\Work\\ecomads-mvp\\Ecomads\\TestConsoleApp\\wb-general-stat-for-period.xlsx";
+// ================= CONFIG =================
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile("appsettings.json", optional: false)
+    .Build();
 
-var xlsxPath = filePath;
-var sheetName = args.Length >= 2 ? args[1] : "Статистика";
+var connectionString = configuration.GetConnectionString("DefaultConnection");
+var apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjNkY2U1MDczLTVhNDQtNGRlMS1iNTExLTI2MDM4MzVhMTYxMiIsImlzRGV2ZWxvcGVyIjp0cnVlLCJpYXQiOjE3NzM5MDE3MTksImV4cCI6MjA4OTQ3NzcxOSwianRpIjoiLUpuRmUxYk8xamxlRDBFMSJ9.PHJOQeLYoeuhn097QA-w0F1fsV5K4IBoSNT8TNQ2W30";
+var baseUrl = "https://openai.bothub.chat/v1/chat/completions";
+var model = "gpt-4o-mini";
 
-try
+// ================= DB SETUP =================
+var services = new ServiceCollection();
+services.AddDbContext<EcomadsDbContext>(options =>
+    options.UseNpgsql(connectionString));
+
+var serviceProvider = services.BuildServiceProvider();
+var dbContext = serviceProvider.GetRequiredService<EcomadsDbContext>();
+
+// Замени на нужный ID
+var campaignId = Guid.Parse("d2a3565f-656a-4b18-959f-57181d43c7a5"); 
+
+// ================= DATA FROM DB =================
+var stats = await dbContext.CompaignStatistics
+    .FirstOrDefaultAsync(s => s.CompaignId == campaignId && s.Type == (CompaignStatisticsType)0);
+
+var topKeywords = await dbContext.KeywordStatistics
+    .Where(k => k.CompaignId == campaignId)
+    .OrderByDescending(k => k.Revenue)
+    .Take(5)
+    .ToListAsync();
+
+var worstKeywords = await dbContext.KeywordStatistics
+    .Where(k => k.CompaignId == campaignId && k.Orders == 0 && k.Spend > 0)
+    .OrderByDescending(k => k.Spend)
+    .Take(5)
+    .ToListAsync();
+
+var dto = new CampaignAnalyticsDto
 {
-    using var doc = SpreadsheetDocument.Open(xlsxPath, false);
-    var wbPart = doc.WorkbookPart!;
-    var sstPart = wbPart.SharedStringTablePart;
+    Name = (await dbContext.Compaigns.FindAsync(campaignId))?.Name ?? "Unknown",
+    Spend = stats?.Spend ?? 0,
+    Revenue = stats?.Revenue ?? 0,
+    Drr = stats?.Drr ?? 0,
+    Clicks = (int)(stats?.Clicks ?? 0),
+    Ctr = stats?.Ctr ?? 0,
 
-    var wsPart = GetWorksheetPartByName(wbPart, sheetName);
-    if (wsPart == null)
-    {
-        Console.WriteLine($"Sheet not found: {sheetName}");
-        return 3;
-    }
+    TopKeywords = topKeywords.Select(k => new TopKeywordDto 
+    { 
+        Phrase = k.Phrase, 
+        Spend = (double)(k.Spend ?? 0), 
+        Revenue = (double)(k.Revenue ?? 0), 
+        Drr = k.Drr ?? 0 
+    }).ToList(),
 
-    var sheetData = wsPart.Worksheet.GetFirstChild<SheetData>();
-    if (sheetData == null)
-    {
-        Console.WriteLine("Sheet has no data.");
-        return 4;
-    }
+    WorstKeywords = worstKeywords.Select(k => new TopKeywordDto 
+    { 
+        Phrase = k.Phrase, 
+        Spend = (double)(k.Spend ?? 0), 
+        Revenue = (double)(k.Revenue ?? 0), 
+        Drr = k.Drr ?? 0 
+    }).ToList()
+};
 
-    // Преобразуем строки листа в список: row -> (colIndex -> value)
-    var rows = new List<Dictionary<int, string?>>();
-    int maxCol = 0;
 
-    foreach (var row in sheetData.Elements<Row>())
-    {
-        var dict = new Dictionary<int, string?>();
-        foreach (var cell in row.Elements<Cell>())
-        {
-            int colIdx = GetColumnIndex(cell.CellReference?.Value);
-            string? val = GetCellValue(cell, sstPart);
-            dict[colIdx] = val;
-            if (colIdx > maxCol) maxCol = colIdx;
-        }
+// ================= BUILD PROMPT =================
+var goal = "рост прибыли"; //увеличить заказы // рост прибыли
 
-        // Пропускаем полностью пустые строки
-        if (dict.Count > 0 && dict.Values.Any(v => !string.IsNullOrEmpty(v)))
-            rows.Add(dict);
-    }
+var prompt = $@"
+Ты эксперт по рекламе на Wildberries с практическим опытом оптимизации рекламных кампаний.
 
-    if (rows.Count == 0)
-    {
-        Console.WriteLine("Sheet is empty.");
-        return 5;
-    }
+Проанализируй рекламную кампанию и предложи ОДНУ самую важную рекомендацию для достижения цели: {goal}
 
-    // Заголовок — первая непустая строка
-    var headerRow = rows[0];
-    var headerIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+Данные по кампании:
+- Расход: {dto.Spend}
+- Выручка: {dto.Revenue}
+- ДРР: {dto.Drr}%
+- Клики: {dto.Clicks}
+- CTR: {dto.Ctr}%
 
-    foreach (var kvp in headerRow)
-    {
-        var header = kvp.Value?.Trim();
-        if (!string.IsNullOrEmpty(header) && !headerIndexByName.ContainsKey(header))
-            headerIndexByName[header] = kvp.Key;
-    }
+Лучшие ключевые слова (по выручке):
+{FormatKeywords(dto.TopKeywords)}
 
-    // Проверяем нужные колонки
-    string[] required =
-    {
-        "Название",
-        "Затраты, RUB",
-        "Заказов на сумму, RUB",
-        "Клики",
-        "CTR(%)"
-    };
+Худшие ключевые слова (высокий расход без заказов):
+{FormatKeywords(dto.WorstKeywords)}
 
-    foreach (var col in required)
-    {
-        if (!headerIndexByName.ContainsKey(col))
-        {
-            Console.WriteLine($"Required column not found: \"{col}\"");
-            return 6;
-        }
-    }
+Контекст:
+- DRR > 30% считается плохим
+- Если много кликов и нет заказов — проблема в нерелевантных ключах
+- Низкий CTR (< 2%) — проблема в карточке товара или креативах
 
-    int idxTitle = headerIndexByName["Название"];
-    int idxSpend = headerIndexByName["Затраты, RUB"];
-    int idxRevenue = headerIndexByName["Заказов на сумму, RUB"];
-    int idxClicks = headerIndexByName["Клики"];
-    int idxCtr = headerIndexByName["CTR(%)"];
+Задача:
+Определи ГЛАВНУЮ проблему кампании и предложи ОДНО конкретное действие, которое даст максимальный эффект.
 
-    // Ищем строку "Всего по кампании"
-    Dictionary<int, string?>? totalRow = null;
-    foreach (var r in rows.Skip(1))
-    {
-        var title = r.TryGetValue(idxTitle, out var t) ? t : null;
-        if (!string.IsNullOrWhiteSpace(title) &&
-            title.Trim().Equals("Всего по кампании", StringComparison.OrdinalIgnoreCase))
-        {
-            totalRow = r;
-            break;
-        }
-    }
+Формат ответа:
+1. Проблема
+2. Рекомендация
+3. Ожидаемый эффект
 
-    if (totalRow == null)
-    {
-        Console.WriteLine("Row \"Всего по кампании\" not found.");
-        return 7;
-    }
+Ограничения:
+- Не давай общие советы
+- Не перечисляй несколько действий
+- Будь максимально конкретным
+";
+// ================= CALL LLM =================
+using var http = new HttpClient();
+http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-    // Парсим значения
-    decimal spend = ParseDecimal(Get(totalRow, idxSpend));
-    decimal revenue = ParseDecimal(Get(totalRow, idxRevenue));
-    long clicks = ParseLong(Get(totalRow, idxClicks));
-    double ctrPct = ParseDouble(Get(totalRow, idxCtr));
-
-    double drrPct = revenue > 0m ? (double)(spend / revenue) * 100.0 : 0.0;
-
-    // Печать таблички
-    PrintTable(spend, drrPct, clicks, ctrPct);
-
-    return 0;
-}
-catch (Exception ex)
+var requestBody = new
 {
-    Console.WriteLine("Error:");
-    Console.WriteLine(ex.ToString());
-    return 100;
-}
-
-static WorksheetPart? GetWorksheetPartByName(WorkbookPart workbookPart, string sheetName)
-{
-    var sheets = workbookPart.Workbook.Sheets!.Elements<Sheet>();
-    var sheet = sheets.FirstOrDefault(s => string.Equals(s.Name?.Value, sheetName, StringComparison.OrdinalIgnoreCase));
-    if (sheet == null) return null;
-    if (sheet.Id == null) return null;
-    return (WorksheetPart?)workbookPart.GetPartById(sheet.Id);
-}
-
-static string? GetCellValue(Cell cell, SharedStringTablePart? sstPart)
-{
-    if (cell == null) return null;
-
-    var cellValue = cell.CellValue?.InnerText;
-    if (cell.DataType != null)
+    model = model,
+    messages = new[]
     {
-        if (cell.DataType.Value == CellValues.SharedString)
-        {
-            if (sstPart != null && int.TryParse(cellValue, NumberStyles.Integer, CultureInfo.InvariantCulture,
-                    out int sstIndex))
-            {
-                var item = sstPart.SharedStringTable?.ElementAtOrDefault(sstIndex);
-                if (item != null)
-                    return item.InnerText;
-            }
+        new { role = "system", content = "Ты эксперт по рекламе Wildberries." },
+        new { role = "user", content = prompt }
+    },
+    temperature = 0.7
+};
 
-            return null;
-        }
+var json = JsonSerializer.Serialize(requestBody);
+var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        if (cell.DataType.Value == CellValues.InlineString)
-        {
-            return cell.InlineString?.Text?.Text ?? cell.InnerText;
-        }
+var response = await http.PostAsync(baseUrl, content);
 
-        return cellValue;
-    }
-
-    // Тип не указан — как правило число/общий
-    return cellValue;
+if (!response.IsSuccessStatusCode)
+{
+    Console.WriteLine($"Error: {response.StatusCode}");
+    Console.WriteLine(await response.Content.ReadAsStringAsync());
+    return;
 }
 
-static int GetColumnIndex(string? cellRef)
-{
-    // "A1" -> 0, "B1" -> 1, ..., "AA1" -> 26
-    if (string.IsNullOrEmpty(cellRef)) return 0;
-    int i = 0;
-    while (i < cellRef.Length && char.IsLetter(cellRef[i])) i++;
-    var letters = cellRef.Substring(0, i).ToUpperInvariant();
+var responseJson = await response.Content.ReadAsStringAsync();
 
-    int col = 0;
-    foreach (char c in letters)
+var llmResponse = JsonSerializer.Deserialize<LlmResponse>(responseJson);
+
+var result = llmResponse?.choices?[0]?.message?.content;
+
+Console.WriteLine("===== РЕКОМЕНДАЦИЯ =====");
+Console.WriteLine(result);
+
+// ================= HELPERS =================
+string FormatKeywords(IEnumerable<TopKeywordDto> keywords)
+{
+    return string.Join("\n", keywords.Select(k =>
+        $"- {k.Phrase}: расход={k.Spend}, выручка={k.Revenue}, ДРР={k.Drr}%"));
+}
+
+// ================= MODELS =================
+class CampaignAnalyticsDto
+{
+    public string Name { get; set; }
+    public double Spend { get; set; }
+    public double Revenue { get; set; }
+    public double Drr { get; set; }
+    public int Clicks { get; set; }
+    public double Ctr { get; set; }
+    public List<TopKeywordDto> TopKeywords { get; set; }
+    public List<TopKeywordDto> WorstKeywords { get; set; }
+}
+
+class TopKeywordDto
+{
+    public string Phrase { get; set; }
+    public double Spend { get; set; }
+    public double Revenue { get; set; }
+    public double Drr { get; set; }
+}
+
+class LlmResponse
+{
+    public List<Choice> choices { get; set; }
+
+    public class Choice
     {
-        col = col * 26 + (c - 'A' + 1);
+        public Message message { get; set; }
     }
 
-    return col - 1;
-}
-
-static string? Get(Dictionary<int, string?> row, int idx)
-{
-    return row.TryGetValue(idx, out var v) ? v : null;
-}
-
-static decimal ParseDecimal(string? s)
-{
-    if (string.IsNullOrWhiteSpace(s)) return 0m;
-    if (decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) return v;
-    if (decimal.TryParse(s, NumberStyles.Any, CultureInfo.CurrentCulture, out v)) return v;
-    return 0m;
-}
-
-static long ParseLong(string? s)
-{
-    if (string.IsNullOrWhiteSpace(s)) return 0L;
-    if (long.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) return v;
-    if (double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var d)) return (long)d;
-    return 0L;
-}
-
-static double ParseDouble(string? s)
-{
-    if (string.IsNullOrWhiteSpace(s)) return 0.0;
-    if (double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) return v;
-    if (double.TryParse(s, NumberStyles.Any, CultureInfo.CurrentCulture, out v)) return v;
-    return 0.0;
-}
-
-static void PrintTable(decimal spend, double drrPercent, long clicks, double ctrPercent)
-{
-    var headers = new[] { "Показатель", "Значение" };
-    var rows = new List<(string, string)>
+    public class Message
     {
-        ("Расход (₽)", spend.ToString("N2", CultureInfo.InvariantCulture)),
-        ("ДРР (%)", drrPercent.ToString("N2", CultureInfo.InvariantCulture)),
-        ("Клики", clicks.ToString("N0", CultureInfo.InvariantCulture)),
-        ("CTR (%)", ctrPercent.ToString("N2", CultureInfo.InvariantCulture))
-    };
-
-    int col1W = Math.Max(headers[0].Length, rows.Max(r => r.Item1.Length));
-    int col2W = Math.Max(headers[1].Length, rows.Max(r => r.Item2.Length));
-
-    string sep = new string('-', col1W + col2W + 5);
-    Console.WriteLine(sep);
-    Console.WriteLine($"| {headers[0].PadRight(col1W)} | {headers[1].PadRight(col2W)} |");
-    Console.WriteLine(sep);
-    foreach (var (k, v) in rows)
-    {
-        Console.WriteLine($"| {k.PadRight(col1W)} | {v.PadRight(col2W)} |");
+        public string content { get; set; }
     }
-
-    Console.WriteLine(sep);
 }

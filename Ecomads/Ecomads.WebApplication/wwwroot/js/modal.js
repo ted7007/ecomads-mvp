@@ -1,13 +1,14 @@
 // /js/modal.js
-export function createUploadModal() {
+export function createUploadModal(isKeywords = false, campaignId = null) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.id = 'upload-modal';
     
     modal.innerHTML = `
         <div class="modal">
-            <h2>Загрузка статистики</h2>
-            <p>Загрузите файл с общей статистикой из Wildberries, чтобы обновить данные.</p>
+            <h2>${isKeywords ? 'Загрузка ключевых слов' : 'Загрузка статистики'}</h2>
+            <p>Загрузите файл с ${isKeywords ? 'ключевыми словами' : 'общей статистикой'} из Wildberries.</p>
+            
             <div class="form-group">
                 <label>Период</label>
                 <div style="display: flex; gap: 10px;">
@@ -21,14 +22,14 @@ export function createUploadModal() {
             </div>
             <div class="modal-actions">
                 <button class="btn-cancel" onclick="document.getElementById('upload-modal').style.display='none'">Отмена</button>
-                <button class="btn-submit" onclick="handleFileUpload()">Загрузить</button>
+                <button class="btn-submit" onclick="handleFileUpload(${isKeywords}, '${campaignId || ''}')">Загрузить</button>
             </div>
         </div>
     `;
     document.body.appendChild(modal);
 }
 
-window.handleFileUpload = async () => {
+window.handleFileUpload = async (isKeywords, campaignId) => {
     const fileInput = document.getElementById('file-input');
     const start = document.getElementById('start-date').value;
     const end = document.getElementById('end-date').value;
@@ -42,15 +43,20 @@ window.handleFileUpload = async () => {
     formData.append('file', fileInput.files[0]);
     formData.append('startDate', start);
     formData.append('endDate', end);
+    
+    if (isKeywords && campaignId) {
+        formData.append('campaignId', campaignId);
+    }
 
     try {
-        const response = await fetch('/api/statistics/upload', {
+        const endpoint = isKeywords ? '/api/statistics/upload-keywords' : '/api/statistics/upload';
+        const response = await fetch(endpoint, {
             method: 'POST',
             body: formData
         });
 
         if (response.ok) {
-            alert('Статистика успешно загружена!');
+            alert('Данные успешно загружены!');
             document.getElementById('upload-modal').style.display = 'none';
             window.location.reload(); 
         } else {

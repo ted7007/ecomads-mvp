@@ -1,4 +1,3 @@
-using Ecomads.WebApplication.Data.Models.Metadata;
 
 namespace Ecomads.WebApplication.Data.Models;
 
