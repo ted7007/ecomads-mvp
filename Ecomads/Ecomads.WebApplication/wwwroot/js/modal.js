@@ -1,4 +1,36 @@
 // /js/modal.js
+
+export const fetchWithAuth = async (url, options = {}) => {
+    const token = localStorage.getItem('ecomads_token');
+    
+    // Создаем копию заголовков
+    const headers = { ...options.headers };
+    
+    // Добавляем заголовок авторизации
+    headers['Authorization'] = token ? `Bearer ${token}` : '';
+    
+    // Если тело запроса не FormData, устанавливаем Content-Type: application/json
+    if (!(options.body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json';
+    }
+    // Для FormData не устанавливаем Content-Type, чтобы браузер сам добавил boundary
+
+    const authOptions = {
+        ...options,
+        headers: headers
+    };
+
+    const response = await fetch(url, authOptions);
+
+    // Если сервер вернул 401 Unauthorized, токен недействителен
+    if (response.status === 401) {
+        localStorage.removeItem('ecomads_token');
+        window.location.href = '/index.html';
+        return null;
+    }
+
+    return response;
+};
 export function createUploadModal(isKeywords = false, campaignId = null) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
@@ -50,7 +82,7 @@ window.handleFileUpload = async (isKeywords, campaignId) => {
 
     try {
         const endpoint = isKeywords ? '/api/statistics/upload-keywords' : '/api/statistics/upload';
-        const response = await fetch(endpoint, {
+        const response = await fetchWithAuth(endpoint, {
             method: 'POST',
             body: formData
         });

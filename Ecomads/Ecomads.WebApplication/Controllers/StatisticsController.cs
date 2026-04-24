@@ -2,10 +2,12 @@ using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Models;
 using Ecomads.WebApplication.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Ecomads.WebApplication.Services;
 using System.Globalization;
+using System.Security.Claims;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 
@@ -23,25 +25,21 @@ public class StatisticsController : ControllerBase
         _context = context;
         _queue = queue;
     }
-
-    [HttpPost("enqueue-job")]
-    public IActionResult EnqueueJob([FromBody] StatisticsJob job)
-    {
-        _queue.Enqueue(job);
-        return Ok(new { message = "Job enqueued successfully" });
-    }
-
-    [HttpPost("trigger-processing/{campaignId}")]
-    public IActionResult TriggerProcessing(Guid campaignId, [FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
-    {
-        _queue.Enqueue(new StatisticsJob(campaignId, startDate, endDate));
-        return Ok("Task queued");
-    }
-
+    
     [HttpPost("upload")]
+    [Authorize]
     public async Task<IActionResult> UploadStatistics([FromForm] IFormFile file,
         [FromForm] DateTime startDate, [FromForm] DateTime endDate)
     {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
+        {
+            return Unauthorized(new { message = "Недействительный токен" });
+        }
+        
+        var store = _context.Stores.First(s => s.SellerId == sellerId);
+        
         if (file == null || file.Length == 0) return BadRequest("File is empty.");
 
         using var stream = new MemoryStream();
@@ -122,7 +120,8 @@ public class StatisticsController : ControllerBase
                 {
                     Id = Guid.NewGuid(),
                     Name = name,
-                    Number = number
+                    Number = number,
+                    StoreId = store.Id
                 };
 
                 _context.Compaigns.Add(campaign);
@@ -216,6 +215,10 @@ public class StatisticsController : ControllerBase
         if (file == null || file.Length == 0)
             return BadRequest("File is empty");
 
+        var campaign = await _context.Compaigns.FindAsync(campaignId);
+        if (campaign == null)
+            return BadRequest($"Campaign with ID {campaignId} does not exist.");
+
         using var stream = file.OpenReadStream();
         using var doc = SpreadsheetDocument.Open(stream, false);
 
@@ -302,6 +305,8 @@ public class StatisticsController : ControllerBase
             if (existingStat != null)
             {
                 // ✅ MERGE (перезапись)
+                existingStat.StartDate = DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
+                existingStat.EndDate = DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
                 existingStat.Frequency = freq ?? 0;
                 existingStat.Cpm = (decimal?)(cpm ?? 0);
                 existingStat.AvgPosition = (double?)(avgPos ?? 0);
@@ -341,7 +346,8 @@ public class StatisticsController : ControllerBase
             _context.KeywordStatistics.AddRange(statsToAdd);
         }
         await _context.SaveChangesAsync();
-
+        
+        _queue.Enqueue(new StatisticsJob(campaignId, startDate, endDate));
         return Ok();
     }
 

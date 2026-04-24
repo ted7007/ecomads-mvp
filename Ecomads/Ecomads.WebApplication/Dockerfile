@@ -17,6 +17,7 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 # Указываем порт
-EXPOSE 8000
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "Ecomads.WebApplication.dll"]

@@ -9,6 +9,154 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/feather-icons"></script>
     <link rel="stylesheet" href="/css/style.css">
+    <style>
+        /* Стили для рекомендаций */
+        .rec-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-card);
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 6px solid transparent;
+            box-shadow: var(--shadow);
+        }
+        .rec-card.rule-1 { border-left-color: var(--danger); }
+        .rec-card.rule-2 { border-left-color: var(--warning); }
+        .rec-card.rule-3 { border-left-color: var(--warning); }
+        .rec-card.rule-4 { border-left-color: var(--success); }
+        .rec-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .rec-title {
+            font-weight: 700;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-primary);
+        }
+        .rec-rule-badge {
+            background: #E2E8F0;
+            color: #0F172A;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 30px;
+        }
+        .rec-detail {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin: 16px 0;
+        }
+        .rec-item {
+            background: #F1F5F9;
+            border-radius: 12px;
+            padding: 12px;
+        }
+        .rec-item strong {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+        }
+        .rec-item p {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+        .rec-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 16px 0 12px;
+            flex-wrap: wrap;
+        }
+        .action-btn {
+            background: transparent;
+            border: 1.5px solid;
+            padding: 8px 18px;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: 0.15s ease;
+        }
+        .action-btn:hover {
+            opacity: 0.8;
+        }
+        .action-btn.accept { border-color: var(--success); color: var(--success); }
+        .action-btn.later { border-color: var(--warning); color: #B45309; }
+        .action-btn.dismiss { border-color: var(--neutral); color: var(--text-secondary); }
+        .action-btn.selected {
+            background-color: rgba(0,0,0,0.1);
+            font-weight: 700;
+        }
+        .rec-comment input {
+            width: 100%;
+            background: #F1F5F9;
+            border: 1px solid #E2E8F0;
+            border-radius: 40px;
+            padding: 10px 16px;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            color: var(--text-primary);
+            outline: none;
+        }
+        .mb-32 { margin-bottom: 32px; }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .section-title {
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        /* Индикатор загрузки */
+        .loader {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .btn-loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        
+        .btn-loading .loader {
+            display: inline-block;
+        }
+        
+        /* Адаптивный дизайн для рекомендаций */
+        @media (max-width: 768px) {
+            .rec-detail {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="app">
@@ -52,7 +200,7 @@
                 </div>
 
                 <!-- Статистика по ключевым словам -->
-                <div class="card">
+                <div class="card mb-32">
                     <h2 class="level-title">Статистика по ключевым словам</h2>
                     <div class="table-wrapper">
                         <table>
@@ -74,6 +222,22 @@
                         </table>
                     </div>
                 </div>
+                
+                <!-- Рекомендации -->
+                <div class="mb-32">
+                    <div class="section-header">
+                        <h2 class="section-title"><i data-feather="zap"></i> Рекомендации по кампании</h2>
+                        <button id="refresh-recommendations" class="refresh-btn">
+                            <span class="loader" style="display: none;"></span>
+                            <i data-feather="refresh-cw"></i> 
+                            Обновить рекомендации
+                        </button>
+                    </div>
+                    <div id="recommendations-container">
+                        <!-- Сюда JS вставит рекомендации -->
+                        <p>Загрузка рекомендаций...</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -81,15 +245,61 @@
         import { renderSidebar } from '/js/sidebar.js';
         import { createUploadModal } from '/js/modal.js';
         import { loadKeywordStats } from '/js/main.js';
+        import { loadRecommendations, generateRecommendation, renderRecommendations } from '/js/recommendations.js';
         
         renderSidebar('campaign');
         
         const params = new URLSearchParams(window.location.search);
         const id = params.get('id');
+        
         if (id) {
             document.getElementById('campaign-name').textContent = 'Кампания #' + id;
+            
+            // Загружаем статистику по ключевым словам
             loadKeywordStats(id);
+            
+            // Загружаем рекомендации
+            const recommendationsContainer = document.getElementById('recommendations-container');
+            loadRecommendationsData();
+            
+            // Обработчик кнопки обновления рекомендаций
+            const refreshButton = document.getElementById('refresh-recommendations');
+            refreshButton.addEventListener('click', async function() {
+                // Показываем индикатор загрузки
+                this.classList.add('btn-loading');
+                this.querySelector('.loader').style.display = 'inline-block';
+                
+                try {
+                    // Генерируем новую рекомендацию
+                    await generateRecommendation(id);
+                    
+                    // Перезагружаем список рекомендаций
+                    await loadRecommendationsData();
+                    
+                    alert('Рекомендация успешно сгенерирована!');
+                } catch (error) {
+                    console.error('Ошибка при обновлении рекомендаций:', error);
+                    alert('Ошибка при генерации рекомендации');
+                } finally {
+                    // Скрываем индикатор загрузки
+                    this.classList.remove('btn-loading');
+                    this.querySelector('.loader').style.display = 'none';
+                }
+            });
+            
+            async function loadRecommendationsData() {
+                recommendationsContainer.innerHTML = '<p>Загрузка рекомендаций...</p>';
+                
+                try {
+                    const recommendations = await loadRecommendations(id);
+                    renderRecommendations(recommendations, recommendationsContainer);
+                } catch (error) {
+                    console.error('Ошибка при загрузке рекомендаций:', error);
+                    recommendationsContainer.innerHTML = '<p>Ошибка при загрузке рекомендаций</p>';
+                }
+            }
         }
+        
         createUploadModal(true, id);
     </script>
     <script>

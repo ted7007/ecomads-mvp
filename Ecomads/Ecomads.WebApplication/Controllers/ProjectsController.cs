@@ -1,12 +1,15 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Ecomads.WebApplication.Controllers;
 
 [ApiController]
 [Route("api/projects")]
+[Authorize]
 public class ProjectsController : ControllerBase
 {
     private readonly EcomadsDbContext _context;
@@ -19,6 +22,13 @@ public class ProjectsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetProjects([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
     {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
+        {
+            return Unauthorized(new { message = "Недействительный токен" });
+        }
+        
         if (startDate is null)
             startDate = DateTime.MinValue;
         
