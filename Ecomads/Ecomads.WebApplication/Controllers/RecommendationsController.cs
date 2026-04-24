@@ -139,6 +139,98 @@ namespace Ecomads.WebApplication.Controllers
                 return StatusCode(500, $"Ошибка при обновлении статуса рекомендации: {ex.Message}");
             }
         }
+        
+        /// <summary>
+        /// Получить статистику по рекомендациям за указанный период
+        /// </summary>
+        /// <param name="period">Период для статистики: week, month, quarter, year</param>
+        /// <returns>Статистика по рекомендациям</returns>
+        [HttpGet("stats")]
+        public async Task<ActionResult<RecommendationStatsResponse>> GetRecommendationsStats([FromQuery] string period = "month")
+        {
+            try
+            {
+                // Определяем начальную дату в зависимости от периода
+                DateTime startDate = period.ToLower() switch
+                {
+                    "week" => DateTime.UtcNow.AddDays(-7),
+                    "month" => DateTime.UtcNow.AddDays(-30),
+                    "quarter" => DateTime.UtcNow.AddDays(-90),
+                    "year" => DateTime.UtcNow.AddDays(-365),
+                    _ => DateTime.UtcNow.AddDays(-30) // По умолчанию - месяц
+                };
+
+                // Получаем рекомендации за выбранный период
+                var recommendations = await _context.Recommendations
+                    .Where(r => r.CreatedAt >= startDate)
+                    .Include(r => r.Campaign)
+                    .OrderByDescending(r => r.CreatedAt)
+                    .ToListAsync();
+
+                // Подсчитываем статистику
+                var response = new RecommendationStatsResponse();
+
+                // Общие счетчики по статусам
+                response.Counts = new RecommendationCounts
+                {
+                    Accepted = recommendations.Count(r => r.Status == "принята"),
+                    Pending = recommendations.Count(r => r.Status == "новая"),
+                    Rejected = recommendations.Count(r => r.Status == "отклонена")
+                };
+
+                // Статистика по месяцам для графика
+                // Группируем данные по году и месяцу
+                var monthlyData = recommendations
+                    .GroupBy(r => new { Year = r.CreatedAt.Year, Month = r.CreatedAt.Month })
+                    .Select(g => new
+                    {
+                        YearMonth = g.Key,
+                        Recommendations = g.ToList()
+                    })
+                    .OrderBy(g => g.YearMonth.Year)
+                    .ThenBy(g => g.YearMonth.Month)
+                    .ToList();
+
+                // Конвертируем в модель для фронтенда
+                foreach (var monthGroup in monthlyData)
+                {
+                    var accepted = monthGroup.Recommendations.Count(r => r.Status == "принята");
+                    var pending = monthGroup.Recommendations.Count(r => r.Status == "новая");
+                    var rejected = monthGroup.Recommendations.Count(r => r.Status == "отклонена");
+
+                    response.Monthly.Add(new MonthlyStats
+                    {
+                        Month = new DateTime(monthGroup.YearMonth.Year, monthGroup.YearMonth.Month, 1)
+                            .ToString("MMM", System.Globalization.CultureInfo.GetCultureInfo("ru-RU")),
+                        Accepted = accepted,
+                        Pending = pending,
+                        Rejected = rejected,
+                        Total = accepted + pending + rejected
+                    });
+                }
+
+                // Список последних рекомендаций (ограничиваем 20)
+                response.Recommendations = recommendations
+                    .Take(20)
+                    .Select(r => new RecommendationDetail
+                    {
+                        Id = r.Id,
+                        Text = r.RecommendationText,
+                        Status = r.Status,
+                        Date = r.CreatedAt,
+                        Campaign = r.Campaign?.Name ?? "Неизвестная кампания",
+                        Comment = r.UserComment
+                    })
+                    .ToList();
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении статистики по рекомендациям");
+                return StatusCode(500, $"Ошибка при получении статистики: {ex.Message}");
+            }
+        }
     }
 
     public class GenerateRecommendationRequest
@@ -151,5 +243,38 @@ namespace Ecomads.WebApplication.Controllers
     {
         public string Status { get; set; }
         public string UserComment { get; set; }
+    }
+    
+    public class RecommendationStatsResponse
+    {
+        public RecommendationCounts Counts { get; set; } = new RecommendationCounts();
+        public List<MonthlyStats> Monthly { get; set; } = new List<MonthlyStats>();
+        public List<RecommendationDetail> Recommendations { get; set; } = new List<RecommendationDetail>();
+    }
+    
+    public class RecommendationCounts
+    {
+        public int Accepted { get; set; }
+        public int Pending { get; set; }
+        public int Rejected { get; set; }
+    }
+    
+    public class MonthlyStats
+    {
+        public string Month { get; set; }
+        public int Accepted { get; set; }
+        public int Pending { get; set; }
+        public int Rejected { get; set; }
+        public int Total { get; set; }
+    }
+    
+    public class RecommendationDetail
+    {
+        public Guid Id { get; set; }
+        public string Text { get; set; }
+        public string Status { get; set; }
+        public DateTime Date { get; set; }
+        public string Campaign { get; set; }
+        public string Comment { get; set; }
     }
 }
