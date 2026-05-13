@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -181,21 +181,25 @@
 
                 <!-- KPI -->
                 <div class="grid mb-32">
-                    <div class="kpi-card" style="grid-column: span 3;">
+                    <div class="kpi-card" style="grid-column: span 2;">
+                        <span class="text-label"><i data-feather="dollar-sign"></i> Заработано</span>
+                        <div class="kpi-number" id="campaign-kpi-earnings">0 ₽</div>
+                    </div>
+                    <div class="kpi-card" style="grid-column: span 2;">
                         <span class="text-label"><i data-feather="wallet"></i> Расход</span>
-                        <div class="kpi-number">45 200 ₽</div>
+                        <div class="kpi-number" id="campaign-kpi-spent">0 ₽</div>
                     </div>
-                    <div class="kpi-card" style="grid-column: span 3;">
+                    <div class="kpi-card" style="grid-column: span 2;">
                         <span class="text-label"><i data-feather="shopping-bag"></i> Заказы</span>
-                        <div class="kpi-number">312</div>
+                        <div class="kpi-number" id="campaign-kpi-orders">0</div>
                     </div>
-                    <div class="kpi-card" style="grid-column: span 3;">
+                    <div class="kpi-card" style="grid-column: span 2;">
                         <span class="text-label"><i data-feather="target"></i> ДРР</span>
-                        <div class="kpi-number">28.7%</div>
+                        <div class="kpi-number" id="campaign-kpi-drr">0%</div>
                     </div>
-                    <div class="kpi-card" style="grid-column: span 3;">
+                    <div class="kpi-card" style="grid-column: span 2;">
                         <span class="text-label"><i data-feather="trending-up"></i> CTR</span>
-                        <div class="kpi-number">3.2%</div>
+                        <div class="kpi-number" id="campaign-kpi-ctr">0%</div>
                     </div>
                 </div>
 
@@ -244,7 +248,7 @@
     <script type="module">
         import { renderSidebar } from '/js/sidebar.js';
         import { createUploadModal } from '/js/modal.js';
-        import { loadKeywordStats } from '/js/main.js';
+        import { loadKeywordStats, loadCampaignSummary } from '/js/main.js';
         import { loadRecommendations, generateRecommendation, renderRecommendations } from '/js/recommendations.js';
         
         renderSidebar('campaign');
@@ -253,7 +257,8 @@
         const id = params.get('id');
         
         if (id) {
-            document.getElementById('campaign-name').textContent = 'Кампания #' + id;
+            document.getElementById('campaign-name').textContent = `Кампания #${id}`;
+            loadCampaignSummary(id);
             
             // Загружаем статистику по ключевым словам
             loadKeywordStats(id);
@@ -299,6 +304,9 @@
                 }
             }
         }
+        else {
+            document.getElementById('campaign-name').textContent = 'Кампания не выбрана';
+        }
         
         createUploadModal(true, id);
     </script>
@@ -307,3 +315,6 @@
     </script>
 </body>
 </html>
+
+
+

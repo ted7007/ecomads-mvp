@@ -82,6 +82,9 @@ public class StatisticsController : ControllerBase
         int idxRevenue = headerIndexByName["Заказов на сумму, RUB"];
         int idxClicks = headerIndexByName["Клики"];
         int idxCtr = headerIndexByName["CTR(%)"];
+        var conversionTypeHeader = headerIndexByName.Keys
+            .FirstOrDefault(h => h.Contains("конверс", StringComparison.OrdinalIgnoreCase));
+        var conversionTypeIndex = conversionTypeHeader != null ? headerIndexByName[conversionTypeHeader] : (int?)null;
 
         var statsToAdd = new List<CompaignStatistics>();
 
@@ -100,6 +103,16 @@ public class StatisticsController : ControllerBase
 
             if (string.IsNullOrWhiteSpace(number))
                 continue;
+            
+            if (conversionTypeIndex.HasValue)
+            {
+                var conversionType = Get(row, conversionTypeIndex.Value);
+                if (!string.IsNullOrWhiteSpace(conversionType) &&
+                    conversionType.Contains("мультикарточка", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+            }
 
             var spend = ParseDecimal(Get(row, idxSpend));
             var revenue = ParseDecimal(Get(row, idxRevenue));
@@ -112,7 +125,7 @@ public class StatisticsController : ControllerBase
             var drr = revenue > 0 ? (double)(spend / revenue * 100) : 0;
 
             var campaign = await _context.Compaigns
-                .FirstOrDefaultAsync(c => c.Number == number);
+                .FirstOrDefaultAsync(c => c.Number == number && c.StoreId == store.Id);
 
             if (campaign == null)
             {
@@ -172,12 +185,80 @@ public class StatisticsController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("upload-with-keywords")]
+    [Authorize]
+    public async Task<IActionResult> UploadStatisticsWithKeywords(
+        [FromForm] IFormFile file,
+        [FromForm] IFormFile keywordsFile,
+        [FromForm] DateTime startDate,
+        [FromForm] DateTime endDate)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest("General statistics file is empty.");
+
+        if (keywordsFile == null || keywordsFile.Length == 0)
+            return BadRequest("Keywords file is empty.");
+
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
+            return Unauthorized(new { message = "Invalid token" });
+
+        var store = await _context.Stores
+            .FirstOrDefaultAsync(s => s.SellerId == sellerId);
+        if (store == null)
+            return BadRequest("Store not found for current user.");
+
+        var generalUploadResult = await UploadStatistics(file, startDate, endDate);
+        if (generalUploadResult is not OkResult)
+            return generalUploadResult;
+
+        var startDateUtc = DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
+        var endDateUtc = DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
+
+        var campaignIds = await _context.CompaignStatistics
+            .Where(s => s.StartDate == startDateUtc && s.EndDate == endDateUtc)
+            .Join(_context.Compaigns,
+                stat => stat.CompaignId,
+                campaign => campaign.Id,
+                (stat, campaign) => new { stat.CompaignId, campaign.StoreId })
+            .Where(x => x.StoreId == store.Id)
+            .Select(x => x.CompaignId)
+            .Distinct()
+            .ToListAsync();
+
+        if (campaignIds.Count != 1)
+        {
+            return BadRequest("По выбранному периоду найдено не одна номенклатура. Для автопривязки отчета по ключевым словам должна быть ровно одна.");
+        }
+
+        var campaignId = campaignIds[0];
+        var keywordsUploadResult = await UploadKeywordStats(keywordsFile, startDate, endDate, campaignId);
+        if (keywordsUploadResult is not OkResult)
+            return keywordsUploadResult;
+
+        return Ok();
+    }
+
     [HttpGet("keywords/{campaignId}")]
+    [Authorize]
     public async Task<IActionResult> GetKeywordStatistics(
         Guid campaignId,
         [FromQuery] DateTime? startDate,
         [FromQuery] DateTime? endDate)
     {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
+            return Unauthorized(new { message = "Invalid token" });
+
+        var store = await _context.Stores.FirstOrDefaultAsync(s => s.SellerId == sellerId);
+        if (store == null)
+            return Unauthorized(new { message = "Store not found for current user" });
+
+        var hasAccessToCampaign = await _context.Compaigns
+            .AnyAsync(c => c.Id == campaignId && c.StoreId == store.Id);
+        if (!hasAccessToCampaign)
+            return NotFound("Campaign not found for current user.");
+
         var query = _context.KeywordStatistics
             .Where(s => s.CompaignId == campaignId);
 
@@ -209,15 +290,25 @@ public class StatisticsController : ControllerBase
     }
 
     [HttpPost("upload-keywords")]
+    [Authorize]
     public async Task<IActionResult> UploadKeywordStats([FromForm] IFormFile file,
         [FromForm] DateTime startDate, [FromForm] DateTime endDate, [FromForm] Guid campaignId)
     {
         if (file == null || file.Length == 0)
             return BadRequest("File is empty");
 
-        var campaign = await _context.Compaigns.FindAsync(campaignId);
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
+            return Unauthorized(new { message = "Invalid token" });
+
+        var store = await _context.Stores.FirstOrDefaultAsync(s => s.SellerId == sellerId);
+        if (store == null)
+            return Unauthorized(new { message = "Store not found for current user" });
+
+        var campaign = await _context.Compaigns
+            .FirstOrDefaultAsync(c => c.Id == campaignId && c.StoreId == store.Id);
         if (campaign == null)
-            return BadRequest($"Campaign with ID {campaignId} does not exist.");
+            return BadRequest($"Campaign with ID {campaignId} does not exist for current user.");
 
         using var stream = file.OpenReadStream();
         using var doc = SpreadsheetDocument.Open(stream, false);
