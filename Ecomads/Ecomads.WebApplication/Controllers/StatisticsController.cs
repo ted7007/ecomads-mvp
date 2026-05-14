@@ -289,6 +289,32 @@ public class StatisticsController : ControllerBase
         return Ok(stats);
     }
 
+    [HttpGet("periods")]
+    [Authorize]
+    public async Task<IActionResult> GetLoadedPeriods()
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
+            return Unauthorized(new { message = "Invalid token" });
+
+        var store = await _context.Stores.FirstOrDefaultAsync(s => s.SellerId == sellerId);
+        if (store == null)
+            return Unauthorized(new { message = "Store not found for current user" });
+
+        var periods = await _context.CompaignStatistics
+            .Join(_context.Compaigns,
+                stat => stat.CompaignId,
+                campaign => campaign.Id,
+                (stat, campaign) => new { stat.StartDate, stat.EndDate, campaign.StoreId })
+            .Where(x => x.StoreId == store.Id)
+            .Select(x => new { x.StartDate, x.EndDate })
+            .Distinct()
+            .OrderByDescending(x => x.StartDate)
+            .ToListAsync();
+
+        return Ok(periods);
+    }
+
     [HttpPost("upload-keywords")]
     [Authorize]
     public async Task<IActionResult> UploadKeywordStats([FromForm] IFormFile file,

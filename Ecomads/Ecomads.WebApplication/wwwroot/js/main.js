@@ -1,6 +1,5 @@
 ﻿// /js/main.js
-import { getDashboardData, getCampaignsData } from './api.js';
-import { fetchWithAuth } from './modal.js';
+import * as api from './api.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (typeof feather !== 'undefined') {
@@ -8,19 +7,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (document.getElementById('dashboard-content')) {
-        try {
-            const [dashboardData, campaignsData] = await Promise.all([
-                getDashboardData(),
-                getCampaignsData()
-            ]);
-            updateDashboardUI(dashboardData, campaignsData);
-        } catch (error) {
-            console.error('Ошибка загрузки данных:', error);
-        }
+        await setupDashboardPeriodControls();
+        await loadDashboardData();
     }
 });
 
-function updateDashboardUI(_data, campaigns) {
+let dashboardFilter = { startDate: '', endDate: '' };
+
+async function setupDashboardPeriodControls() {
+    const periodSelect = document.getElementById('dashboard-period-select');
+    const startInput = document.getElementById('dashboard-start-date');
+    const endInput = document.getElementById('dashboard-end-date');
+    const applyBtn = document.getElementById('dashboard-apply-period');
+
+    if (!periodSelect || !startInput || !endInput || !applyBtn) {
+        return;
+    }
+
+    const periods = api.getLoadedPeriods ? await api.getLoadedPeriods() : [];
+    for (const p of periods) {
+        const start = formatDateForInput(p.startDate);
+        const end = formatDateForInput(p.endDate);
+        const option = document.createElement('option');
+        option.value = `${start}|${end}`;
+        option.textContent = `${start} - ${end}`;
+        periodSelect.appendChild(option);
+    }
+
+    periodSelect.addEventListener('change', () => {
+        if (!periodSelect.value) {
+            startInput.value = '';
+            endInput.value = '';
+            return;
+        }
+
+        const [start, end] = periodSelect.value.split('|');
+        startInput.value = start;
+        endInput.value = end;
+    });
+
+    applyBtn.addEventListener('click', async () => {
+        dashboardFilter = {
+            startDate: startInput.value,
+            endDate: endInput.value
+        };
+        await loadDashboardData();
+    });
+}
+
+async function loadDashboardData() {
+    try {
+        const campaignsData = await api.getCampaignsData(dashboardFilter);
+        updateDashboardUI(campaignsData);
+    } catch (error) {
+        console.error('Ошибка загрузки данных:', error);
+    }
+}
+
+function updateDashboardUI(campaigns) {
     const totals = campaigns.reduce((acc, item) => {
         acc.spend += item.kpi.spend || 0;
         acc.revenue += item.kpi.revenue || 0;
@@ -70,10 +114,23 @@ function updateDashboardUI(_data, campaigns) {
     }
 }
 
-export async function loadKeywordStats(campaignId) {
+export async function loadKeywordStats(campaignId, filters = {}) {
     try {
-        const response = await fetchWithAuth(`/api/statistics/keywords/${campaignId}`);
+        const query = new URLSearchParams();
+        if (filters.startDate) query.set('startDate', filters.startDate);
+        if (filters.endDate) query.set('endDate', filters.endDate);
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        const endpoint = `/api/statistics/keywords/${campaignId}${suffix}`;
+
+        const response = await api.fetchWithAuth(endpoint);
         if (!response || !response.ok) throw new Error('Ошибка загрузки ключей');
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const raw = await response.text();
+            throw new Error(`Ожидался JSON, получен ${contentType || 'unknown'}: ${raw.slice(0, 120)}`);
+        }
+
         const data = await response.json();
 
         const body = document.getElementById('keywords-body');
@@ -96,9 +153,9 @@ export async function loadKeywordStats(campaignId) {
     }
 }
 
-export async function loadCampaignSummary(campaignId) {
+export async function loadCampaignSummary(campaignId, filters = {}) {
     try {
-        const campaigns = await getCampaignsData();
+        const campaigns = await api.getCampaignsData(filters);
         const normalizedCampaignId = String(campaignId).toLowerCase();
         const campaign = campaigns.find(x => String(x.id).toLowerCase() === normalizedCampaignId);
         if (!campaign) {
@@ -120,4 +177,64 @@ export async function loadCampaignSummary(campaignId) {
     } catch (error) {
         console.error('Ошибка загрузки KPI кампании:', error);
     }
+}
+
+export async function setupCampaignPeriodControls(campaignId) {
+    const periodSelect = document.getElementById('campaign-period-select');
+    const startInput = document.getElementById('campaign-start-date');
+    const endInput = document.getElementById('campaign-end-date');
+    const applyBtn = document.getElementById('campaign-apply-period');
+
+    if (!periodSelect || !startInput || !endInput || !applyBtn) {
+        await loadCampaignSummary(campaignId);
+        await loadKeywordStats(campaignId);
+        return;
+    }
+
+    const periods = api.getLoadedPeriods ? await api.getLoadedPeriods() : [];
+    for (const p of periods) {
+        const start = formatDateForInput(p.startDate);
+        const end = formatDateForInput(p.endDate);
+        const option = document.createElement('option');
+        option.value = `${start}|${end}`;
+        option.textContent = `${start} - ${end}`;
+        periodSelect.appendChild(option);
+    }
+
+    const applyFilters = async () => {
+        const filters = {
+            startDate: startInput.value,
+            endDate: endInput.value
+        };
+
+        await loadCampaignSummary(campaignId, filters);
+        await loadKeywordStats(campaignId, filters);
+    };
+
+    periodSelect.addEventListener('change', () => {
+        if (!periodSelect.value) {
+            startInput.value = '';
+            endInput.value = '';
+            return;
+        }
+
+        const [start, end] = periodSelect.value.split('|');
+        startInput.value = start;
+        endInput.value = end;
+    });
+
+    applyBtn.addEventListener('click', applyFilters);
+    await applyFilters();
+}
+
+function formatDateForInput(dateValue) {
+    if (!dateValue) {
+        return '';
+    }
+
+    const d = new Date(dateValue);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 }

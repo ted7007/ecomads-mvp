@@ -178,6 +178,25 @@
                         <i data-feather="refresh-cw"></i> <span class="btn-text">Загрузить новую статистику</span>
                     </button>
                 </div>
+                <div class="mobile-action-container" style="display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: end;">
+                    <div>
+                        <label class="text-label" for="campaign-period-select" style="color:#E2E8F0;">Загруженный период</label>
+                        <select id="campaign-period-select" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
+                            <option value="">Все периоды</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-label" for="campaign-start-date" style="color:#E2E8F0;">С даты</label>
+                        <input type="date" id="campaign-start-date" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
+                    </div>
+                    <div>
+                        <label class="text-label" for="campaign-end-date" style="color:#E2E8F0;">По дату</label>
+                        <input type="date" id="campaign-end-date" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
+                    </div>
+                    <button class="refresh-btn" id="campaign-apply-period">
+                        Применить период
+                    </button>
+                </div>
 
                 <!-- KPI -->
                 <div class="grid mb-32">
@@ -248,7 +267,7 @@
     <script type="module">
         import { renderSidebar } from '/js/sidebar.js';
         import { createUploadModal } from '/js/modal.js';
-        import { loadKeywordStats, loadCampaignSummary } from '/js/main.js';
+        import { setupCampaignPeriodControls } from '/js/main.js';
         import { loadRecommendations, generateRecommendation, renderRecommendations } from '/js/recommendations.js';
         
         renderSidebar('campaign');
@@ -258,10 +277,7 @@
         
         if (id) {
             document.getElementById('campaign-name').textContent = `Кампания #${id}`;
-            loadCampaignSummary(id);
-            
-            // Загружаем статистику по ключевым словам
-            loadKeywordStats(id);
+            await setupCampaignPeriodControls(id);
             
             // Загружаем рекомендации
             const recommendationsContainer = document.getElementById('recommendations-container');
