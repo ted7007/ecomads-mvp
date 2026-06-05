@@ -46,9 +46,8 @@ package-lock.json
 /format-report.json
 
 .DS_Store
-Focus.Api/Focus.Api.Houston/Properties/launchSettings.json
-Focus.Api/Focus.Api.Cabinet/.assets/*
-Focus.Web/Focus.Web.Partners/Properties/launchSettings.json
-PatentIndex/Properties/launchSettings.json
-PayStats/Properties/launchSettings.json
-ScoringApi/Properties/launchSettings.json
+Ecomads/nginx
+serts
+deploy-script.sh
+deploy.tar
+mvp-test-23.04.26.rar
