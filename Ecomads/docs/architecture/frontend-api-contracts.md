@@ -76,7 +76,7 @@ Expected response:
     "kpi": {
       "spend": 1000,
       "revenue": 5000,
-      "earnings": 4000,
+      "orderedAmount": 5000,
       "drr": 20,
       "clicks": 100,
       "ctr": 3.5
@@ -255,4 +255,3 @@ Every endpoint used by React should have:
 - TypeScript type.
 - Zod schema for response validation.
 - A small adapter if backend names/statuses differ from UI names.
-

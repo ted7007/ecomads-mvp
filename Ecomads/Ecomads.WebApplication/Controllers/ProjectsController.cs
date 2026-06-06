@@ -51,7 +51,7 @@ public class ProjectsController : ControllerBase
                     .Select(g => new ProjectKpiDto(
                         g.Sum(x => x.Spend),
                         g.Sum(x => x.Revenue),
-                        g.Sum(x => x.Revenue) - g.Sum(x => x.Spend),
+                        g.Sum(x => x.Revenue),
                         g.Sum(x => x.Revenue) > 0 ? (g.Sum(x => x.Spend) / g.Sum(x => x.Revenue)) * 100 : 0,
                         (int)g.Sum(x => x.Clicks),
                         g.Sum(x => x.Clicks) > 0
