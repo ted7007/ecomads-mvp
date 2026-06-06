@@ -149,11 +149,66 @@
         .btn-loading .loader {
             display: inline-block;
         }
+
+        .keyword-dashboard-card {
+            display: flex;
+            flex-direction: column;
+            max-height: min(620px, calc(100vh - 280px));
+            overflow: hidden;
+        }
+
+        .keyword-dashboard-card .level-title {
+            flex: 0 0 auto;
+            margin-bottom: 16px;
+        }
+
+        .keyword-dashboard-scroll {
+            flex: 1 1 auto;
+            min-height: 260px;
+            overflow: auto;
+        }
+
+        .keyword-dashboard-scroll table {
+            min-width: 980px;
+        }
+
+        .keyword-dashboard-scroll thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: var(--card-bg);
+        }
+
+        .keyword-dashboard-scroll th.keyword-sortable {
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .keyword-dashboard-scroll th.keyword-sortable::after {
+            content: " ↕";
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .keyword-dashboard-scroll th.keyword-sortable[data-sort-dir="asc"]::after {
+            content: " ↑";
+            color: var(--text-primary);
+        }
+
+        .keyword-dashboard-scroll th.keyword-sortable[data-sort-dir="desc"]::after {
+            content: " ↓";
+            color: var(--text-primary);
+        }
         
         /* Адаптивный дизайн для рекомендаций */
         @media (max-width: 768px) {
             .rec-detail {
                 grid-template-columns: 1fr;
+            }
+
+            .keyword-dashboard-card {
+                max-height: calc(100vh - 180px);
             }
         }
     </style>
@@ -223,20 +278,20 @@
                 </div>
 
                 <!-- Статистика по ключевым словам -->
-                <div class="card mb-32">
+                <div class="card mb-32 keyword-dashboard-card">
                     <h2 class="level-title">Статистика по ключевым словам</h2>
-                    <div class="table-wrapper">
+                    <div class="table-wrapper keyword-dashboard-scroll">
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Фраза</th>
-                                    <th>Показы</th>
-                                    <th>Клики</th>
-                                    <th>CTR</th>
-                                    <th>Затраты</th>
-                                    <th>Заказы</th>
-                                    <th>Выручка</th>
-                                    <th>ДРР</th>
+                                    <th class="keyword-sortable" data-sort="phrase">Фраза</th>
+                                    <th class="keyword-sortable" data-sort="impressions">Показы</th>
+                                    <th class="keyword-sortable" data-sort="clicks">Клики</th>
+                                    <th class="keyword-sortable" data-sort="ctr">CTR</th>
+                                    <th class="keyword-sortable" data-sort="spend">Затраты</th>
+                                    <th class="keyword-sortable" data-sort="orders">Заказы</th>
+                                    <th class="keyword-sortable" data-sort="revenue">Выручка</th>
+                                    <th class="keyword-sortable" data-sort="drr">ДРР</th>
                                 </tr>
                             </thead>
                             <tbody id="keywords-body">

@@ -13,6 +13,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 let dashboardFilter = { startDate: '', endDate: '' };
+let keywordRows = [];
+let keywordSort = { field: '', direction: 'asc' };
 
 async function setupDashboardPeriodControls() {
     const periodSelect = document.getElementById('dashboard-period-select');
@@ -131,25 +133,76 @@ export async function loadKeywordStats(campaignId, filters = {}) {
             throw new Error(`Ожидался JSON, получен ${contentType || 'unknown'}: ${raw.slice(0, 120)}`);
         }
 
-        const data = await response.json();
-
-        const body = document.getElementById('keywords-body');
-        if (body) {
-            body.innerHTML = data.map(item => `
-                <tr>
-                    <td>${item.phrase}</td>
-                    <td>${item.impressions}</td>
-                    <td>${item.clicks}</td>
-                    <td>${item.ctr.toFixed(2)}%</td>
-                    <td>${item.spend.toLocaleString()} ₽</td>
-                    <td>${item.orders}</td>
-                    <td>${item.revenue.toLocaleString()} ₽</td>
-                    <td class="${item.drr > 20 ? 'drr-red' : 'drr-green'}">${item.drr.toFixed(1)}%</td>
-                </tr>
-            `).join('');
-        }
+        keywordRows = await response.json();
+        renderKeywordRows();
     } catch (error) {
         console.error('Ошибка загрузки ключевых слов:', error);
+    }
+}
+
+function renderKeywordRows() {
+    const body = document.getElementById('keywords-body');
+    if (!body) {
+        return;
+    }
+
+    const rows = getSortedKeywordRows();
+    body.innerHTML = rows.map(item => `
+        <tr>
+            <td>${item.phrase}</td>
+            <td>${item.impressions}</td>
+            <td>${item.clicks}</td>
+            <td>${item.ctr.toFixed(2)}%</td>
+            <td>${item.spend.toLocaleString()} ₽</td>
+            <td>${item.orders}</td>
+            <td>${item.revenue.toLocaleString()} ₽</td>
+            <td class="${item.drr > 20 ? 'drr-red' : 'drr-green'}">${item.drr.toFixed(1)}%</td>
+        </tr>
+    `).join('');
+}
+
+function getSortedKeywordRows() {
+    if (!keywordSort.field) {
+        return keywordRows;
+    }
+
+    const direction = keywordSort.direction === 'asc' ? 1 : -1;
+    return [...keywordRows].sort((a, b) => {
+        const left = a[keywordSort.field];
+        const right = b[keywordSort.field];
+
+        if (typeof left === 'string' || typeof right === 'string') {
+            return String(left ?? '').localeCompare(String(right ?? ''), 'ru') * direction;
+        }
+
+        return ((Number(left) || 0) - (Number(right) || 0)) * direction;
+    });
+}
+
+function setupKeywordSortHandlers() {
+    const headers = document.querySelectorAll('.keyword-sortable[data-sort]');
+    if (!headers.length) {
+        return;
+    }
+
+    for (const header of headers) {
+        if (header.dataset.sortReady === 'true') {
+            continue;
+        }
+
+        header.dataset.sortReady = 'true';
+        header.addEventListener('click', () => {
+            const field = header.dataset.sort;
+            const nextDirection = keywordSort.field === field && keywordSort.direction === 'asc' ? 'desc' : 'asc';
+            keywordSort = { field, direction: nextDirection };
+
+            for (const h of headers) {
+                h.removeAttribute('data-sort-dir');
+            }
+
+            header.setAttribute('data-sort-dir', nextDirection);
+            renderKeywordRows();
+        });
     }
 }
 
@@ -180,6 +233,8 @@ export async function loadCampaignSummary(campaignId, filters = {}) {
 }
 
 export async function setupCampaignPeriodControls(campaignId) {
+    setupKeywordSortHandlers();
+
     const periodSelect = document.getElementById('campaign-period-select');
     const startInput = document.getElementById('campaign-start-date');
     const endInput = document.getElementById('campaign-end-date');
