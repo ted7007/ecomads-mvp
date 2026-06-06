@@ -70,10 +70,10 @@ function updateDashboardUI(campaigns) {
     const totals = campaigns.reduce((acc, item) => {
         acc.spend += item.kpi.spend || 0;
         acc.revenue += item.kpi.revenue || 0;
-        acc.earnings += item.kpi.earnings || 0;
+        acc.orderedAmount += item.kpi.orderedAmount || 0;
         acc.clicks += item.kpi.clicks || 0;
         return acc;
-    }, { spend: 0, revenue: 0, earnings: 0, clicks: 0 });
+    }, { spend: 0, revenue: 0, orderedAmount: 0, clicks: 0 });
 
     const avgDrr = totals.revenue > 0 ? (totals.spend / totals.revenue) * 100 : 0;
     const weightedCtr = totals.clicks > 0
@@ -81,7 +81,7 @@ function updateDashboardUI(campaigns) {
         : 0;
 
     const elements = {
-        'kpi-earnings': `${Math.round(totals.earnings).toLocaleString()} ₽`,
+        'kpi-ordered-amount': `${Math.round(totals.orderedAmount).toLocaleString()} ₽`,
         'kpi-spent': `${Math.round(totals.spend).toLocaleString()} ₽`,
         'kpi-orders': totals.clicks.toLocaleString(),
         'kpi-drr': `${avgDrr.toFixed(1)}%`,
@@ -222,7 +222,7 @@ export async function loadCampaignSummary(campaignId, filters = {}) {
 
         const kpi = campaign.kpi;
         setText('campaign-name', campaign.name);
-        setText('campaign-kpi-earnings', `${Math.round(kpi.earnings).toLocaleString()} ₽`);
+        setText('campaign-kpi-ordered-amount', `${Math.round(kpi.orderedAmount || 0).toLocaleString()} ₽`);
         setText('campaign-kpi-spent', `${Math.round(kpi.spend).toLocaleString()} ₽`);
         setText('campaign-kpi-orders', `${(kpi.clicks || 0).toLocaleString()}`);
         setText('campaign-kpi-drr', `${(kpi.drr || 0).toFixed(1)}%`);
