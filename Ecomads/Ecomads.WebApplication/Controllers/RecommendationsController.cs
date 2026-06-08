@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
+using Ecomads.WebApplication.Models.Recommendations;
 using Ecomads.WebApplication.Services;
+using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.Extensions.Logging;
 
 namespace Ecomads.WebApplication.Controllers
@@ -17,16 +19,147 @@ namespace Ecomads.WebApplication.Controllers
     {
         private readonly EcomadsDbContext _context;
         private readonly IRecommendationService _recommendationService;
+        private readonly IKeywordRecommendationOverlayService _keywordRecommendationOverlayService;
+        private readonly IInsightDecisionService _insightDecisionService;
         private readonly ILogger<RecommendationsController> _logger;
 
         public RecommendationsController(
             EcomadsDbContext context, 
             IRecommendationService recommendationService,
+            IKeywordRecommendationOverlayService keywordRecommendationOverlayService,
+            IInsightDecisionService insightDecisionService,
             ILogger<RecommendationsController> logger)
         {
             _context = context;
             _recommendationService = recommendationService;
+            _keywordRecommendationOverlayService = keywordRecommendationOverlayService;
+            _insightDecisionService = insightDecisionService;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Получить таблицу ключевых слов с рекомендациями и деталями инсайтов.
+        /// </summary>
+        [HttpGet("campaign/{campaignId}/keyword-overlay")]
+        public async Task<IActionResult> GetKeywordRecommendationOverlay(
+            Guid campaignId,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var overlay = await _keywordRecommendationOverlayService.GetOverlayAsync(
+                    campaignId,
+                    startDate,
+                    endDate,
+                    cancellationToken);
+
+                if (overlay == null)
+                {
+                    return NotFound($"Кампания с ID {campaignId} не найдена");
+                }
+
+                return Ok(overlay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении recommendation overlay для кампании {CampaignId}", campaignId);
+                return StatusCode(500, $"Ошибка при получении recommendation overlay: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Принять insight рекомендации.
+        /// </summary>
+        [HttpPost("insights/{insightId}/accept")]
+        public Task<IActionResult> AcceptInsight(string insightId, CancellationToken cancellationToken)
+        {
+            return UpdateInsightDecision(insightId, InsightDecisionStatus.Accepted, cancellationToken);
+        }
+
+        /// <summary>
+        /// Отложить insight рекомендации.
+        /// </summary>
+        [HttpPost("insights/{insightId}/postpone")]
+        public Task<IActionResult> PostponeInsight(string insightId, CancellationToken cancellationToken)
+        {
+            return UpdateInsightDecision(insightId, InsightDecisionStatus.Postponed, cancellationToken);
+        }
+
+        /// <summary>
+        /// Отклонить insight рекомендации.
+        /// </summary>
+        [HttpPost("insights/{insightId}/reject")]
+        public Task<IActionResult> RejectInsight(string insightId, CancellationToken cancellationToken)
+        {
+            return UpdateInsightDecision(insightId, InsightDecisionStatus.Rejected, cancellationToken);
+        }
+
+        /// <summary>
+        /// Обновить комментарий пользователя по insight.
+        /// </summary>
+        [HttpPut("insights/{insightId}/comment")]
+        public async Task<IActionResult> UpdateInsightComment(
+            string insightId,
+            [FromBody] UpdateInsightCommentRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(insightId))
+            {
+                return BadRequest("Необходимо указать insightId");
+            }
+
+            try
+            {
+                var result = await _insightDecisionService.UpdateCommentAsync(
+                    insightId,
+                    request?.UserComment,
+                    cancellationToken);
+
+                if (result == null)
+                {
+                    return NotFound($"Insight с ID {insightId} не найден");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при обновлении комментария insight {InsightId}", insightId);
+                return StatusCode(500, $"Ошибка при обновлении комментария insight: {ex.Message}");
+            }
+        }
+
+        private async Task<IActionResult> UpdateInsightDecision(
+            string insightId,
+            InsightDecisionStatus decisionStatus,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(insightId))
+            {
+                return BadRequest("Необходимо указать insightId");
+            }
+
+            try
+            {
+                var result = await _insightDecisionService.UpdateDecisionAsync(
+                    insightId,
+                    decisionStatus,
+                    cancellationToken);
+
+                if (result == null)
+                {
+                    return NotFound($"Insight с ID {insightId} не найден");
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при обновлении решения по insight {InsightId}", insightId);
+                return StatusCode(500, $"Ошибка при обновлении решения по insight: {ex.Message}");
+            }
         }
 
         /// <summary>

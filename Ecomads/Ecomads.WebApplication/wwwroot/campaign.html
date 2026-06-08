@@ -169,7 +169,7 @@
         }
 
         .keyword-dashboard-scroll table {
-            min-width: 980px;
+            min-width: 1220px;
         }
 
         .keyword-dashboard-scroll thead th {
@@ -279,12 +279,19 @@
 
                 <!-- Статистика по ключевым словам -->
                 <div class="card mb-32 keyword-dashboard-card">
-                    <h2 class="level-title">Статистика по ключевым словам</h2>
+                    <div class="keyword-overlay-header">
+                        <h2 class="level-title">Статистика по ключевым словам</h2>
+                        <span id="keyword-overlay-mode" class="keyword-overlay-mode">Статистика</span>
+                    </div>
+                    <div id="keyword-overlay-summary" class="keyword-overlay-summary" hidden></div>
+                    <div id="keyword-status-filters" class="keyword-status-filters" hidden></div>
                     <div class="table-wrapper keyword-dashboard-scroll">
                         <table>
                             <thead>
                                 <tr>
                                     <th class="keyword-sortable" data-sort="phrase">Фраза</th>
+                                    <th class="keyword-sortable" data-sort="status">Статус</th>
+                                    <th class="keyword-sortable" data-sort="shortRecommendation">Рекомендация</th>
                                     <th class="keyword-sortable" data-sort="impressions">Показы</th>
                                     <th class="keyword-sortable" data-sort="clicks">Клики</th>
                                     <th class="keyword-sortable" data-sort="ctr">CTR</th>
@@ -300,6 +307,7 @@
                         </table>
                     </div>
                 </div>
+                <aside id="keyword-insight-panel" class="keyword-insight-panel" aria-live="polite" hidden></aside>
                 
                 <!-- Рекомендации -->
                 <div class="mb-32">
@@ -351,6 +359,9 @@
                     
                     // Перезагружаем список рекомендаций
                     await loadRecommendationsData();
+                    if (typeof window.reloadKeywordRecommendationOverlay === 'function') {
+                        await window.reloadKeywordRecommendationOverlay();
+                    }
                     
                     alert('Рекомендация успешно сгенерирована!');
                 } catch (error) {

@@ -4,11 +4,15 @@ using System.Text;
 using Ecomads.WebApplication.Auth;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Services;
+using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<RecommendationEngineOptions>(
+    builder.Configuration.GetSection("RecommendationEngine"));
 
 // Настройки JWT
 var jwtSettingsSection = builder.Configuration.GetSection("JwtSettings");
@@ -73,6 +77,16 @@ builder.Services.AddHttpClient("OpenAIClient", client =>
 });
 
 builder.Services.AddSingleton<IStatisticsQueue, StatisticsQueue>();
+builder.Services.AddSingleton<IRecommendationGoalMapper, RecommendationGoalMapper>();
+builder.Services.AddSingleton<IRecommendationMetricCalculationService, MetricCalculationService>();
+builder.Services.AddSingleton<IInsightGenerationService, InsightGenerationService>();
+builder.Services.AddSingleton<IRecommendationPolicyService, RecommendationPolicyService>();
+builder.Services.AddSingleton<IPriorityScoringService, PriorityScoringService>();
+builder.Services.AddSingleton<IInsightSelectionService, InsightSelectionService>();
+builder.Services.AddSingleton<IRecommendationPromptBuilder, RecommendationPromptBuilder>();
+builder.Services.AddScoped<ILlmRecommendationTextService, LlmRecommendationTextService>();
+builder.Services.AddScoped<IKeywordRecommendationOverlayService, KeywordRecommendationOverlayService>();
+builder.Services.AddScoped<IInsightDecisionService, InsightDecisionService>();
 // Изменяем регистрацию RecommendationService на Scoped
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddHostedService<StatisticsBackgroundService>();

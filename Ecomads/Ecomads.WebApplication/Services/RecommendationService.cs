@@ -1,16 +1,12 @@
-using System;
-using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
+using System.Text.Json.Serialization;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
-using Ecomads.WebApplication.Models;
-using System.Collections.Generic;
+using Ecomads.WebApplication.Models.Recommendations;
+using Ecomads.WebApplication.Services.Recommendations;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Ecomads.WebApplication.Services;
 
@@ -21,168 +17,108 @@ public interface IRecommendationService
 
 public class RecommendationService : IRecommendationService
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly EcomadsDbContext _dbContext;
+    private readonly IRecommendationGoalMapper _goalMapper;
+    private readonly IRecommendationMetricCalculationService _metricCalculationService;
+    private readonly IInsightGenerationService _insightGenerationService;
+    private readonly IRecommendationPolicyService _policyService;
+    private readonly IPriorityScoringService _priorityScoringService;
+    private readonly IInsightSelectionService _insightSelectionService;
+    private readonly IRecommendationPromptBuilder _promptBuilder;
+    private readonly ILlmRecommendationTextService _llmRecommendationTextService;
+    private readonly RecommendationEngineOptions _options;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<RecommendationService> _logger;
-    private readonly string _apiKey;
-    private readonly string _baseUrl;
-    private readonly string _model;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     public RecommendationService(
-        IServiceProvider serviceProvider,
+        EcomadsDbContext dbContext,
+        IRecommendationGoalMapper goalMapper,
+        IRecommendationMetricCalculationService metricCalculationService,
+        IInsightGenerationService insightGenerationService,
+        IRecommendationPolicyService policyService,
+        IPriorityScoringService priorityScoringService,
+        IInsightSelectionService insightSelectionService,
+        IRecommendationPromptBuilder promptBuilder,
+        ILlmRecommendationTextService llmRecommendationTextService,
+        IOptions<RecommendationEngineOptions> options,
         IConfiguration configuration,
         ILogger<RecommendationService> logger)
     {
-        _serviceProvider = serviceProvider;
+        _dbContext = dbContext;
+        _goalMapper = goalMapper;
+        _metricCalculationService = metricCalculationService;
+        _insightGenerationService = insightGenerationService;
+        _policyService = policyService;
+        _priorityScoringService = priorityScoringService;
+        _insightSelectionService = insightSelectionService;
+        _promptBuilder = promptBuilder;
+        _llmRecommendationTextService = llmRecommendationTextService;
+        _options = options.Value;
+        _configuration = configuration;
         _logger = logger;
-        
-        _apiKey = configuration["OpenAI:ApiKey"] ?? throw new ArgumentNullException("OpenAI:ApiKey is missing");
-        _baseUrl = configuration["OpenAI:BaseUrl"] ?? throw new ArgumentNullException("OpenAI:BaseUrl is missing");
-        _model = configuration["OpenAI:Model"] ?? throw new ArgumentNullException("OpenAI:Model is missing");
     }
 
     public async Task<Recommendation?> GenerateRecommendationAsync(Guid campaignId, string goal)
     {
-        // Создаем scoped контекст для работы с базой данных
-        using var scope = _serviceProvider.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
-        
-        // 1. Получение данных из БД (как в консольном приложении)
-        var campaign = await dbContext.Compaigns.FindAsync(campaignId);
-        if (campaign == null) return null;
-
-        var stats = await dbContext.CompaignStatistics
-            .FirstOrDefaultAsync(s => s.CompaignId == campaignId && s.Type == (CompaignStatisticsType)0);
-
-        var topKeywords = await dbContext.KeywordStatistics
-            .Where(k => k.CompaignId == campaignId)
-            .OrderByDescending(k => k.Revenue)
-            .Take(5)
-            .ToListAsync();
-
-        var worstKeywords = await dbContext.KeywordStatistics
-            .Where(k => k.CompaignId == campaignId && k.Orders == 0 && k.Spend > 0)
-            .OrderByDescending(k => k.Spend)
-            .Take(5)
-            .ToListAsync();
-
-        var dto = new CampaignAnalyticsDto
+        var campaign = await _dbContext.Compaigns.FindAsync(campaignId);
+        if (campaign == null)
         {
-            Name = campaign.Name,
-            Spend = Convert.ToDouble(stats?.Spend ?? 0),
-            Revenue = Convert.ToDouble(stats?.Revenue ?? 0),
-            Drr = stats?.Drr ?? 0,
-            Clicks = Convert.ToInt32(stats?.Clicks ?? 0),
-            Ctr = stats?.Ctr ?? 0,
-            TopKeywords = topKeywords.Select(k => new TopKeywordDto 
-            { 
-                Phrase = k.Phrase, 
-                Spend = Convert.ToDouble(k.Spend ?? 0), 
-                Revenue = Convert.ToDouble(k.Revenue ?? 0), 
-                Drr = k.Drr ?? 0 
-            }).ToList(),
-            WorstKeywords = worstKeywords.Select(k => new TopKeywordDto 
-            { 
-                Phrase = k.Phrase, 
-                Spend = Convert.ToDouble(k.Spend ?? 0), 
-                Revenue = Convert.ToDouble(k.Revenue ?? 0), 
-                Drr = k.Drr ?? 0 
-            }).ToList()
-        };
-
-        // 2. Формирование промпта
-        var prompt = $@"
-Ты эксперт по рекламе на Wildberries с практическим опытом оптимизации рекламных кампаний.
-
-Проанализируй рекламную кампанию и предложи ОДНУ самую важную рекомендацию для достижения цели: {goal}
-
-Данные по кампании:
-- Расход: {dto.Spend}
-- Выручка: {dto.Revenue}
-- ДРР: {dto.Drr}%
-- Клики: {dto.Clicks}
-- CTR: {dto.Ctr}%
-
-Лучшие ключевые слова (по выручке):
-{FormatKeywords(dto.TopKeywords)}
-
-Худшие ключевые слова (высокий расход без заказов):
-{FormatKeywords(dto.WorstKeywords)}
-
-Контекст:
-- DRR > 30% считается плохим
-- Если много кликов и нет заказов — проблема в нерелевантных ключах
-- Низкий CTR (< 2%) — проблема в карточке товара или креативах
-
-Задача:
-Определи ГЛАВНУЮ проблему кампании и предложи ОДНО конкретное действие, которое даст максимальный эффект.
-
-Формат ответа:
-1. Проблема: [описание]
-2. Рекомендация: [описание]
-3. Ожидаемый эффект: [описание]
-
-Ограничения:
-- Не давай общие советы
-- Не перечисляй несколько действий
-- Будь максимально конкретным
-";
-
-        // 3. Запрос к LLM - используем HttpClientFactory для создания клиента
-        var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-        var httpClient = httpClientFactory.CreateClient("OpenAIClient");
-        
-        // Устанавливаем заголовок авторизации
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
-        
-        var requestBody = new
-        {
-            model = _model,
-            messages = new[]
-            {
-                new { role = "system", content = "Ты эксперт по рекламе Wildberries." },
-                new { role = "user", content = prompt }
-            },
-            temperature = 0.7
-        };
-
-        var json = JsonSerializer.Serialize(requestBody);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-        _logger.LogInformation("Отправка запроса к LLM для кампании {CampaignId} с целью {Goal}", campaignId, goal);
-        var response = await httpClient.PostAsync(_baseUrl, content);
-        
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogError("Ошибка при запросе к LLM: {StatusCode} - {ReasonPhrase}", 
-                (int)response.StatusCode, response.ReasonPhrase);
             return null;
         }
 
-        var responseJson = await response.Content.ReadAsStringAsync();
-        var llmResponse = JsonSerializer.Deserialize<LlmResponse>(responseJson);
-        var resultText = llmResponse?.choices?.FirstOrDefault()?.message?.content;
-        
-        // Логирование ответа для отладки
-        _logger.LogInformation("Получен ответ LLM длиной {Length} символов", resultText?.Length ?? 0);
-        _logger.LogDebug("===== РЕКОМЕНДАЦИЯ =====\n{Result}", resultText);
+        var statistics = await _dbContext.CompaignStatistics
+            .Where(stat => stat.CompaignId == campaignId && stat.Type == CompaignStatisticsType.General)
+            .OrderByDescending(stat => stat.EndDate)
+            .ThenByDescending(stat => stat.StartDate)
+            .FirstOrDefaultAsync();
 
-        if (string.IsNullOrWhiteSpace(resultText)) return null;
+        var keywordStatistics = await LoadKeywordStatisticsAsync(campaignId, statistics);
+        var keywordMetrics = keywordStatistics
+            .Select(_metricCalculationService.CalculateKeywordMetrics)
+            .ToList();
 
-        // Парсинг ответа (простая попытка разбить по строкам 1. 2. 3.)
-        var lines = resultText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        string? problem = null, recText = null, effect = null;
-        
-        foreach (var line in lines)
+        var campaignMetrics = statistics != null
+            ? _metricCalculationService.CalculateCampaignMetrics(statistics, keywordMetrics)
+            : null;
+
+        var goalType = _goalMapper.Map(goal);
+        var context = new RecommendationGenerationContext
         {
-            if (line.StartsWith("1. Проблема:") || line.StartsWith("1. Проблема")) 
-                problem = line.Substring(line.IndexOf(':') + 1).Trim();
-            else if (line.StartsWith("2. Рекомендация:") || line.StartsWith("2. Рекомендация")) 
-                recText = line.Substring(line.IndexOf(':') + 1).Trim();
-            else if (line.StartsWith("3. Ожидаемый эффект:") || line.StartsWith("3. Ожидаемый эффект")) 
-                effect = line.Substring(line.IndexOf(':') + 1).Trim();
-        }
+            CampaignId = campaign.Id,
+            CampaignName = campaign.Name,
+            OriginalGoal = goal,
+            Goal = goalType,
+            TargetDrr = _options.TargetDrr,
+            CampaignMetrics = campaignMetrics,
+            KeywordMetrics = keywordMetrics
+        };
 
-        // 4. Сохранение в БД
+        var rawInsights = _insightGenerationService.GenerateInsights(context);
+        var policyInsights = _policyService.ApplyPolicies(context, rawInsights);
+        var scoredInsights = _priorityScoringService.ScoreInsights(context, policyInsights);
+        var selectedInsights = _insightSelectionService.SelectForLlm(scoredInsights);
+
+        var prompt = _promptBuilder.BuildPrompt(context, selectedInsights);
+        var llmResult = await _llmRecommendationTextService.GenerateTextAsync(prompt);
+        var finalText = llmResult.GeneratedWithoutLlm
+            ? BuildTechnicalFallbackText(context, selectedInsights, llmResult.Error)
+            : llmResult.Text;
+
+        var additionalData = new RecommendationAdditionalData
+        {
+            GoalType = goalType,
+            TargetDrr = _options.TargetDrr,
+            Insights = scoredInsights.ToList(),
+            SelectedInsights = selectedInsights.ToList(),
+            GeneratedWithoutLlm = llmResult.GeneratedWithoutLlm
+        };
+
         var recommendation = new Recommendation
         {
             Id = Guid.NewGuid(),
@@ -190,35 +126,152 @@ public class RecommendationService : IRecommendationService
             CreatedAt = DateTime.UtcNow,
             Goal = goal,
             Prompt = prompt,
-            FullResponse = resultText ?? string.Empty,
-            Problem = problem ?? string.Empty,
-            RecommendationText = recText ?? string.Empty,
-            ExpectedEffect = effect ?? string.Empty,
+            FullResponse = finalText,
+            Problem = ExtractSection(finalText, "1.") ?? GetFirstNonEmptyLine(finalText),
+            RecommendationText = finalText,
+            ExpectedEffect = ExtractSection(finalText, "5.") ?? string.Empty,
             Status = "новая",
-            // Сохраняем метаданные запроса (модель, температура и т.д.)
-            RequestMetadata = JsonSerializer.Serialize(new { 
-                model = _model, 
-                temperature = 0.7,
-                timestamp = DateTime.UtcNow 
-            }),
-            // Добавляем пустой JSON объект для additional_data
-            AdditionalData = JsonSerializer.Serialize(new {}),
-            // Убедимся, что UserComment тоже не NULL
+            RequestMetadata = JsonSerializer.Serialize(new
+            {
+                model = _configuration["OpenAI:Model"],
+                temperature = 0.3,
+                timestamp = DateTime.UtcNow,
+                recommendationEngineVersion = additionalData.MetricsVersion,
+                generatedWithoutLlm = llmResult.GeneratedWithoutLlm,
+                llmError = llmResult.Error
+            }, JsonOptions),
+            AdditionalData = JsonSerializer.Serialize(additionalData, JsonOptions),
             UserComment = string.Empty
         };
 
-        dbContext.Recommendations.Add(recommendation);
-        await dbContext.SaveChangesAsync();
-        
-        _logger.LogInformation("Рекомендация сохранена в БД: {RecommendationId} для кампании {CampaignId}", 
-            recommendation.Id, campaignId);
+        _dbContext.Recommendations.Add(recommendation);
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Рекомендация сохранена в БД: {RecommendationId} для кампании {CampaignId}. Insights: {InsightsCount}, Selected: {SelectedCount}, WithoutLlm: {WithoutLlm}",
+            recommendation.Id,
+            campaignId,
+            scoredInsights.Count,
+            selectedInsights.Count,
+            llmResult.GeneratedWithoutLlm);
 
         return recommendation;
     }
 
-    private string FormatKeywords(IEnumerable<TopKeywordDto> keywords)
+    private async Task<List<KeywordStatistics>> LoadKeywordStatisticsAsync(
+        Guid campaignId,
+        CompaignStatistics? statistics)
     {
-        return string.Join("\n", keywords.Select(k =>
-            $"- {k.Phrase}: расход={k.Spend}, выручка={k.Revenue}, ДРР={k.Drr}%"));
+        var query = _dbContext.KeywordStatistics
+            .Where(keyword => keyword.CompaignId == campaignId);
+
+        if (statistics != null)
+        {
+            var periodKeywords = await query
+                .Where(keyword => keyword.StartDate == statistics.StartDate && keyword.EndDate == statistics.EndDate)
+                .ToListAsync();
+
+            if (periodKeywords.Count > 0)
+            {
+                return periodKeywords;
+            }
+        }
+
+        return await query.ToListAsync();
+    }
+
+    private static string BuildTechnicalFallbackText(
+        RecommendationGenerationContext context,
+        IReadOnlyCollection<RecommendationInsight> selectedInsights,
+        string? llmError)
+    {
+        var lines = new List<string>
+        {
+            "1. Краткий вывод",
+            selectedInsights.Count == 0
+                ? "Backend не нашел достаточно приоритетных инсайтов для уверенной рекомендации."
+                : $"Backend нашел {selectedInsights.Count} приоритетных инсайтов для цели {context.Goal}.",
+            string.Empty,
+            "2. Что сделать в первую очередь"
+        };
+
+        AppendInsightsByType(
+            lines,
+            selectedInsights.Where(insight => insight.PriorityLevel >= PriorityLevel.High),
+            "Нет критичных или высокоприоритетных действий.");
+
+        lines.Add(string.Empty);
+        lines.Add("3. Что масштабировать");
+        AppendInsightsByType(
+            lines,
+            selectedInsights.Where(insight => insight.Type == InsightType.ScaleCandidate),
+            "Нет подтвержденных кандидатов на масштабирование.");
+
+        lines.Add(string.Empty);
+        lines.Add("4. Что оставить под наблюдением");
+        AppendInsightsByType(
+            lines,
+            selectedInsights.Where(insight => insight.Type is InsightType.WatchCandidate or InsightType.LowData),
+            "Нет отдельных запросов для наблюдения.");
+
+        lines.Add(string.Empty);
+        lines.Add("5. Риски");
+        lines.Add("Текст сформирован техническим fallback, потому что LLM недоступна или вернула пустой ответ.");
+
+        if (!string.IsNullOrWhiteSpace(llmError))
+        {
+            lines.Add($"LLM error: {llmError}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static void AppendInsightsByType(
+        List<string> lines,
+        IEnumerable<RecommendationInsight> insights,
+        string emptyText)
+    {
+        var materialized = insights.ToList();
+        if (materialized.Count == 0)
+        {
+            lines.Add(emptyText);
+            return;
+        }
+
+        foreach (var insight in materialized)
+        {
+            var allowedActions = insight.AllowedActions.Count == 0
+                ? "нет"
+                : string.Join(", ", insight.AllowedActions);
+            var forbiddenActions = insight.ForbiddenActions.Count == 0
+                ? "нет"
+                : string.Join(", ", insight.ForbiddenActions);
+
+            lines.Add(
+                $"- {insight.EntityName}: {insight.Type}, приоритет {insight.PriorityLevel} ({insight.PriorityScore}). Разрешено: {allowedActions}. Запрещено: {forbiddenActions}.");
+        }
+    }
+
+    private static string? ExtractSection(string text, string sectionPrefix)
+    {
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var line = lines.FirstOrDefault(value => value.StartsWith(sectionPrefix, StringComparison.OrdinalIgnoreCase));
+
+        if (line == null)
+        {
+            return null;
+        }
+
+        var separatorIndex = line.IndexOf(':');
+        return separatorIndex >= 0 && separatorIndex < line.Length - 1
+            ? line[(separatorIndex + 1)..].Trim()
+            : line;
+    }
+
+    private static string GetFirstNonEmptyLine(string text)
+    {
+        return text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? string.Empty;
     }
 }
