@@ -82,6 +82,7 @@ public sealed class PriorityScoringService : IPriorityScoringService
             RecommendationGoal.ReduceDrr => insightType switch
             {
                 InsightType.BadSpendWithoutOrders => 1.5,
+                InsightType.SemanticIrrelevant => 1.3,
                 InsightType.BadDrr => 1.4,
                 InsightType.CampaignEfficiencyProblem => 1.4,
                 InsightType.WatchCandidate => 0.9,
@@ -97,6 +98,7 @@ public sealed class PriorityScoringService : IPriorityScoringService
                 InsightType.GoodKeyword => 1.3,
                 InsightType.StockRisk => 1.1,
                 InsightType.BadSpendWithoutOrders => 1.0,
+                InsightType.SemanticIrrelevant => 0.8,
                 InsightType.BadDrr => 0.9,
                 InsightType.LowData => 0.5,
                 _ => 1.0
@@ -109,6 +111,7 @@ public sealed class PriorityScoringService : IPriorityScoringService
                 InsightType.GoodKeyword => 1.3,
                 InsightType.PositionGrowthCandidate => 1.2,
                 InsightType.BadSpendWithoutOrders => 1.0,
+                InsightType.SemanticIrrelevant => 0.8,
                 InsightType.BadDrr => 0.8,
                 InsightType.WatchCandidate => 0.8,
                 InsightType.LowData => 0.5,
@@ -121,6 +124,7 @@ public sealed class PriorityScoringService : IPriorityScoringService
                 InsightType.PositionGrowthCandidate => 1.3,
                 InsightType.CampaignGrowthOpportunity => 1.3,
                 InsightType.BadSpendWithoutOrders => 0.9,
+                InsightType.SemanticIrrelevant => 0.8,
                 InsightType.BadDrr => 0.9,
                 InsightType.StockRisk => 1.0,
                 _ => 1.0
@@ -132,6 +136,7 @@ public sealed class PriorityScoringService : IPriorityScoringService
                 InsightType.ScaleCandidate => 1.2,
                 InsightType.BadDrr => 0.9,
                 InsightType.BadSpendWithoutOrders => 0.8,
+                InsightType.SemanticIrrelevant => 0.8,
                 InsightType.StockRisk => 0.8,
                 _ => 1.0
             },
@@ -144,6 +149,11 @@ public sealed class PriorityScoringService : IPriorityScoringService
         if (insight.Type is InsightType.BadSpendWithoutOrders or InsightType.BadDrr)
         {
             return GetBadSpendImpactScore(GetMetric(insight, "spend") ?? 0m);
+        }
+
+        if (insight.Type == InsightType.SemanticIrrelevant)
+        {
+            return 0.7;
         }
 
         if (insight.Type == InsightType.ScaleCandidate)
@@ -247,10 +257,26 @@ public sealed class PriorityScoringService : IPriorityScoringService
         };
     }
 
-    private static PriorityLevel ApplyPriorityLevelOverrides(
+    private PriorityLevel ApplyPriorityLevelOverrides(
         RecommendationInsight insight,
         PriorityLevel priorityLevel)
     {
+        if (insight.Type == InsightType.BadSpendWithoutOrders
+            && (GetMetric(insight, "spend") ?? 0m) >= _options.MinSpendForConclusion * 2m
+            && (GetMetric(insight, "clicks") ?? 0m) >= _options.MinClicksForConclusion
+            && priorityLevel < PriorityLevel.High)
+        {
+            return PriorityLevel.High;
+        }
+
+        if (insight.Type == InsightType.BadSpendWithoutOrders
+            && (GetMetric(insight, "spend") ?? 0m) >= _options.MinSpendForConclusion
+            && (GetMetric(insight, "clicks") ?? 0m) >= _options.MinClicksForConclusion
+            && priorityLevel < PriorityLevel.Medium)
+        {
+            return PriorityLevel.Medium;
+        }
+
         if (insight.Type == InsightType.BadSpendWithoutOrders
             && (GetMetric(insight, "spend") ?? 0m) >= 3000m
             && insight.ConfidenceLevel == ConfidenceLevel.High

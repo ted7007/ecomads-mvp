@@ -255,17 +255,26 @@ function getSortedKeywordRows() {
 
 function normalizeOverlayRows(rows) {
     return rows.map(row => ({
+        ...(() => {
+            const impressions = row.views ?? row.impressions ?? 0;
+            const clicks = row.clicks ?? 0;
+            const spend = toNumber(row.spend);
+            const revenue = toNumber(row.revenue);
+
+            return {
+                impressions,
+                clicks,
+                spend,
+                revenue,
+                ctr: calculateCtr(clicks, impressions, row.ctr),
+                drr: calculateDrr(spend, revenue, row.drr)
+            };
+        })(),
         keywordId: row.keywordId || '',
         phrase: row.phrase || '',
         status: normalizeStatus(row.status),
         shortRecommendation: row.shortRecommendation || '',
-        impressions: row.views ?? row.impressions ?? 0,
-        clicks: row.clicks ?? 0,
-        ctr: toNumber(row.ctr),
-        spend: toNumber(row.spend),
         orders: row.orders ?? 0,
-        revenue: toNumber(row.revenue),
-        drr: row.drr === null || row.drr === undefined ? null : toNumber(row.drr),
         priorityScore: toNumber(row.priorityScore),
         priorityLevel: normalizePriority(row.priorityLevel),
         confidenceLevel: normalizeConfidence(row.confidenceLevel),
@@ -278,17 +287,26 @@ function normalizeOverlayRows(rows) {
 
 function normalizeLegacyKeywordRows(rows) {
     return rows.map(row => ({
+        ...(() => {
+            const impressions = row.impressions ?? row.views ?? 0;
+            const clicks = row.clicks ?? 0;
+            const spend = toNumber(row.spend);
+            const revenue = toNumber(row.revenue);
+
+            return {
+                impressions,
+                clicks,
+                spend,
+                revenue,
+                ctr: calculateCtr(clicks, impressions, row.ctr),
+                drr: calculateDrr(spend, revenue, row.drr)
+            };
+        })(),
         keywordId: row.id || row.keywordId || '',
         phrase: row.phrase || '',
         status: 'Neutral',
         shortRecommendation: '',
-        impressions: row.impressions ?? row.views ?? 0,
-        clicks: row.clicks ?? 0,
-        ctr: toNumber(row.ctr),
-        spend: toNumber(row.spend),
         orders: row.orders ?? 0,
-        revenue: toNumber(row.revenue),
-        drr: row.drr === null || row.drr === undefined ? null : toNumber(row.drr),
         priorityScore: 0,
         priorityLevel: 'Low',
         confidenceLevel: 'Low',
@@ -573,9 +591,26 @@ function renderStatusBadge(status, decisionStatus = 'None') {
 }
 
 function renderMetricCards(metrics) {
-    const entries = Object.entries(metrics)
-        .filter(([, value]) => value !== null && value !== undefined)
-        .slice(0, 8);
+    const metricOrder = ['views', 'impressions', 'clicks', 'spend', 'orders', 'revenue', 'ctr', 'cr', 'cpc', 'drr'];
+    const entries = [];
+    const usedKeys = new Set();
+
+    for (const key of metricOrder) {
+        if (key === 'views' && metrics.views === undefined && metrics.impressions !== undefined) {
+            continue;
+        }
+
+        if (metrics[key] !== undefined) {
+            entries.push([key, metrics[key]]);
+            usedKeys.add(key);
+        }
+    }
+
+    for (const [key, value] of Object.entries(metrics)) {
+        if (!usedKeys.has(key) && entries.length < 10) {
+            entries.push([key, value]);
+        }
+    }
 
     if (!entries.length) {
         return '<div class="keyword-metric-card"><span>Метрики</span><strong>-</strong></div>';
@@ -638,8 +673,53 @@ function getDrrClass(value) {
     return Number(value) > 20 ? 'drr-red' : 'drr-green';
 }
 
+function calculateCtr(clicks, impressions, fallbackCtr = null) {
+    const normalizedClicks = toNumber(clicks);
+    const normalizedImpressions = toNumber(impressions);
+
+    if (normalizedImpressions > 0) {
+        return normalizedClicks / normalizedImpressions * 100;
+    }
+
+    if (fallbackCtr === null || fallbackCtr === undefined) {
+        return null;
+    }
+
+    return normalizePercentValue(fallbackCtr);
+}
+
+function calculateDrr(spend, revenue, fallbackDrr = null) {
+    const normalizedSpend = toNumber(spend);
+    const normalizedRevenue = toNumber(revenue);
+
+    if (normalizedRevenue <= 0) {
+        return null;
+    }
+
+    if (normalizedSpend >= 0) {
+        return normalizedSpend / normalizedRevenue * 100;
+    }
+
+    return fallbackDrr === null || fallbackDrr === undefined
+        ? null
+        : normalizePercentValue(fallbackDrr);
+}
+
+function normalizePercentValue(value) {
+    const number = toNumber(value);
+    return number > 0 && number <= 1 ? number * 100 : number;
+}
+
 function formatCurrency(value) {
     return `${Math.round(toNumber(value)).toLocaleString('ru-RU')} ₽`;
+}
+
+function formatMoney(value, digits = 0) {
+    const number = toNumber(value);
+    return `${number.toLocaleString('ru-RU', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+    })} ₽`;
 }
 
 function formatInteger(value) {
@@ -648,7 +728,7 @@ function formatInteger(value) {
 
 function formatPercent(value, digits) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return '-';
+        return '—';
     }
 
     return `${toNumber(value).toFixed(digits)}%`;
@@ -656,27 +736,49 @@ function formatPercent(value, digits) {
 
 function formatMetricName(key) {
     const names = {
+        cr: 'CR',
+        cpc: 'CPC',
+        ctr: 'CTR',
         spend: 'Расход',
         revenue: 'Выручка',
         orders: 'Заказы',
-        drr: 'ДРР',
-        ctr: 'CTR',
-        clicks: 'Клики',
+        views: 'Показы',
         impressions: 'Показы',
+        drr: 'ДРР',
+        clicks: 'Клики',
         confidenceScore: 'Уверенность',
-        wastedSpend: 'Потери'
+        wastedSpend: 'Потери',
+        cpo: 'CPO',
+        averageOrderValue: 'Средний чек',
+        avgDailyOrders: 'Заказов в день'
     };
 
     return names[key] || key;
 }
 
 function formatMetricValue(key, value) {
-    const number = toNumber(value);
-    if (['spend', 'revenue', 'wastedSpend'].includes(key)) {
-        return formatCurrency(number);
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '—';
     }
 
-    if (['drr', 'ctr'].includes(key)) {
+    const number = toNumber(value);
+    if (['spend', 'revenue', 'wastedSpend'].includes(key)) {
+        return formatMoney(number, 0);
+    }
+
+    if (['cpc', 'cpo', 'averageOrderValue'].includes(key)) {
+        return formatMoney(number, 2);
+    }
+
+    if (key === 'ctr') {
+        return formatPercent(number, 2);
+    }
+
+    if (key === 'cr') {
+        return number === 0 ? '0%' : formatPercent(number, 1);
+    }
+
+    if (key === 'drr') {
         return formatPercent(number, 1);
     }
 

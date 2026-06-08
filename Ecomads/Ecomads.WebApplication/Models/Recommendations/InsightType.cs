@@ -8,6 +8,7 @@ public enum InsightType
     WatchCandidate,
     LowData,
     IrrelevantButConverting,
+    SemanticIrrelevant,
     StockRisk,
     SeasonRisk,
     PositionGrowthCandidate,

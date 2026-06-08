@@ -73,6 +73,19 @@ public sealed class RecommendationPolicyService : IRecommendationPolicyService
                 forbiddenActions.AddRange([RecommendationAction.IncreaseBid, RecommendationAction.Scale]);
                 break;
 
+            case InsightType.SemanticIrrelevant:
+                allowedActions.AddRange([
+                    RecommendationAction.ConsiderMinusKeyword,
+                    RecommendationAction.MinusKeyword,
+                    RecommendationAction.MoveToWatchlist
+                ]);
+                forbiddenActions.AddRange([
+                    RecommendationAction.IncreaseBid,
+                    RecommendationAction.Scale,
+                    RecommendationAction.AggressiveScale
+                ]);
+                break;
+
             case InsightType.BadDrr:
                 allowedActions.AddRange([
                     RecommendationAction.DecreaseBid,

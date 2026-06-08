@@ -4,6 +4,7 @@ using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Models.Recommendations;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Ecomads.WebApplication.Services.Recommendations;
 
@@ -19,6 +20,7 @@ public interface IKeywordRecommendationOverlayService
 public sealed class KeywordRecommendationOverlayService : IKeywordRecommendationOverlayService
 {
     private readonly EcomadsDbContext _dbContext;
+    private readonly RecommendationEngineOptions _options;
     private readonly ILogger<KeywordRecommendationOverlayService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -29,9 +31,11 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
     public KeywordRecommendationOverlayService(
         EcomadsDbContext dbContext,
+        IOptions<RecommendationEngineOptions> options,
         ILogger<KeywordRecommendationOverlayService> logger)
     {
         _dbContext = dbContext;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -68,9 +72,9 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
                 group => group.Key,
                 group => group.Select(item => item.Insight).ToList());
 
-        var insightDetails = BuildInsightDetails(keywordStats, keywordInsights, decisions);
+        var insightDetails = BuildInsightDetails(keywordStats, keywordInsights, decisions, _options);
         var rows = keywordStats
-            .Select(keyword => BuildKeywordRow(keyword, keywordInsights.GetValueOrDefault(keyword.Id), decisions))
+            .Select(keyword => BuildKeywordRow(keyword, keywordInsights.GetValueOrDefault(keyword.Id), decisions, _options))
             .OrderByDescending(row => row.HasInsight)
             .ThenByDescending(row => row.PriorityScore)
             .ThenByDescending(row => row.Spend ?? 0m)
@@ -183,7 +187,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     private static KeywordRecommendationRowDto BuildKeywordRow(
         KeywordStatistics keyword,
         IReadOnlyCollection<RecommendationInsight>? insights,
-        IReadOnlyDictionary<string, InsightDecisionRecord> decisions)
+        IReadOnlyDictionary<string, InsightDecisionRecord> decisions,
+        RecommendationEngineOptions options)
     {
         var mainInsight = GetMainInsight(insights);
         var status = mainInsight != null
@@ -202,14 +207,18 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             Phrase = keyword.Phrase,
             Views = keyword.Impressions,
             Clicks = keyword.Clicks,
-            Ctr = ToDecimal(keyword.Ctr),
+            Ctr = GetDisplayCtr(keyword),
             Spend = keyword.Spend,
             Orders = keyword.Orders,
             Revenue = keyword.Revenue,
             Drr = GetDisplayDrr(keyword),
             Status = status,
             PriorityScore = mainInsight?.PriorityScore ?? 0,
-            PriorityLevel = mainInsight?.PriorityLevel ?? PriorityLevel.Low,
+            PriorityLevel = GetDisplayPriorityLevel(
+                mainInsight,
+                keyword.Spend ?? 0m,
+                keyword.Clicks ?? 0,
+                options),
             ConfidenceLevel = mainInsight?.ConfidenceLevel ?? ConfidenceLevel.Low,
             ShortRecommendation = mainInsight != null
                 ? GetShortRecommendation(recommendedAction, status)
@@ -224,7 +233,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     private static List<KeywordRecommendationInsightDetailDto> BuildInsightDetails(
         IReadOnlyCollection<KeywordStatistics> keywordStats,
         IReadOnlyDictionary<Guid, List<RecommendationInsight>> keywordInsights,
-        IReadOnlyDictionary<string, InsightDecisionRecord> decisions)
+        IReadOnlyDictionary<string, InsightDecisionRecord> decisions,
+        RecommendationEngineOptions options)
     {
         var keywordById = keywordStats.ToDictionary(keyword => keyword.Id);
         var details = new List<KeywordRecommendationInsightDetailDto>();
@@ -249,7 +259,11 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
                     Phrase = keyword.Phrase,
                     Status = status,
                     PriorityScore = insight.PriorityScore,
-                    PriorityLevel = insight.PriorityLevel,
+                    PriorityLevel = GetDisplayPriorityLevel(
+                        insight,
+                        keyword.Spend ?? 0m,
+                        keyword.Clicks ?? 0,
+                        options),
                     ConfidenceLevel = insight.ConfidenceLevel,
                     Metrics = new Dictionary<string, decimal?>(insight.Metrics),
                     ReasonCodes = insight.ReasonCodes.ToList(),
@@ -284,6 +298,38 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             .FirstOrDefault();
     }
 
+    private static PriorityLevel GetDisplayPriorityLevel(
+        RecommendationInsight? insight,
+        decimal spend,
+        int clicks,
+        RecommendationEngineOptions options)
+    {
+        if (insight == null)
+        {
+            return PriorityLevel.Low;
+        }
+
+        if (insight.Type != InsightType.BadSpendWithoutOrders
+            || clicks < options.MinClicksForConclusion)
+        {
+            return insight.PriorityLevel;
+        }
+
+        if (spend >= options.MinSpendForConclusion * 2m
+            && insight.PriorityLevel < PriorityLevel.High)
+        {
+            return PriorityLevel.High;
+        }
+
+        if (spend >= options.MinSpendForConclusion
+            && insight.PriorityLevel < PriorityLevel.Medium)
+        {
+            return PriorityLevel.Medium;
+        }
+
+        return insight.PriorityLevel;
+    }
+
     private static Guid? TryGetKeywordId(RecommendationInsight insight)
     {
         var parts = insight.Id.Split(':', StringSplitOptions.RemoveEmptyEntries);
@@ -315,7 +361,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
                 Spend = spend,
                 Orders = orders,
                 Drr = revenue > 0m ? spend / revenue * 100m : null,
-                Ctr = ToDecimal(campaignStats.Ctr)
+                Ctr = GetAggregateCtr(keywordStats) ?? NormalizeImportedPercent(campaignStats.Ctr)
             };
         }
 
@@ -330,7 +376,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             Spend = keywordSpend,
             Orders = orders,
             Drr = keywordRevenue > 0m ? keywordSpend / keywordRevenue * 100m : null,
-            Ctr = impressions > 0 ? (decimal)clicks / impressions * 100m : null
+            Ctr = GetAggregateCtr(keywordStats)
         };
     }
 
@@ -424,6 +470,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             InsightType.WatchCandidate => KeywordRecommendationStatus.Watch,
             InsightType.LowData => KeywordRecommendationStatus.LowData,
             InsightType.IrrelevantButConverting => KeywordRecommendationStatus.Watch,
+            InsightType.SemanticIrrelevant => KeywordRecommendationStatus.ToRemove,
             InsightType.PositionGrowthCandidate => KeywordRecommendationStatus.Effective,
             _ => KeywordRecommendationStatus.Neutral
         };
@@ -515,6 +562,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             InsightType.ScaleCandidate => "Запрос приносит заказы с приемлемым ДРР и может быть точкой роста.",
             InsightType.WatchCandidate => "Запрос неоднозначный, его лучше оставить под наблюдением.",
             InsightType.LowData => "По запросу пока недостаточно данных для уверенного вывода.",
+            InsightType.SemanticIrrelevant => "Запрос не соответствует товару по смыслу и может привлекать нерелевантный трафик.",
             _ => "Backend сформировал структурированный insight по этому запросу."
         };
     }
@@ -527,6 +575,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             InsightType.BadDrr => "Потенциальный эффект - снижение перерасхода после корректировки ставки или карточки.",
             InsightType.ScaleCandidate => "Потенциальный эффект - рост заказов при сохранении ДРР около целевого.",
             InsightType.LowData => "Ожидаемый эффект пока не оценивается, так как данных недостаточно.",
+            InsightType.SemanticIrrelevant => "Потенциальная экономия - отсечение нерелевантного спроса без вывода по эффективности.",
             _ => "Потенциальный эффект зависит от выбранного действия и динамики метрик."
         };
     }
@@ -576,6 +625,44 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         }
 
         return keyword.Spend / keyword.Revenue * 100m;
+    }
+
+    private static decimal? GetDisplayCtr(KeywordStatistics keyword)
+    {
+        var clicks = keyword.Clicks ?? 0;
+        var impressions = keyword.Impressions ?? 0;
+
+        if (impressions > 0)
+        {
+            return (decimal)clicks / impressions * 100m;
+        }
+
+        return NormalizeImportedPercent(keyword.Ctr);
+    }
+
+    private static decimal? GetAggregateCtr(IReadOnlyCollection<KeywordStatistics> keywordStats)
+    {
+        var impressions = keywordStats.Sum(keyword => keyword.Impressions ?? 0);
+        if (impressions <= 0)
+        {
+            return null;
+        }
+
+        var clicks = keywordStats.Sum(keyword => keyword.Clicks ?? 0);
+        return (decimal)clicks / impressions * 100m;
+    }
+
+    private static decimal? NormalizeImportedPercent(double? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        var converted = Convert.ToDecimal(value.Value);
+        return converted is > 0m and <= 1m
+            ? converted * 100m
+            : converted;
     }
 
     private static decimal? ToDecimal(double? value)
