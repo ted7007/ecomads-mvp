@@ -84,6 +84,7 @@ builder.Services.AddSingleton<IRecommendationPolicyService, RecommendationPolicy
 builder.Services.AddSingleton<IPriorityScoringService, PriorityScoringService>();
 builder.Services.AddSingleton<IInsightSelectionService, InsightSelectionService>();
 builder.Services.AddSingleton<IRecommendationPromptBuilder, RecommendationPromptBuilder>();
+builder.Services.AddSingleton<IRecommendationInsightEntityMapper, RecommendationInsightEntityMapper>();
 builder.Services.AddScoped<ILlmRecommendationTextService, LlmRecommendationTextService>();
 builder.Services.AddScoped<IKeywordRecommendationOverlayService, KeywordRecommendationOverlayService>();
 builder.Services.AddScoped<IInsightDecisionService, InsightDecisionService>();
@@ -98,7 +99,14 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
-    dbContext.Database.Migrate();
+    if (app.Environment.IsDevelopment())
+    {
+        dbContext.Database.EnsureCreated();
+    }
+    else
+    {
+        dbContext.Database.Migrate();
+    }
 }
 
 app.UseDefaultFiles();

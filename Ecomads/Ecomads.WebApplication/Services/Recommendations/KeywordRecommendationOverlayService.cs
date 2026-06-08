@@ -56,32 +56,30 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         var keywordStats = await LoadKeywordStatsAsync(campaignId, startDate, endDate, cancellationToken);
         var campaignStats = await LoadCampaignStatsAsync(campaignId, startDate, endDate, cancellationToken);
         var recommendation = await LoadLatestRecommendationAsync(campaignId, cancellationToken);
-        var additionalData = DeserializeAdditionalData(recommendation);
-        var insights = additionalData?.Insights ?? [];
-        var decisions = additionalData?.InsightDecisions ?? new Dictionary<string, InsightDecisionRecord>();
+        var insights = recommendation == null
+            ? new List<OverlayInsight>()
+            : (await LoadInsightsAsync(recommendation.Id, cancellationToken))
+                .Select(ToOverlayInsight)
+                .ToList();
 
         var keywordInsights = insights
-            .Select(insight => new
-            {
-                Insight = insight,
-                KeywordId = TryGetKeywordId(insight)
-            })
-            .Where(item => item.KeywordId.HasValue)
-            .GroupBy(item => item.KeywordId!.Value)
+            .Where(insight => insight.EntityType == InsightEntityType.Keyword && insight.EntityId.HasValue)
+            .Select(insight => new { Insight = insight, KeywordId = insight.EntityId!.Value })
+            .GroupBy(item => item.KeywordId)
             .ToDictionary(
                 group => group.Key,
                 group => group.Select(item => item.Insight).ToList());
 
-        var insightDetails = BuildInsightDetails(keywordStats, keywordInsights, decisions, _options);
+        var insightDetails = BuildInsightDetails(keywordStats, keywordInsights, _options);
         var rows = keywordStats
-            .Select(keyword => BuildKeywordRow(keyword, keywordInsights.GetValueOrDefault(keyword.Id), decisions, _options))
+            .Select(keyword => BuildKeywordRow(keyword, keywordInsights.GetValueOrDefault(keyword.Id), _options))
             .OrderByDescending(row => row.HasInsight)
             .ThenByDescending(row => row.PriorityScore)
             .ThenByDescending(row => row.Spend ?? 0m)
             .ThenBy(row => row.Phrase, StringComparer.Ordinal)
             .ToList();
 
-        var summaryText = BuildSummaryText(keywordStats.Count, rows, recommendation, additionalData);
+        var summaryText = BuildSummaryText(keywordStats.Count, rows, recommendation);
 
         return new KeywordRecommendationOverlayDto
         {
@@ -91,12 +89,12 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             RecommendationSummary = new RecommendationOverlaySummaryDto
             {
                 Text = summaryText,
-                GeneratedWithoutLlm = additionalData?.GeneratedWithoutLlm ?? false,
+                GeneratedWithoutLlm = IsGeneratedWithoutLlm(recommendation),
                 Counts = BuildCounts(rows)
             },
             Keywords = rows,
             Insights = insightDetails,
-            CampaignInsights = BuildCampaignInsights(insights, decisions)
+            CampaignInsights = BuildCampaignInsights(insights)
         };
     }
 
@@ -161,6 +159,58 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    private async Task<List<RecommendationInsightEntity>> LoadInsightsAsync(
+        Guid recommendationRunId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.RecommendationInsights
+            .Where(insight => insight.RecommendationRunId == recommendationRunId)
+            .ToListAsync(cancellationToken);
+    }
+
+    private static OverlayInsight ToOverlayInsight(RecommendationInsightEntity entity)
+    {
+        return new OverlayInsight
+        {
+            Id = entity.Id,
+            EntityType = entity.EntityType,
+            EntityId = entity.EntityId,
+            EntityName = entity.EntityName,
+            Type = entity.InsightType,
+            Status = entity.Status,
+            PriorityScore = entity.PriorityScore,
+            PriorityLevel = entity.PriorityLevel,
+            ConfidenceLevel = entity.ConfidenceLevel,
+            RecommendedAction = entity.RecommendedAction,
+            ExpectedEffectType = entity.ExpectedEffectType,
+            ExpectedEffectMoney = entity.ExpectedEffectMoney,
+            ExpectedEffectText = entity.ExpectedEffectText,
+            Metrics = DeserializeJson<Dictionary<string, decimal?>>(entity.MetricsJson) ?? new Dictionary<string, decimal?>(),
+            ReasonCodes = DeserializeJson<List<string>>(entity.ReasonCodesJson) ?? [],
+            AllowedActions = DeserializeJson<List<RecommendationAction>>(entity.AllowedActionsJson) ?? [],
+            ForbiddenActions = DeserializeJson<List<RecommendationAction>>(entity.ForbiddenActionsJson) ?? [],
+            DecisionStatus = entity.DecisionStatus,
+            UserComment = entity.UserComment
+        };
+    }
+
+    private static T? DeserializeJson<T>(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return default;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
+    }
+
     private RecommendationAdditionalData? DeserializeAdditionalData(Recommendation? recommendation)
     {
         if (recommendation == null || string.IsNullOrWhiteSpace(recommendation.AdditionalData))
@@ -186,19 +236,15 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
     private static KeywordRecommendationRowDto BuildKeywordRow(
         KeywordStatistics keyword,
-        IReadOnlyCollection<RecommendationInsight>? insights,
-        IReadOnlyDictionary<string, InsightDecisionRecord> decisions,
+        IReadOnlyCollection<OverlayInsight>? insights,
         RecommendationEngineOptions options)
     {
         var mainInsight = GetMainInsight(insights);
         var status = mainInsight != null
-            ? MapStatus(mainInsight.Type)
+            ? mainInsight.Status
             : KeywordRecommendationStatus.Neutral;
         var recommendedAction = mainInsight != null
-            ? GetRecommendedAction(mainInsight, status)
-            : null;
-        var decision = mainInsight != null
-            ? GetDecision(decisions, mainInsight.Id)
+            ? GetRecommendedAction(mainInsight, status) ?? mainInsight.RecommendedAction
             : null;
 
         return new KeywordRecommendationRowDto
@@ -224,16 +270,18 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
                 ? GetShortRecommendation(recommendedAction, status)
                 : null,
             RecommendedAction = recommendedAction,
+            ExpectedEffectType = mainInsight?.ExpectedEffectType ?? ExpectedEffectType.NotCalculated,
+            ExpectedEffectMoney = mainInsight?.ExpectedEffectMoney,
+            ExpectedEffectText = mainInsight?.ExpectedEffectText ?? string.Empty,
             MainInsightId = mainInsight?.Id,
             HasInsight = mainInsight != null,
-            DecisionStatus = decision?.DecisionStatus ?? InsightDecisionStatus.None
+            DecisionStatus = mainInsight?.DecisionStatus ?? InsightDecisionStatus.None
         };
     }
 
     private static List<KeywordRecommendationInsightDetailDto> BuildInsightDetails(
         IReadOnlyCollection<KeywordStatistics> keywordStats,
-        IReadOnlyDictionary<Guid, List<RecommendationInsight>> keywordInsights,
-        IReadOnlyDictionary<string, InsightDecisionRecord> decisions,
+        IReadOnlyDictionary<Guid, List<OverlayInsight>> keywordInsights,
         RecommendationEngineOptions options)
     {
         var keywordById = keywordStats.ToDictionary(keyword => keyword.Id);
@@ -248,9 +296,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
             foreach (var insight in item.Value)
             {
-                var status = MapStatus(insight.Type);
-                var recommendedAction = GetRecommendedAction(insight, status);
-                var decision = GetDecision(decisions, insight.Id);
+                var status = insight.Status;
+                var recommendedAction = GetRecommendedAction(insight, status) ?? insight.RecommendedAction;
 
                 details.Add(new KeywordRecommendationInsightDetailDto
                 {
@@ -268,14 +315,16 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
                     Metrics = new Dictionary<string, decimal?>(insight.Metrics),
                     ReasonCodes = insight.ReasonCodes.ToList(),
                     ShortExplanation = GetShortExplanation(insight),
-                    ExpectedEffectText = GetExpectedEffectText(insight),
+                    ExpectedEffectType = insight.ExpectedEffectType,
+                    ExpectedEffectMoney = insight.ExpectedEffectMoney,
+                    ExpectedEffectText = insight.ExpectedEffectText,
                     RecommendedActionTitle = GetRecommendedActionTitle(recommendedAction, status),
                     RecommendedActionDescription = GetRecommendedActionDescription(recommendedAction, status),
                     AllowedActions = insight.AllowedActions.ToList(),
                     ForbiddenActions = insight.ForbiddenActions.ToList(),
-                    DecisionStatus = decision?.DecisionStatus ?? InsightDecisionStatus.None,
-                    UserComment = decision?.UserComment,
-                    History = ToHistoryDtos(decision)
+                    DecisionStatus = insight.DecisionStatus,
+                    UserComment = insight.UserComment,
+                    History = []
                 });
             }
         }
@@ -288,7 +337,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             .ToList();
     }
 
-    private static RecommendationInsight? GetMainInsight(IReadOnlyCollection<RecommendationInsight>? insights)
+    private static OverlayInsight? GetMainInsight(IReadOnlyCollection<OverlayInsight>? insights)
     {
         return insights?
             .OrderByDescending(insight => insight.PriorityScore)
@@ -299,7 +348,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     }
 
     private static PriorityLevel GetDisplayPriorityLevel(
-        RecommendationInsight? insight,
+        OverlayInsight? insight,
         decimal spend,
         int clicks,
         RecommendationEngineOptions options)
@@ -328,20 +377,6 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         }
 
         return insight.PriorityLevel;
-    }
-
-    private static Guid? TryGetKeywordId(RecommendationInsight insight)
-    {
-        var parts = insight.Id.Split(':', StringSplitOptions.RemoveEmptyEntries);
-
-        if (parts.Length >= 3
-            && string.Equals(parts[0], "keyword", StringComparison.OrdinalIgnoreCase)
-            && Guid.TryParse(parts[1], out var keywordId))
-        {
-            return keywordId;
-        }
-
-        return null;
     }
 
     private static KeywordRecommendationSummaryDto BuildSummary(
@@ -394,63 +429,39 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     }
 
     private static List<CampaignRecommendationInsightDto> BuildCampaignInsights(
-        IReadOnlyCollection<RecommendationInsight> insights,
-        IReadOnlyDictionary<string, InsightDecisionRecord> decisions)
+        IReadOnlyCollection<OverlayInsight> insights)
     {
         return insights
             .Where(insight => insight.EntityType != InsightEntityType.Keyword)
             .OrderByDescending(insight => insight.PriorityScore)
-            .Select(insight =>
+            .Select(insight => new CampaignRecommendationInsightDto
             {
-                var decision = GetDecision(decisions, insight.Id);
-                return new CampaignRecommendationInsightDto
-                {
-                    InsightId = insight.Id,
-                    Type = insight.Type,
-                    PriorityScore = insight.PriorityScore,
-                    PriorityLevel = insight.PriorityLevel,
-                    Text = insight.TechnicalComment ?? string.Empty,
-                    DecisionStatus = decision?.DecisionStatus ?? InsightDecisionStatus.None,
-                    UserComment = decision?.UserComment,
-                    History = ToHistoryDtos(decision)
-                };
+                InsightId = insight.Id,
+                Type = insight.Type,
+                PriorityScore = insight.PriorityScore,
+                PriorityLevel = insight.PriorityLevel,
+                Text = GetShortExplanation(insight),
+                ExpectedEffectType = insight.ExpectedEffectType,
+                ExpectedEffectMoney = insight.ExpectedEffectMoney,
+                ExpectedEffectText = insight.ExpectedEffectText,
+                DecisionStatus = insight.DecisionStatus,
+                UserComment = insight.UserComment,
+                History = []
             })
             .ToList();
-    }
-
-    private static InsightDecisionRecord? GetDecision(
-        IReadOnlyDictionary<string, InsightDecisionRecord> decisions,
-        string insightId)
-    {
-        return decisions.TryGetValue(insightId, out var decision)
-            ? decision
-            : null;
-    }
-
-    private static List<InsightHistoryItemDto> ToHistoryDtos(InsightDecisionRecord? decision)
-    {
-        return decision?.History
-            .Select(item => new InsightHistoryItemDto
-            {
-                Type = item.Type,
-                CreatedAt = item.CreatedAt,
-                Comment = item.Comment
-            })
-            .ToList() ?? [];
     }
 
     private static string BuildSummaryText(
         int keywordCount,
         IReadOnlyCollection<KeywordRecommendationRowDto> rows,
-        Recommendation? recommendation,
-        RecommendationAdditionalData? additionalData)
+        Recommendation? recommendation)
     {
         if (keywordCount == 0)
         {
             return "Загрузите статистику, чтобы система рассчитала рекомендации по ключевым словам.";
         }
 
-        if (recommendation == null || additionalData?.Insights.Count == 0)
+        if (recommendation == null || rows.All(row => !row.HasInsight))
         {
             return "По текущим правилам не найдено явных проблем или точек роста.";
         }
@@ -477,7 +488,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     }
 
     private static RecommendationAction? GetRecommendedAction(
-        RecommendationInsight insight,
+        OverlayInsight insight,
         KeywordRecommendationStatus status)
     {
         var preferredActions = status switch
@@ -548,13 +559,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         };
     }
 
-    private static string GetShortExplanation(RecommendationInsight insight)
+    private static string GetShortExplanation(OverlayInsight insight)
     {
-        if (!string.IsNullOrWhiteSpace(insight.TechnicalComment))
-        {
-            return insight.TechnicalComment;
-        }
-
         return insight.Type switch
         {
             InsightType.BadSpendWithoutOrders => "Запрос потратил значимый бюджет, но не принес заказов.",
@@ -564,19 +570,6 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             InsightType.LowData => "По запросу пока недостаточно данных для уверенного вывода.",
             InsightType.SemanticIrrelevant => "Запрос не соответствует товару по смыслу и может привлекать нерелевантный трафик.",
             _ => "Backend сформировал структурированный insight по этому запросу."
-        };
-    }
-
-    private static string GetExpectedEffectText(RecommendationInsight insight)
-    {
-        return insight.Type switch
-        {
-            InsightType.BadSpendWithoutOrders => "Потенциальная экономия - сокращение неэффективных расходов.",
-            InsightType.BadDrr => "Потенциальный эффект - снижение перерасхода после корректировки ставки или карточки.",
-            InsightType.ScaleCandidate => "Потенциальный эффект - рост заказов при сохранении ДРР около целевого.",
-            InsightType.LowData => "Ожидаемый эффект пока не оценивается, так как данных недостаточно.",
-            InsightType.SemanticIrrelevant => "Потенциальная экономия - отсечение нерелевантного спроса без вывода по эффективности.",
-            _ => "Потенциальный эффект зависит от выбранного действия и динамики метрик."
         };
     }
 
@@ -665,6 +658,11 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             : converted;
     }
 
+    private bool IsGeneratedWithoutLlm(Recommendation? recommendation)
+    {
+        return DeserializeAdditionalData(recommendation)?.GeneratedWithoutLlm ?? false;
+    }
+
     private static decimal? ToDecimal(double? value)
     {
         return value.HasValue ? Convert.ToDecimal(value.Value) : null;
@@ -673,5 +671,28 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     private static decimal? ToDecimal(float value)
     {
         return Convert.ToDecimal(value);
+    }
+
+    private sealed class OverlayInsight
+    {
+        public string Id { get; init; } = string.Empty;
+        public InsightEntityType EntityType { get; init; }
+        public Guid? EntityId { get; init; }
+        public string EntityName { get; init; } = string.Empty;
+        public InsightType Type { get; init; }
+        public KeywordRecommendationStatus Status { get; init; } = KeywordRecommendationStatus.Neutral;
+        public double PriorityScore { get; init; }
+        public PriorityLevel PriorityLevel { get; init; }
+        public ConfidenceLevel ConfidenceLevel { get; init; }
+        public RecommendationAction? RecommendedAction { get; init; }
+        public ExpectedEffectType ExpectedEffectType { get; init; } = ExpectedEffectType.NotCalculated;
+        public decimal? ExpectedEffectMoney { get; init; }
+        public string ExpectedEffectText { get; init; } = string.Empty;
+        public Dictionary<string, decimal?> Metrics { get; init; } = new();
+        public List<string> ReasonCodes { get; init; } = new();
+        public List<RecommendationAction> AllowedActions { get; init; } = new();
+        public List<RecommendationAction> ForbiddenActions { get; init; } = new();
+        public InsightDecisionStatus DecisionStatus { get; init; } = InsightDecisionStatus.None;
+        public string? UserComment { get; init; }
     }
 }

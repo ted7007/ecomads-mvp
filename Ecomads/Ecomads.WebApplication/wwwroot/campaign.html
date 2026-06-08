@@ -227,29 +227,28 @@
                 </div>
             </div>
             <div class="content">
-                <!-- Кнопка обновления статистики -->
-                <div class="mobile-action-container" style="display: flex; justify-content: flex-end; margin-bottom: 24px; flex-wrap: wrap;">
-                    <button class="refresh-btn" onclick="document.getElementById('upload-modal').style.display='flex'">
+                <div class="page-toolbar mobile-action-container">
+                    <div class="page-filter-group">
+                        <div>
+                            <label class="text-label" for="campaign-period-select">Загруженный период</label>
+                            <select id="campaign-period-select">
+                                <option value="">Все периоды</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-label" for="campaign-start-date">С даты</label>
+                            <input type="date" id="campaign-start-date">
+                        </div>
+                        <div>
+                            <label class="text-label" for="campaign-end-date">По дату</label>
+                            <input type="date" id="campaign-end-date">
+                        </div>
+                        <button class="refresh-btn" id="campaign-apply-period">
+                            Применить период
+                        </button>
+                    </div>
+                    <button class="refresh-btn page-upload-btn" onclick="document.getElementById('upload-modal').style.display='flex'">
                         <i data-feather="refresh-cw"></i> <span class="btn-text">Загрузить новую статистику</span>
-                    </button>
-                </div>
-                <div class="mobile-action-container" style="display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: end;">
-                    <div>
-                        <label class="text-label" for="campaign-period-select" style="color:#E2E8F0;">Загруженный период</label>
-                        <select id="campaign-period-select" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
-                            <option value="">Все периоды</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-label" for="campaign-start-date" style="color:#E2E8F0;">С даты</label>
-                        <input type="date" id="campaign-start-date" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
-                    </div>
-                    <div>
-                        <label class="text-label" for="campaign-end-date" style="color:#E2E8F0;">По дату</label>
-                        <input type="date" id="campaign-end-date" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
-                    </div>
-                    <button class="refresh-btn" id="campaign-apply-period">
-                        Применить период
                     </button>
                 </div>
 
@@ -281,7 +280,14 @@
                 <div class="card mb-32 keyword-dashboard-card">
                     <div class="keyword-overlay-header">
                         <h2 class="level-title">Статистика по ключевым словам</h2>
-                        <span id="keyword-overlay-mode" class="keyword-overlay-mode">Статистика</span>
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <span id="keyword-overlay-mode" class="keyword-overlay-mode">Статистика</span>
+                            <button id="refresh-insights" class="refresh-btn">
+                                <span class="loader" style="display: none;"></span>
+                                <i data-feather="refresh-cw"></i>
+                                Обновить insights
+                            </button>
+                        </div>
                     </div>
                     <div id="keyword-overlay-summary" class="keyword-overlay-summary" hidden></div>
                     <div id="keyword-status-filters" class="keyword-status-filters" hidden></div>
@@ -308,22 +314,6 @@
                     </div>
                 </div>
                 <aside id="keyword-insight-panel" class="keyword-insight-panel" aria-live="polite" hidden></aside>
-                
-                <!-- Рекомендации -->
-                <div class="mb-32">
-                    <div class="section-header">
-                        <h2 class="section-title"><i data-feather="zap"></i> Рекомендации по кампании</h2>
-                        <button id="refresh-recommendations" class="refresh-btn">
-                            <span class="loader" style="display: none;"></span>
-                            <i data-feather="refresh-cw"></i> 
-                            Обновить рекомендации
-                        </button>
-                    </div>
-                    <div id="recommendations-container">
-                        <!-- Сюда JS вставит рекомендации -->
-                        <p>Загрузка рекомендаций...</p>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -331,7 +321,7 @@
         import { renderSidebar } from '/js/sidebar.js';
         import { createUploadModal } from '/js/modal.js';
         import { setupCampaignPeriodControls } from '/js/main.js';
-        import { loadRecommendations, generateRecommendation, renderRecommendations } from '/js/recommendations.js';
+        import { generateRecommendation } from '/js/recommendations.js';
         
         renderSidebar('campaign');
         
@@ -341,50 +331,27 @@
         if (id) {
             document.getElementById('campaign-name').textContent = `Кампания #${id}`;
             await setupCampaignPeriodControls(id);
-            
-            // Загружаем рекомендации
-            const recommendationsContainer = document.getElementById('recommendations-container');
-            loadRecommendationsData();
-            
-            // Обработчик кнопки обновления рекомендаций
-            const refreshButton = document.getElementById('refresh-recommendations');
+
+            const refreshButton = document.getElementById('refresh-insights');
             refreshButton.addEventListener('click', async function() {
-                // Показываем индикатор загрузки
                 this.classList.add('btn-loading');
                 this.querySelector('.loader').style.display = 'inline-block';
                 
                 try {
-                    // Генерируем новую рекомендацию
                     await generateRecommendation(id);
-                    
-                    // Перезагружаем список рекомендаций
-                    await loadRecommendationsData();
                     if (typeof window.reloadKeywordRecommendationOverlay === 'function') {
                         await window.reloadKeywordRecommendationOverlay();
                     }
                     
-                    alert('Рекомендация успешно сгенерирована!');
+                    alert('Insights успешно обновлены!');
                 } catch (error) {
-                    console.error('Ошибка при обновлении рекомендаций:', error);
-                    alert('Ошибка при генерации рекомендации');
+                    console.error('Ошибка при обновлении insights:', error);
+                    alert('Ошибка при генерации insights');
                 } finally {
-                    // Скрываем индикатор загрузки
                     this.classList.remove('btn-loading');
                     this.querySelector('.loader').style.display = 'none';
                 }
             });
-            
-            async function loadRecommendationsData() {
-                recommendationsContainer.innerHTML = '<p>Загрузка рекомендаций...</p>';
-                
-                try {
-                    const recommendations = await loadRecommendations(id);
-                    renderRecommendations(recommendations, recommendationsContainer);
-                } catch (error) {
-                    console.error('Ошибка при загрузке рекомендаций:', error);
-                    recommendationsContainer.innerHTML = '<p>Ошибка при загрузке рекомендаций</p>';
-                }
-            }
         }
         else {
             document.getElementById('campaign-name').textContent = 'Кампания не выбрана';

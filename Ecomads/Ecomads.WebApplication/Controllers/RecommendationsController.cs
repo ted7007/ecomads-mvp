@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Ecomads.WebApplication.Data;
@@ -15,6 +18,7 @@ namespace Ecomads.WebApplication.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class RecommendationsController : ControllerBase
     {
         private readonly EcomadsDbContext _context;
@@ -49,6 +53,16 @@ namespace Ecomads.WebApplication.Controllers
         {
             try
             {
+                if (!TryGetCurrentSellerId(out var sellerId))
+                {
+                    return Unauthorized(new { message = "Недействительный токен" });
+                }
+
+                if (!await SellerOwnsCampaignAsync(sellerId, campaignId, cancellationToken))
+                {
+                    return NotFound($"Кампания с ID {campaignId} не найдена");
+                }
+
                 var overlay = await _keywordRecommendationOverlayService.GetOverlayAsync(
                     campaignId,
                     startDate,
@@ -97,6 +111,15 @@ namespace Ecomads.WebApplication.Controllers
         }
 
         /// <summary>
+        /// Отметить insight рекомендации как примененный.
+        /// </summary>
+        [HttpPost("insights/{insightId}/apply")]
+        public Task<IActionResult> ApplyInsight(string insightId, CancellationToken cancellationToken)
+        {
+            return UpdateInsightDecision(insightId, InsightDecisionStatus.Applied, cancellationToken);
+        }
+
+        /// <summary>
         /// Обновить комментарий пользователя по insight.
         /// </summary>
         [HttpPut("insights/{insightId}/comment")]
@@ -112,6 +135,16 @@ namespace Ecomads.WebApplication.Controllers
 
             try
             {
+                if (!TryGetCurrentSellerId(out var sellerId))
+                {
+                    return Unauthorized(new { message = "Недействительный токен" });
+                }
+
+                if (!await SellerOwnsInsightAsync(sellerId, insightId, cancellationToken))
+                {
+                    return NotFound($"Insight с ID {insightId} не найден");
+                }
+
                 var result = await _insightDecisionService.UpdateCommentAsync(
                     insightId,
                     request?.UserComment,
@@ -143,6 +176,16 @@ namespace Ecomads.WebApplication.Controllers
 
             try
             {
+                if (!TryGetCurrentSellerId(out var sellerId))
+                {
+                    return Unauthorized(new { message = "Недействительный токен" });
+                }
+
+                if (!await SellerOwnsInsightAsync(sellerId, insightId, cancellationToken))
+                {
+                    return NotFound($"Insight с ID {insightId} не найден");
+                }
+
                 var result = await _insightDecisionService.UpdateDecisionAsync(
                     insightId,
                     decisionStatus,
@@ -168,14 +211,16 @@ namespace Ecomads.WebApplication.Controllers
         [HttpGet("campaign/{campaignId}")]
         public async Task<ActionResult<IEnumerable<Recommendation>>> GetCampaignRecommendations(Guid campaignId)
         {
-            // Проверяем существование кампании
-            var campaignExists = await _context.Compaigns.AnyAsync(c => c.Id == campaignId);
-            if (!campaignExists)
+            if (!TryGetCurrentSellerId(out var sellerId))
+            {
+                return Unauthorized(new { message = "Недействительный токен" });
+            }
+
+            if (!await SellerOwnsCampaignAsync(sellerId, campaignId))
             {
                 return NotFound($"Кампания с ID {campaignId} не найдена");
             }
 
-            // Получаем рекомендации, сортируем по дате создания (сначала новые)
             var recommendations = await _context.Recommendations
                 .Where(r => r.CampaignId == campaignId)
                 .OrderByDescending(r => r.CreatedAt)
@@ -190,7 +235,18 @@ namespace Ecomads.WebApplication.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<Recommendation>> GetRecommendation(Guid id)
         {
-            var recommendation = await _context.Recommendations.FindAsync(id);
+            if (!TryGetCurrentSellerId(out var sellerId))
+            {
+                return Unauthorized(new { message = "Недействительный токен" });
+            }
+
+            var recommendation = await _context.Recommendations
+                .Include(item => item.Campaign)
+                    .ThenInclude(campaign => campaign.Store)
+                .FirstOrDefaultAsync(item =>
+                    item.Id == id
+                    && item.Campaign.Store.SellerId == sellerId);
+
             if (recommendation == null)
             {
                 return NotFound($"Рекомендация с ID {id} не найдена");
@@ -210,9 +266,12 @@ namespace Ecomads.WebApplication.Controllers
                 return BadRequest("Необходимо указать CampaignId");
             }
 
-            // Проверяем существование кампании
-            var campaignExists = await _context.Compaigns.AnyAsync(c => c.Id == request.CampaignId);
-            if (!campaignExists)
+            if (!TryGetCurrentSellerId(out var sellerId))
+            {
+                return Unauthorized(new { message = "Недействительный токен" });
+            }
+
+            if (!await SellerOwnsCampaignAsync(sellerId, request.CampaignId))
             {
                 return NotFound($"Кампания с ID {request.CampaignId} не найдена");
             }
@@ -247,7 +306,18 @@ namespace Ecomads.WebApplication.Controllers
                 return BadRequest("Необходимо указать статус");
             }
 
-            var recommendation = await _context.Recommendations.FindAsync(id);
+            if (!TryGetCurrentSellerId(out var sellerId))
+            {
+                return Unauthorized(new { message = "Недействительный токен" });
+            }
+
+            var recommendation = await _context.Recommendations
+                .Include(item => item.Campaign)
+                    .ThenInclude(campaign => campaign.Store)
+                .FirstOrDefaultAsync(item =>
+                    item.Id == id
+                    && item.Campaign.Store.SellerId == sellerId);
+
             if (recommendation == null)
             {
                 return NotFound($"Рекомендация с ID {id} не найдена");
@@ -283,6 +353,13 @@ namespace Ecomads.WebApplication.Controllers
         {
             try
             {
+                if (!TryGetCurrentSellerId(out var sellerId))
+                {
+                    return Unauthorized(new { message = "Недействительный токен" });
+                }
+
+                var sellerCampaignIds = await GetSellerCampaignIdsAsync(sellerId);
+
                 // Определяем начальную дату в зависимости от периода
                 DateTime startDate = period.ToLower() switch
                 {
@@ -293,43 +370,51 @@ namespace Ecomads.WebApplication.Controllers
                     _ => DateTime.UtcNow.AddDays(-30) // По умолчанию - месяц
                 };
 
-                // Получаем рекомендации за выбранный период
-                var recommendations = await _context.Recommendations
-                    .Where(r => r.CreatedAt >= startDate)
-                    .Include(r => r.Campaign)
-                    .OrderByDescending(r => r.CreatedAt)
+                var insights = await _context.RecommendationInsights
+                    .Where(insight =>
+                        insight.CreatedAt >= startDate
+                        && sellerCampaignIds.Contains(insight.CampaignId))
+                    .Include(insight => insight.RecommendationRun)
+                        .ThenInclude(run => run.Campaign)
+                    .OrderByDescending(insight => insight.UpdatedAt)
                     .ToListAsync();
 
-                // Подсчитываем статистику
                 var response = new RecommendationStatsResponse();
 
-                // Общие счетчики по статусам
                 response.Counts = new RecommendationCounts
                 {
-                    Accepted = recommendations.Count(r => r.Status == "принята"),
-                    Pending = recommendations.Count(r => r.Status == "новая"),
-                    Rejected = recommendations.Count(r => r.Status == "отклонена")
+                    Accepted = insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Accepted),
+                    Pending = insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Postponed),
+                    Rejected = insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Rejected),
+                    Applied = insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Applied)
                 };
 
-                // Статистика по месяцам для графика
-                // Группируем данные по году и месяцу
-                var monthlyData = recommendations
-                    .GroupBy(r => new { Year = r.CreatedAt.Year, Month = r.CreatedAt.Month })
+                response.ExpectedSaving = insights
+                    .Where(insight => insight.ExpectedEffectType == ExpectedEffectType.Saving)
+                    .Sum(insight => insight.ExpectedEffectMoney ?? 0m);
+                response.ExpectedAdditionalRevenue = insights
+                    .Where(insight => insight.ExpectedEffectType == ExpectedEffectType.AdditionalRevenue)
+                    .Sum(insight => insight.ExpectedEffectMoney ?? 0m);
+                response.NotCalculatedCount = insights.Count(insight =>
+                    insight.ExpectedEffectType == ExpectedEffectType.NotCalculated);
+
+                var monthlyData = insights
+                    .GroupBy(insight => new { Year = insight.UpdatedAt.Year, Month = insight.UpdatedAt.Month })
                     .Select(g => new
                     {
                         YearMonth = g.Key,
-                        Recommendations = g.ToList()
+                        Insights = g.ToList()
                     })
                     .OrderBy(g => g.YearMonth.Year)
                     .ThenBy(g => g.YearMonth.Month)
                     .ToList();
 
-                // Конвертируем в модель для фронтенда
                 foreach (var monthGroup in monthlyData)
                 {
-                    var accepted = monthGroup.Recommendations.Count(r => r.Status == "принята");
-                    var pending = monthGroup.Recommendations.Count(r => r.Status == "новая");
-                    var rejected = monthGroup.Recommendations.Count(r => r.Status == "отклонена");
+                    var accepted = monthGroup.Insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Accepted);
+                    var pending = monthGroup.Insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Postponed);
+                    var rejected = monthGroup.Insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Rejected);
+                    var applied = monthGroup.Insights.Count(insight => insight.DecisionStatus == InsightDecisionStatus.Applied);
 
                     response.Monthly.Add(new MonthlyStats
                     {
@@ -338,23 +423,41 @@ namespace Ecomads.WebApplication.Controllers
                         Accepted = accepted,
                         Pending = pending,
                         Rejected = rejected,
-                        Total = accepted + pending + rejected
+                        Applied = applied,
+                        Total = accepted + pending + rejected + applied
                     });
                 }
 
-                // Список последних рекомендаций (ограничиваем 20)
-                response.Recommendations = recommendations
+                var visibleInsights = insights
+                    .Where(insight => insight.DecisionStatus is
+                        InsightDecisionStatus.Accepted or
+                        InsightDecisionStatus.Postponed or
+                        InsightDecisionStatus.Applied)
                     .Take(20)
-                    .Select(r => new RecommendationDetail
-                    {
-                        Id = r.Id,
-                        Text = r.RecommendationText,
-                        Status = r.Status,
-                        Date = r.CreatedAt,
-                        Campaign = r.Campaign?.Name ?? "Неизвестная кампания",
-                        Comment = r.UserComment
-                    })
                     .ToList();
+
+                foreach (var insight in visibleInsights)
+                {
+                    var actualEffect = await CalculateActualEffectAsync(insight);
+                    response.Recommendations.Add(new RecommendationDetail
+                    {
+                        Id = insight.Id,
+                        Text = insight.ExpectedEffectText,
+                        EntityName = insight.EntityName,
+                        Action = FormatAction(insight.RecommendedAction),
+                        Status = insight.DecisionStatus.ToString(),
+                        Date = insight.UpdatedAt,
+                        Campaign = insight.RecommendationRun.Campaign?.Name ?? "Неизвестная кампания",
+                        Comment = insight.UserComment ?? string.Empty,
+                        ExpectedEffectType = insight.ExpectedEffectType.ToString(),
+                        ExpectedEffectMoney = insight.ExpectedEffectMoney,
+                        ExpectedEffectText = insight.ExpectedEffectText,
+                        ActualEffectMoney = actualEffect.Money,
+                        ActualEffectStatus = actualEffect.Status,
+                        ActualEffectText = actualEffect.Text,
+                        Period = $"{insight.PeriodFrom:dd.MM.yyyy} - {insight.PeriodTo:dd.MM.yyyy}"
+                    });
+                }
 
                 return Ok(response);
             }
@@ -363,6 +466,115 @@ namespace Ecomads.WebApplication.Controllers
                 _logger.LogError(ex, "Ошибка при получении статистики по рекомендациям");
                 return StatusCode(500, $"Ошибка при получении статистики: {ex.Message}");
             }
+        }
+
+        private async Task<ActualEffectResult> CalculateActualEffectAsync(RecommendationInsightEntity insight)
+        {
+            if (insight.ExpectedEffectType != ExpectedEffectType.Saving
+                || insight.EntityType != InsightEntityType.Keyword)
+            {
+                return new ActualEffectResult(null, "NotApplicable", "Фактический эффект не рассчитывается для этого типа insight.");
+            }
+
+            var previousSpend = GetMetric(insight.MetricsJson, "spend");
+            if (!previousSpend.HasValue)
+            {
+                return new ActualEffectResult(null, "NotCalculated", "Нет исходного расхода для сравнения.");
+            }
+
+            var nextStats = await _context.KeywordStatistics
+                .Where(keyword =>
+                    keyword.CompaignId == insight.CampaignId
+                    && keyword.Phrase == insight.EntityName
+                    && keyword.StartDate > insight.PeriodTo)
+                .OrderBy(keyword => keyword.StartDate)
+                .FirstOrDefaultAsync();
+
+            if (nextStats == null)
+            {
+                return new ActualEffectResult(null, "WaitingForNextStats", "Ожидаем статистику следующего периода.");
+            }
+
+            var actualSaving = previousSpend.Value - (nextStats.Spend ?? 0m);
+            return new ActualEffectResult(
+                actualSaving,
+                "Calculated",
+                "Оценочная экономия по изменению расхода");
+        }
+
+        private static decimal? GetMetric(string metricsJson, string key)
+        {
+            try
+            {
+                var metrics = JsonSerializer.Deserialize<Dictionary<string, decimal?>>(metricsJson);
+                return metrics != null && metrics.TryGetValue(key, out var value)
+                    ? value
+                    : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        private static string FormatAction(RecommendationAction? action)
+        {
+            return action switch
+            {
+                RecommendationAction.ConsiderMinusKeyword => "Исключить",
+                RecommendationAction.MinusKeyword => "Минус-слово",
+                RecommendationAction.DecreaseBid => "Снизить ставку",
+                RecommendationAction.DecreaseBidCarefully => "Снизить осторожно",
+                RecommendationAction.IncreaseBidGradually => "Повысить ставку",
+                RecommendationAction.Scale => "Масштабировать",
+                RecommendationAction.CollectMoreData => "Собрать данные",
+                RecommendationAction.Watch => "Наблюдать",
+                RecommendationAction.Optimize => "Оптимизировать",
+                RecommendationAction.Maintain => "Сохранить",
+                RecommendationAction.FindSimilarKeywords => "Найти похожие",
+                null => "-",
+                _ => action.ToString() ?? "-"
+            };
+        }
+
+        private bool TryGetCurrentSellerId(out Guid sellerId)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            return Guid.TryParse(userId, out sellerId);
+        }
+
+        private async Task<List<Guid>> GetSellerCampaignIdsAsync(
+            Guid sellerId,
+            CancellationToken cancellationToken = default)
+        {
+            return await _context.Compaigns
+                .Where(campaign => campaign.Store.SellerId == sellerId)
+                .Select(campaign => campaign.Id)
+                .ToListAsync(cancellationToken);
+        }
+
+        private async Task<bool> SellerOwnsCampaignAsync(
+            Guid sellerId,
+            Guid campaignId,
+            CancellationToken cancellationToken = default)
+        {
+            return await _context.Compaigns
+                .AnyAsync(
+                    campaign => campaign.Id == campaignId
+                        && campaign.Store.SellerId == sellerId,
+                    cancellationToken);
+        }
+
+        private async Task<bool> SellerOwnsInsightAsync(
+            Guid sellerId,
+            string insightId,
+            CancellationToken cancellationToken = default)
+        {
+            return await _context.RecommendationInsights
+                .AnyAsync(
+                    insight => insight.Id == insightId
+                        && insight.RecommendationRun.Campaign.Store.SellerId == sellerId,
+                    cancellationToken);
         }
     }
 
@@ -383,6 +595,9 @@ namespace Ecomads.WebApplication.Controllers
         public RecommendationCounts Counts { get; set; } = new RecommendationCounts();
         public List<MonthlyStats> Monthly { get; set; } = new List<MonthlyStats>();
         public List<RecommendationDetail> Recommendations { get; set; } = new List<RecommendationDetail>();
+        public decimal ExpectedSaving { get; set; }
+        public decimal ExpectedAdditionalRevenue { get; set; }
+        public int NotCalculatedCount { get; set; }
     }
     
     public class RecommendationCounts
@@ -390,6 +605,7 @@ namespace Ecomads.WebApplication.Controllers
         public int Accepted { get; set; }
         public int Pending { get; set; }
         public int Rejected { get; set; }
+        public int Applied { get; set; }
     }
     
     public class MonthlyStats
@@ -398,16 +614,28 @@ namespace Ecomads.WebApplication.Controllers
         public int Accepted { get; set; }
         public int Pending { get; set; }
         public int Rejected { get; set; }
+        public int Applied { get; set; }
         public int Total { get; set; }
     }
     
     public class RecommendationDetail
     {
-        public Guid Id { get; set; }
+        public string Id { get; set; }
         public string Text { get; set; }
+        public string EntityName { get; set; }
+        public string Action { get; set; }
         public string Status { get; set; }
         public DateTime Date { get; set; }
         public string Campaign { get; set; }
         public string Comment { get; set; }
+        public string ExpectedEffectType { get; set; }
+        public decimal? ExpectedEffectMoney { get; set; }
+        public string ExpectedEffectText { get; set; }
+        public decimal? ActualEffectMoney { get; set; }
+        public string ActualEffectStatus { get; set; }
+        public string ActualEffectText { get; set; }
+        public string Period { get; set; }
     }
+
+    public record ActualEffectResult(decimal? Money, string Status, string Text);
 }

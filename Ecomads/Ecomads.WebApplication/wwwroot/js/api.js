@@ -89,9 +89,12 @@ export const getRecommendationsStats = async (period = 'month') => {
         
         // РљРѕСЂСЂРµРєС‚РёСЂСѓРµРј РґР°РЅРЅС‹Рµ, РµСЃР»Рё С‚СЂРµР±СѓРµС‚СЃСЏ
         const result = {
-            counts: data.counts || { accepted: 0, pending: 0, rejected: 0 },
+            counts: data.counts || { accepted: 0, pending: 0, rejected: 0, applied: 0 },
             monthly: data.monthly || [],
-            recommendations: []
+            recommendations: [],
+            expectedSaving: data.expectedSaving || 0,
+            expectedAdditionalRevenue: data.expectedAdditionalRevenue || 0,
+            notCalculatedCount: data.notCalculatedCount || 0
         };
         
         // РћР±СЂР°Р±Р°С‚С‹РІР°РµРј РјР°СЃСЃРёРІ СЂРµРєРѕРјРµРЅРґР°С†РёР№
@@ -99,10 +102,19 @@ export const getRecommendationsStats = async (period = 'month') => {
             result.recommendations = data.recommendations.map(rec => ({
                 id: rec.id || '',
                 text: rec.text || '',
+                entityName: rec.entityName || '',
+                action: rec.action || '',
                 status: rec.status || 'РЅРѕРІР°СЏ',
                 date: rec.date || new Date().toISOString(),
                 campaign: rec.campaign || 'РќРµ СѓРєР°Р·Р°РЅРѕ',
-                comment: rec.comment || ''
+                comment: rec.comment || '',
+                expectedEffectType: rec.expectedEffectType || 'NotCalculated',
+                expectedEffectMoney: rec.expectedEffectMoney,
+                expectedEffectText: rec.expectedEffectText || '',
+                actualEffectMoney: rec.actualEffectMoney,
+                actualEffectStatus: rec.actualEffectStatus || '',
+                actualEffectText: rec.actualEffectText || '',
+                period: rec.period || ''
             }));
         } else {
             console.warn('API РЅРµ РІРµСЂРЅСѓР» РјР°СЃСЃРёРІ СЂРµРєРѕРјРµРЅРґР°С†РёР№');

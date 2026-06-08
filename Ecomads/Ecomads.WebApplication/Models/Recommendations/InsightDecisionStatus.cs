@@ -5,5 +5,6 @@ public enum InsightDecisionStatus
     None,
     Accepted,
     Postponed,
-    Rejected
+    Rejected,
+    Applied
 }

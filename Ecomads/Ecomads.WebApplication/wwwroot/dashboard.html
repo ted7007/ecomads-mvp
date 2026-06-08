@@ -19,29 +19,28 @@
                 <div class="header-left">Главный дашборд</div>
             </div>
             <div class="content" id="dashboard-content">
-                <!-- Кнопка обновления статистики -->
-                <div class="mobile-action-container" style="display: flex; justify-content: flex-end; margin-bottom: 24px; flex-wrap: wrap;">
-                    <button class="refresh-btn" onclick="document.getElementById('upload-modal').style.display='flex'">
+                <div class="page-toolbar mobile-action-container">
+                    <div class="page-filter-group">
+                        <div>
+                            <label class="text-label" for="dashboard-period-select">Загруженный период</label>
+                            <select id="dashboard-period-select">
+                                <option value="">Все периоды</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-label" for="dashboard-start-date">С даты</label>
+                            <input type="date" id="dashboard-start-date">
+                        </div>
+                        <div>
+                            <label class="text-label" for="dashboard-end-date">По дату</label>
+                            <input type="date" id="dashboard-end-date">
+                        </div>
+                        <button class="refresh-btn" id="dashboard-apply-period">
+                            Применить период
+                        </button>
+                    </div>
+                    <button class="refresh-btn page-upload-btn" onclick="document.getElementById('upload-modal').style.display='flex'">
                         <i data-feather="refresh-cw"></i> <span class="btn-text">Загрузить новую статистику</span>
-                    </button>
-                </div>
-                <div class="mobile-action-container" style="display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: end;">
-                    <div>
-                        <label class="text-label" for="dashboard-period-select" style="color:#E2E8F0;">Загруженный период</label>
-                        <select id="dashboard-period-select" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
-                            <option value="">Все периоды</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-label" for="dashboard-start-date" style="color:#E2E8F0;">С даты</label>
-                        <input type="date" id="dashboard-start-date" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
-                    </div>
-                    <div>
-                        <label class="text-label" for="dashboard-end-date" style="color:#E2E8F0;">По дату</label>
-                        <input type="date" id="dashboard-end-date" style="background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; border-radius:10px; padding:8px 10px;">
-                    </div>
-                    <button class="refresh-btn" id="dashboard-apply-period">
-                        Применить период
                     </button>
                 </div>
 

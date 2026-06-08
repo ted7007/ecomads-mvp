@@ -33,9 +33,10 @@ const STATUS_LABELS = {
 const STATUS_ORDER = ['ToRemove', 'NeedsAttention', 'Effective', 'Watch', 'LowData', 'Neutral'];
 const DECISION_LABELS = {
     None: 'Не выбрано',
-    Accepted: 'Принято',
+    Accepted: 'В работе',
     Postponed: 'Отложено',
-    Rejected: 'Отклонено'
+    Rejected: 'Отклонено',
+    Applied: 'Выполнено'
 };
 
 async function setupDashboardPeriodControls() {
@@ -279,6 +280,9 @@ function normalizeOverlayRows(rows) {
         priorityLevel: normalizePriority(row.priorityLevel),
         confidenceLevel: normalizeConfidence(row.confidenceLevel),
         recommendedAction: row.recommendedAction,
+        expectedEffectType: row.expectedEffectType || 'NotCalculated',
+        expectedEffectMoney: row.expectedEffectMoney,
+        expectedEffectText: row.expectedEffectText || '',
         mainInsightId: row.mainInsightId || '',
         hasInsight: Boolean(row.hasInsight),
         decisionStatus: normalizeDecision(row.decisionStatus)
@@ -459,12 +463,13 @@ function renderKeywordInsightPanel(insight, keyword = null) {
         </div>
         <div class="keyword-panel-section">
             <h4>Ожидаемый эффект</h4>
-            <p>${escapeHtml(insight.expectedEffectText || '')}</p>
+            ${renderExpectedEffect(insight)}
         </div>
         ${renderActionsList('Разрешено', insight.allowedActions || [])}
         ${renderActionsList('Нельзя', insight.forbiddenActions || [], true)}
         <div class="keyword-panel-actions" data-insight-id="${escapeHtml(insight.insightId)}">
-            <button class="keyword-decision-btn accept ${decisionStatus === 'Accepted' ? 'active' : ''}" data-decision="accept">Принять</button>
+            <button class="keyword-decision-btn accept ${decisionStatus === 'Accepted' ? 'active' : ''}" data-decision="accept">В работу</button>
+            <button class="keyword-decision-btn accept ${decisionStatus === 'Applied' ? 'active' : ''}" data-decision="apply">Выполнено</button>
             <button class="keyword-decision-btn postpone ${decisionStatus === 'Postponed' ? 'active' : ''}" data-decision="postpone">Отложить</button>
             <button class="keyword-decision-btn reject ${decisionStatus === 'Rejected' ? 'active' : ''}" data-decision="reject">Отклонить</button>
         </div>
@@ -501,8 +506,9 @@ function setupInsightDecisionHandlers(panel, insightId) {
 
             try {
                 button.disabled = true;
-                await updateInsightDecision(insightId, decision);
-                await reloadKeywordOverlayAndPanel(insightId);
+                const update = await updateInsightDecision(insightId, decision);
+                applyInsightUpdate(update);
+                renderKeywordRowsAndPanel(insightId);
             } catch (error) {
                 console.error('Ошибка при обновлении решения insight:', error);
                 alert('Не удалось обновить решение');
@@ -518,8 +524,9 @@ function setupInsightDecisionHandlers(panel, insightId) {
         saveComment.addEventListener('click', async () => {
             try {
                 saveComment.disabled = true;
-                await updateInsightComment(insightId, comment.value);
-                await reloadKeywordOverlayAndPanel(insightId);
+                const update = await updateInsightComment(insightId, comment.value);
+                applyInsightUpdate(update);
+                renderKeywordRowsAndPanel(insightId);
             } catch (error) {
                 console.error('Ошибка при сохранении комментария insight:', error);
                 alert('Не удалось сохранить комментарий');
@@ -538,6 +545,8 @@ async function updateInsightDecision(insightId, decision) {
     if (!response || !response.ok) {
         throw new Error('Не удалось обновить решение');
     }
+
+    return await response.json();
 }
 
 async function updateInsightComment(insightId, userComment) {
@@ -549,13 +558,68 @@ async function updateInsightComment(insightId, userComment) {
     if (!response || !response.ok) {
         throw new Error('Не удалось сохранить комментарий');
     }
+
+    return await response.json();
 }
 
 async function reloadKeywordOverlayAndPanel(insightId) {
     await loadKeywordStats(keywordOverlayCampaignId, keywordOverlayFilters);
+    renderKeywordRowsAndPanel(insightId);
+}
+
+function renderKeywordRowsAndPanel(insightId) {
+    renderKeywordRows();
+
+    const body = document.getElementById('keywords-body');
+    if (body && insightId) {
+        const row = body.querySelector(`.keyword-row[data-insight-id="${cssEscape(insightId)}"]`);
+        if (row) {
+            row.classList.add('selected');
+        }
+    }
+
     const insight = findInsightDetail(insightId);
     const keyword = insight ? findKeywordRow(insight.keywordId) : null;
     renderKeywordInsightPanel(insight, keyword);
+}
+
+function applyInsightUpdate(update) {
+    if (!update) {
+        return;
+    }
+
+    const insightId = update.insightId ?? update.InsightId;
+    if (!insightId) {
+        return;
+    }
+
+    const decisionStatus = update.decisionStatus ?? update.DecisionStatus;
+    const userComment = update.userComment ?? update.UserComment;
+    const updatedAt = update.updatedAt ?? update.UpdatedAt;
+    const history = update.history ?? update.History;
+
+    const normalizedDecision = normalizeDecision(decisionStatus);
+    const insight = findInsightDetail(insightId);
+    if (insight) {
+        insight.decisionStatus = normalizedDecision;
+        insight.userComment = userComment ?? '';
+        insight.updatedAt = updatedAt || insight.updatedAt;
+        if (Array.isArray(history)) {
+            insight.history = history;
+        }
+    }
+
+    for (const row of keywordRows) {
+        if (row.mainInsightId === insightId) {
+            row.decisionStatus = normalizedDecision;
+        }
+    }
+
+    for (const row of keywordOverlay?.keywords || []) {
+        if (row.mainInsightId === insightId) {
+            row.decisionStatus = normalizedDecision;
+        }
+    }
 }
 
 function findInsightDetail(insightId) {
@@ -635,6 +699,27 @@ function renderActionsList(title, actions, isForbidden = false) {
             <div class="keyword-action-list">
                 ${actions.map(action => `<span>${escapeHtml(formatAction(action))}</span>`).join('')}
             </div>
+        </div>
+    `;
+}
+
+function renderExpectedEffect(insight) {
+    const type = String(insight.expectedEffectType || 'NotCalculated');
+    const money = insight.expectedEffectMoney === null || insight.expectedEffectMoney === undefined
+        ? ''
+        : `<strong>${escapeHtml(formatMoney(insight.expectedEffectMoney, 0))}</strong>`;
+    const typeLabels = {
+        Saving: 'Экономия',
+        AdditionalRevenue: 'Доп. выручка',
+        RiskReduction: 'Снижение риска',
+        NotCalculated: 'Не рассчитывается'
+    };
+
+    return `
+        <p>${escapeHtml(insight.expectedEffectText || '')}</p>
+        <div class="keyword-action-list">
+            <span>${escapeHtml(typeLabels[type] || type)}</span>
+            ${money ? `<span>${money}</span>` : ''}
         </div>
     `;
 }
@@ -856,9 +941,10 @@ function formatAction(action) {
 
 function formatHistoryType(type) {
     const types = {
-        Accepted: 'Принято',
+        Accepted: 'В работе',
         Postponed: 'Отложено',
         Rejected: 'Отклонено',
+        Applied: 'Выполнено',
         CommentUpdated: 'Комментарий'
     };
 
@@ -884,7 +970,7 @@ function normalizeStatus(value) {
 }
 
 function normalizeDecision(value) {
-    const values = ['None', 'Accepted', 'Postponed', 'Rejected'];
+    const values = ['None', 'Accepted', 'Postponed', 'Rejected', 'Applied'];
     const numeric = Number(value);
     if (Number.isInteger(numeric) && values[numeric]) {
         return values[numeric];
@@ -918,6 +1004,14 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function cssEscape(value) {
+    if (window.CSS?.escape) {
+        return window.CSS.escape(String(value));
+    }
+
+    return String(value).replace(/["\\]/g, '\\$&');
 }
 
 function setupKeywordSortHandlers() {

@@ -9,4 +9,6 @@ public sealed class RecommendationEngineOptions
     public int MinViewsForCtrConclusion { get; set; } = 1000;
     public int MaxInsightsForLlm { get; set; } = 20;
     public double PriorityMultiplier { get; set; } = 25d;
+    public decimal BadDrrSpendReductionCoefficient { get; set; } = 0.3m;
+    public decimal ScaleCandidateSpendIncreaseCoefficient { get; set; } = 0.2m;
 }

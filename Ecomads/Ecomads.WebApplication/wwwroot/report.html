@@ -68,6 +68,10 @@
         .status-rejected {
             color: var(--danger);
         }
+
+        .status-applied {
+            color: var(--success);
+        }
         
         .status-progress {
             height: 8px;
@@ -91,6 +95,10 @@
         
         .status-bar-rejected {
             background: var(--danger);
+        }
+
+        .status-bar-applied {
+            background: var(--success);
         }
         
         .report-table-container {
@@ -158,6 +166,10 @@
             background: var(--danger);
         }
 
+        .status-badge-applied {
+            background: var(--success);
+        }
+
         /* Графики */
         .chart-wrapper {
             width: 100%;
@@ -204,6 +216,10 @@
         
         .chart-bar-rejected {
             background: var(--danger);
+        }
+
+        .chart-bar-applied {
+            background: var(--success);
         }
         
         .chart-label {
@@ -361,7 +377,7 @@
                 <!-- КПЭ -->
                 <div class="grid mb-32">
                     <div class="kpi-card" style="grid-column: span 4;">
-                        <span class="text-label"><i data-feather="check-circle"></i> Принято рекомендаций</span>
+                        <span class="text-label"><i data-feather="check-circle"></i> В работе</span>
                         <div class="kpi-number" id="kpi-accepted">0</div>
                     </div>
                     <div class="kpi-card" style="grid-column: span 4;">
@@ -369,8 +385,20 @@
                         <div class="kpi-number" id="kpi-pending">0</div>
                     </div>
                     <div class="kpi-card" style="grid-column: span 4;">
-                        <span class="text-label"><i data-feather="x-circle"></i> Отклонено рекомендаций</span>
-                        <div class="kpi-number" id="kpi-rejected">0</div>
+                        <span class="text-label"><i data-feather="check-square"></i> Выполнено</span>
+                        <div class="kpi-number" id="kpi-applied">0</div>
+                    </div>
+                    <div class="kpi-card" style="grid-column: span 4;">
+                        <span class="text-label"><i data-feather="trending-down"></i> Ожидаемая экономия</span>
+                        <div class="kpi-number" id="kpi-saving">0 ₽</div>
+                    </div>
+                    <div class="kpi-card" style="grid-column: span 4;">
+                        <span class="text-label"><i data-feather="trending-up"></i> Потенциальная выручка</span>
+                        <div class="kpi-number" id="kpi-revenue">0 ₽</div>
+                    </div>
+                    <div class="kpi-card" style="grid-column: span 4;">
+                        <span class="text-label"><i data-feather="help-circle"></i> Без расчёта эффекта</span>
+                        <div class="kpi-number" id="kpi-not-calculated">0</div>
                     </div>
                 </div>
 
@@ -386,7 +414,7 @@
                 <div class="grid">
                     <div class="status-card" style="grid-column: span 4;">
                         <div class="status-header">
-                            <div class="status-title">Принятые</div>
+                            <div class="status-title">В работе</div>
                             <i data-feather="check-circle" class="status-accepted"></i>
                         </div>
                         <div class="status-value status-accepted" id="accepted-count">0</div>
@@ -410,13 +438,13 @@
 
                     <div class="status-card" style="grid-column: span 4;">
                         <div class="status-header">
-                            <div class="status-title">Отклоненные</div>
-                            <i data-feather="x-circle" class="status-rejected"></i>
+                            <div class="status-title">Выполненные</div>
+                            <i data-feather="check-square" class="status-applied"></i>
                         </div>
-                        <div class="status-value status-rejected" id="rejected-count">0</div>
-                        <div class="status-label"><span id="rejected-percent">0%</span> от общего числа</div>
+                        <div class="status-value status-applied" id="applied-count">0</div>
+                        <div class="status-label"><span id="applied-percent">0%</span> от общего числа</div>
                         <div class="status-progress">
-                            <div class="status-bar status-bar-rejected" id="rejected-progress" style="width: 0%"></div>
+                            <div class="status-bar status-bar-applied" id="applied-progress" style="width: 0%"></div>
                         </div>
                     </div>
                 </div>
@@ -429,9 +457,12 @@
                             <thead>
                                 <tr>
                                     <th>Рекомендация</th>
-                                    <th>Дата</th>
-                                    <th>Кампания</th>
+                                    <th>Действие</th>
                                     <th>Статус</th>
+                                    <th>Ожидаемый эффект</th>
+                                    <th>Фактический эффект</th>
+                                    <th>Период</th>
+                                    <th>Кампания</th>
                                     <th>Комментарий</th>
                                 </tr>
                             </thead>
@@ -535,7 +566,7 @@
             // Проверяем наличие необходимых данных
             if (!stats.counts) {
                 console.error('Отсутствует объект counts в данных статистики!');
-                stats.counts = { accepted: 0, pending: 0, rejected: 0 };
+                stats.counts = { accepted: 0, pending: 0, rejected: 0, applied: 0 };
             }
             
             if (!stats.monthly) {
@@ -551,27 +582,30 @@
             // Обновляем KPI
             document.getElementById('kpi-accepted').textContent = stats.counts.accepted;
             document.getElementById('kpi-pending').textContent = stats.counts.pending;
-            document.getElementById('kpi-rejected').textContent = stats.counts.rejected;
+            document.getElementById('kpi-applied').textContent = stats.counts.applied || 0;
+            document.getElementById('kpi-saving').textContent = formatMoney(stats.expectedSaving || 0);
+            document.getElementById('kpi-revenue').textContent = formatMoney(stats.expectedAdditionalRevenue || 0);
+            document.getElementById('kpi-not-calculated').textContent = stats.notCalculatedCount || 0;
             
             // Обновляем карточки статусов
             document.getElementById('accepted-count').textContent = stats.counts.accepted;
             document.getElementById('pending-count').textContent = stats.counts.pending;
-            document.getElementById('rejected-count').textContent = stats.counts.rejected;
+            document.getElementById('applied-count').textContent = stats.counts.applied || 0;
             
             // Рассчитываем проценты
-            const total = stats.counts.accepted + stats.counts.pending + stats.counts.rejected;
+            const total = stats.counts.accepted + stats.counts.pending + (stats.counts.applied || 0);
             const acceptedPercent = total > 0 ? Math.round((stats.counts.accepted / total) * 100) : 0;
             const pendingPercent = total > 0 ? Math.round((stats.counts.pending / total) * 100) : 0;
-            const rejectedPercent = total > 0 ? Math.round((stats.counts.rejected / total) * 100) : 0;
+            const appliedPercent = total > 0 ? Math.round(((stats.counts.applied || 0) / total) * 100) : 0;
             
             document.getElementById('accepted-percent').textContent = acceptedPercent + '%';
             document.getElementById('pending-percent').textContent = pendingPercent + '%';
-            document.getElementById('rejected-percent').textContent = rejectedPercent + '%';
+            document.getElementById('applied-percent').textContent = appliedPercent + '%';
             
             // Обновляем полосы прогресса
             document.getElementById('accepted-progress').style.width = acceptedPercent + '%';
             document.getElementById('pending-progress').style.width = pendingPercent + '%';
-            document.getElementById('rejected-progress').style.width = rejectedPercent + '%';
+            document.getElementById('applied-progress').style.width = appliedPercent + '%';
             
             // Обновляем график
             renderChart(stats.monthly);
@@ -599,7 +633,7 @@
             let maxValue = 0;
             monthlyData.forEach(month => {
                 // Находим максимальное абсолютное значение (не процент)
-                maxValue = Math.max(maxValue, month.accepted + month.pending + month.rejected);
+                maxValue = Math.max(maxValue, month.accepted + month.pending + (month.applied || 0));
             });
             
             // Если нет данных, устанавливаем минимальную высоту
@@ -613,7 +647,7 @@
                 // Рассчитываем высоту столбцов в пикселях
                 const acceptedHeight = Math.max(5, month.accepted * scale);
                 const pendingHeight = Math.max(5, month.pending * scale);
-                const rejectedHeight = Math.max(5, month.rejected * scale);
+                const appliedHeight = Math.max(5, (month.applied || 0) * scale);
                 
                 // Контейнер для группы столбцов
                 const monthGroup = document.createElement('div');
@@ -627,7 +661,7 @@
                 const acceptedBar = document.createElement('div');
                 acceptedBar.className = 'chart-bar chart-bar-accepted';
                 acceptedBar.style.height = acceptedHeight + 'px';
-                acceptedBar.setAttribute('title', `Принято: ${month.accepted}`);
+                acceptedBar.setAttribute('title', `В работе: ${month.accepted}`);
                 
                 // Столбец отложенных
                 const pendingBar = document.createElement('div');
@@ -635,16 +669,15 @@
                 pendingBar.style.height = pendingHeight + 'px';
                 pendingBar.setAttribute('title', `Отложено: ${month.pending}`);
                 
-                // Столбец отклоненных
-                const rejectedBar = document.createElement('div');
-                rejectedBar.className = 'chart-bar chart-bar-rejected';
-                rejectedBar.style.height = rejectedHeight + 'px';
-                rejectedBar.setAttribute('title', `Отклонено: ${month.rejected}`);
+                const appliedBar = document.createElement('div');
+                appliedBar.className = 'chart-bar chart-bar-applied';
+                appliedBar.style.height = appliedHeight + 'px';
+                appliedBar.setAttribute('title', `Выполнено: ${month.applied || 0}`);
                 
                 // Добавляем столбцы в контейнер
                 barsContainer.appendChild(acceptedBar);
                 barsContainer.appendChild(pendingBar);
-                barsContainer.appendChild(rejectedBar);
+                barsContainer.appendChild(appliedBar);
                 
                 // Подпись месяца
                 const monthLabel = document.createElement('div');
@@ -665,9 +698,9 @@
             
             // Элементы легенды
             const legendItems = [
-                { name: 'Принято', colorClass: 'legend-color-accepted' },
+                { name: 'В работе', colorClass: 'legend-color-accepted' },
                 { name: 'Отложено', colorClass: 'legend-color-pending' },
-                { name: 'Отклонено', colorClass: 'legend-color-rejected' }
+                { name: 'Выполнено', colorClass: 'legend-color-accepted' }
             ];
             
             // Создаем элементы легенды
@@ -705,7 +738,7 @@
             if (!recommendations || recommendations.length === 0) {
                 const row = document.createElement('tr');
                 const cell = document.createElement('td');
-                cell.colSpan = 5;
+                cell.colSpan = 8;
                 cell.textContent = 'Нет данных для отображения';
                 cell.style.textAlign = 'center';
                 row.appendChild(cell);
@@ -717,39 +750,16 @@
                 console.log('Обработка рекомендации:', rec);
                 const row = document.createElement('tr');
                 
-                // Текст рекомендации
                 const textCell = document.createElement('td');
-                textCell.style.color = '#0F172A'; // Явно задаем цвет
-                if (rec.text) {
-                    textCell.textContent = rec.text;
-                } else {
-                    console.warn('Отсутствует поле text в рекомендации:', rec);
-                    textCell.textContent = 'Нет текста рекомендации';
-                }
+                textCell.style.color = '#0F172A';
+                textCell.textContent = rec.entityName || rec.text || 'Insight';
                 row.appendChild(textCell);
-                
-                // Дата
-                const dateCell = document.createElement('td');
-                dateCell.style.color = '#0F172A'; // Явно задаем цвет
-                if (rec.date) {
-                    try {
-                        dateCell.textContent = new Date(rec.date).toLocaleDateString();
-                    } catch (e) {
-                        console.error('Ошибка форматирования даты:', e);
-                        dateCell.textContent = 'Некорректная дата';
-                    }
-                } else {
-                    dateCell.textContent = '-';
-                }
-                row.appendChild(dateCell);
-                
-                // Кампания
-                const campaignCell = document.createElement('td');
-                campaignCell.style.color = '#0F172A'; // Явно задаем цвет
-                campaignCell.textContent = rec.campaign || 'Не указана';
-                row.appendChild(campaignCell);
-                
-                // Статус
+
+                const actionCell = document.createElement('td');
+                actionCell.style.color = '#0F172A';
+                actionCell.textContent = rec.action || '-';
+                row.appendChild(actionCell);
+
                 const statusCell = document.createElement('td');
                 const statusBadge = document.createElement('span');
                 statusBadge.className = 'status-badge';
@@ -758,18 +768,18 @@
                     switch(rec.status.toLowerCase()) {
                         case 'accepted':
                         case 'принято':
-                            statusBadge.textContent = 'Принято';
+                            statusBadge.textContent = 'В работе';
                             statusBadge.classList.add('status-badge-accepted');
                             break;
                         case 'pending':
                         case 'отложено':
+                        case 'postponed':
                             statusBadge.textContent = 'Отложено';
                             statusBadge.classList.add('status-badge-pending');
                             break;
-                        case 'rejected':
-                        case 'отклонено':
-                            statusBadge.textContent = 'Отклонено';
-                            statusBadge.classList.add('status-badge-rejected');
+                        case 'applied':
+                            statusBadge.textContent = 'Выполнено';
+                            statusBadge.classList.add('status-badge-applied');
                             break;
                         default:
                             statusBadge.textContent = rec.status;
@@ -782,15 +792,59 @@
                 
                 statusCell.appendChild(statusBadge);
                 row.appendChild(statusCell);
+
+                const expectedCell = document.createElement('td');
+                expectedCell.style.color = '#0F172A';
+                expectedCell.textContent = formatEffect(rec.expectedEffectText, rec.expectedEffectMoney);
+                row.appendChild(expectedCell);
+
+                const actualCell = document.createElement('td');
+                actualCell.style.color = '#0F172A';
+                actualCell.textContent = formatActualEffect(rec);
+                row.appendChild(actualCell);
+
+                const periodCell = document.createElement('td');
+                periodCell.style.color = '#0F172A';
+                periodCell.textContent = rec.period || '-';
+                row.appendChild(periodCell);
+
+                const campaignCell = document.createElement('td');
+                campaignCell.style.color = '#0F172A';
+                campaignCell.textContent = rec.campaign || 'Не указана';
+                row.appendChild(campaignCell);
                 
                 // Комментарий
                 const commentCell = document.createElement('td');
-                commentCell.style.color = '#0F172A'; // Явно задаем цвет
+                commentCell.style.color = '#0F172A';
                 commentCell.textContent = rec.comment || '-';
                 row.appendChild(commentCell);
                 
                 tableBody.appendChild(row);
             });
+        }
+
+        function formatMoney(value) {
+            return `${Math.round(Number(value) || 0).toLocaleString('ru-RU')} ₽`;
+        }
+
+        function formatEffect(text, money) {
+            if (money !== null && money !== undefined) {
+                return `${formatMoney(money)} · ${text || ''}`.trim();
+            }
+
+            return text || '—';
+        }
+
+        function formatActualEffect(rec) {
+            if (rec.actualEffectStatus === 'WaitingForNextStats') {
+                return 'Ожидаем следующий период';
+            }
+
+            if (rec.actualEffectMoney !== null && rec.actualEffectMoney !== undefined) {
+                return `${formatMoney(rec.actualEffectMoney)} · ${rec.actualEffectText || ''}`;
+            }
+
+            return rec.actualEffectText || '—';
         }
     </script>
 

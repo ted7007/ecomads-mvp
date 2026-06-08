@@ -391,21 +391,14 @@ public class StatisticsController : ControllerBase
 
         var statsToAdd = new List<KeywordStatistics>();
 
-        var keywordRows = rows.Skip(2).ToList();
-        var keywordRowsSeen = 0;
+        var keywordRows = rows.Skip(2).SkipLast(1);
 
-        for (var rowIndex = 0; rowIndex < keywordRows.Count; rowIndex++)
+        foreach (var row in keywordRows)
         {
-            var row = keywordRows[rowIndex];
             var phrase = Get(row, idxPhrase);
 
             if (string.IsNullOrWhiteSpace(phrase))
                 continue;
-
-            if (IsKeywordSummaryRow(phrase, keywordRowsSeen, rowIndex == keywordRows.Count - 1))
-                continue;
-
-            keywordRowsSeen++;
 
             var freq = ParseInt(Get(row, idxFreq));
             var cpm = ParseDecimal(Get(row, idxCpm));
@@ -507,26 +500,6 @@ public class StatisticsController : ControllerBase
     }
 
     private static string? Get(Dictionary<int, string?> row, int idx) => row.TryGetValue(idx, out var v) ? v : null;
-
-    private static bool IsKeywordSummaryRow(string phrase, int keywordRowsSeen, bool isLastDataRow)
-    {
-        var trimmedPhrase = phrase.Trim();
-
-        if (trimmedPhrase.Contains("Итого", StringComparison.OrdinalIgnoreCase) ||
-            trimmedPhrase.Contains("Всего", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        var normalizedPhrase = trimmedPhrase
-            .Replace(" ", string.Empty)
-            .Replace("\u00A0", string.Empty);
-
-        return isLastDataRow &&
-               keywordRowsSeen > 0 &&
-               int.TryParse(normalizedPhrase, NumberStyles.Integer, CultureInfo.InvariantCulture, out var totalRows) &&
-               totalRows == keywordRowsSeen;
-    }
 
     private static decimal? ParseDecimal(string? s) =>
         decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : null;

@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecomads.WebApplication.Migrations
 {
     [DbContext(typeof(EcomadsDbContext))]
-    [Migration("20260423181441_AddAuthAndStores")]
-    partial class AddAuthAndStores
+    [Migration("20260608043225_initialMigration")]
+    partial class initialMigration
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -283,6 +283,160 @@ namespace Ecomads.WebApplication.Migrations
                     b.ToTable("recommendations", (string)null);
                 });
 
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.RecommendationInsightEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("id");
+
+                    b.Property<decimal?>("ActualEffectMoney")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("actual_effect_money");
+
+                    b.Property<string>("ActualEffectStatus")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("actual_effect_status");
+
+                    b.Property<string>("AllowedActionsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("allowed_actions");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<string>("ConfidenceLevel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("confidence_level");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DecisionStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("decision_status");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("entity_name");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("entity_type");
+
+                    b.Property<decimal?>("ExpectedEffectMoney")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("expected_effect_money");
+
+                    b.Property<string>("ExpectedEffectText")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("expected_effect_text");
+
+                    b.Property<string>("ExpectedEffectType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("expected_effect_type");
+
+                    b.Property<string>("ForbiddenActionsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("forbidden_actions");
+
+                    b.Property<string>("InsightType")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("insight_type");
+
+                    b.Property<string>("MetricsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("metrics");
+
+                    b.Property<DateTime>("PeriodFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("period_from");
+
+                    b.Property<DateTime>("PeriodTo")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("period_to");
+
+                    b.Property<string>("PriorityLevel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("priority_level");
+
+                    b.Property<double>("PriorityScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("priority_score");
+
+                    b.Property<string>("ReasonCodesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("reason_codes");
+
+                    b.Property<Guid>("RecommendationRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recommendation_run_id");
+
+                    b.Property<string>("RecommendedAction")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("recommended_action");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UserComment")
+                        .HasColumnType("text")
+                        .HasColumnName("user_comment");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DecisionStatus");
+
+                    b.HasIndex("RecommendationRunId");
+
+                    b.HasIndex("CampaignId", "EntityType", "EntityId");
+
+                    b.ToTable("recommendation_insights", (string)null);
+                });
+
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Seller", b =>
                 {
                     b.Property<Guid>("Id")
@@ -427,6 +581,25 @@ namespace Ecomads.WebApplication.Migrations
                         .HasConstraintName("FK_recommendations_compaigns_campaign_id");
 
                     b.Navigation("Campaign");
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.RecommendationInsightEntity", b =>
+                {
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Compaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_recommendation_insights_compaigns_campaign_id");
+
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Recommendation", "RecommendationRun")
+                        .WithMany()
+                        .HasForeignKey("RecommendationRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_recommendation_insights_recommendations_recommendation_run_id");
+
+                    b.Navigation("RecommendationRun");
                 });
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Store", b =>

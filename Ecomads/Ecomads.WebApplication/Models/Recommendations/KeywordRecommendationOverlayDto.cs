@@ -54,6 +54,9 @@ public sealed class KeywordRecommendationRowDto
     public ConfidenceLevel ConfidenceLevel { get; init; } = ConfidenceLevel.Low;
     public string? ShortRecommendation { get; init; }
     public RecommendationAction? RecommendedAction { get; init; }
+    public ExpectedEffectType ExpectedEffectType { get; init; } = ExpectedEffectType.NotCalculated;
+    public decimal? ExpectedEffectMoney { get; init; }
+    public string ExpectedEffectText { get; init; } = string.Empty;
     public string? MainInsightId { get; init; }
     public bool HasInsight { get; init; }
     public InsightDecisionStatus DecisionStatus { get; init; } = InsightDecisionStatus.None;
@@ -71,6 +74,8 @@ public sealed class KeywordRecommendationInsightDetailDto
     public Dictionary<string, decimal?> Metrics { get; init; } = new();
     public List<string> ReasonCodes { get; init; } = new();
     public string ShortExplanation { get; init; } = string.Empty;
+    public ExpectedEffectType ExpectedEffectType { get; init; } = ExpectedEffectType.NotCalculated;
+    public decimal? ExpectedEffectMoney { get; init; }
     public string ExpectedEffectText { get; init; } = string.Empty;
     public string RecommendedActionTitle { get; init; } = string.Empty;
     public string RecommendedActionDescription { get; init; } = string.Empty;
@@ -88,6 +93,9 @@ public sealed class CampaignRecommendationInsightDto
     public double PriorityScore { get; init; }
     public PriorityLevel PriorityLevel { get; init; }
     public string Text { get; init; } = string.Empty;
+    public ExpectedEffectType ExpectedEffectType { get; init; } = ExpectedEffectType.NotCalculated;
+    public decimal? ExpectedEffectMoney { get; init; }
+    public string ExpectedEffectText { get; init; } = string.Empty;
     public InsightDecisionStatus DecisionStatus { get; init; } = InsightDecisionStatus.None;
     public string? UserComment { get; init; }
     public List<InsightHistoryItemDto> History { get; init; } = new();

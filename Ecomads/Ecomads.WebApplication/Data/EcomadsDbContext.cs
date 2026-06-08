@@ -13,6 +13,7 @@ public class EcomadsDbContext : DbContext
     public DbSet<CompaignStatistics> CompaignStatistics { get; set; }
     public DbSet<KeywordStatistics> KeywordStatistics { get; set; }
     public DbSet<Recommendation> Recommendations { get; set; }
+    public DbSet<RecommendationInsightEntity> RecommendationInsights { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -135,6 +136,55 @@ public class EcomadsDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.CampaignId)
                 .HasConstraintName("FK_recommendations_compaigns_campaign_id");
+        });
+
+        modelBuilder.Entity<RecommendationInsightEntity>(entity =>
+        {
+            entity.ToTable("recommendation_insights");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").HasMaxLength(255);
+            entity.Property(e => e.RecommendationRunId).HasColumnName("recommendation_run_id");
+            entity.Property(e => e.CampaignId).HasColumnName("campaign_id");
+            entity.Property(e => e.PeriodFrom).HasColumnName("period_from");
+            entity.Property(e => e.PeriodTo).HasColumnName("period_to");
+            entity.Property(e => e.EntityType).HasColumnName("entity_type").HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.EntityId).HasColumnName("entity_id");
+            entity.Property(e => e.EntityName).HasColumnName("entity_name").HasMaxLength(500);
+            entity.Property(e => e.InsightType).HasColumnName("insight_type").HasConversion<string>().HasMaxLength(80);
+            entity.Property(e => e.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.PriorityScore).HasColumnName("priority_score");
+            entity.Property(e => e.PriorityLevel).HasColumnName("priority_level").HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.ConfidenceLevel).HasColumnName("confidence_level").HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.RecommendedAction).HasColumnName("recommended_action").HasConversion<string>().HasMaxLength(80);
+            entity.Property(e => e.DecisionStatus).HasColumnName("decision_status").HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.UserComment).HasColumnName("user_comment").HasColumnType("text");
+            entity.Property(e => e.ExpectedEffectType).HasColumnName("expected_effect_type").HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.ExpectedEffectMoney).HasColumnName("expected_effect_money").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ExpectedEffectText).HasColumnName("expected_effect_text").HasColumnType("text");
+            entity.Property(e => e.ActualEffectMoney).HasColumnName("actual_effect_money").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ActualEffectStatus).HasColumnName("actual_effect_status").HasMaxLength(80);
+            entity.Property(e => e.MetricsJson).HasColumnName("metrics").HasColumnType("jsonb").HasDefaultValue("{}");
+            entity.Property(e => e.ReasonCodesJson).HasColumnName("reason_codes").HasColumnType("jsonb").HasDefaultValue("[]");
+            entity.Property(e => e.AllowedActionsJson).HasColumnName("allowed_actions").HasColumnType("jsonb").HasDefaultValue("[]");
+            entity.Property(e => e.ForbiddenActionsJson).HasColumnName("forbidden_actions").HasColumnType("jsonb").HasDefaultValue("[]");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+            entity.HasOne(e => e.RecommendationRun)
+                .WithMany()
+                .HasForeignKey(e => e.RecommendationRunId)
+                .HasConstraintName("FK_recommendation_insights_recommendations_recommendation_run_id")
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Compaign>()
+                .WithMany()
+                .HasForeignKey(e => e.CampaignId)
+                .HasConstraintName("FK_recommendation_insights_compaigns_campaign_id")
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.RecommendationRunId);
+            entity.HasIndex(e => new { e.CampaignId, e.EntityType, e.EntityId });
+            entity.HasIndex(e => e.DecisionStatus);
         });
     }
 }

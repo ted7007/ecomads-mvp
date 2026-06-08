@@ -25,6 +25,7 @@ public class RecommendationService : IRecommendationService
     private readonly IPriorityScoringService _priorityScoringService;
     private readonly IInsightSelectionService _insightSelectionService;
     private readonly IRecommendationPromptBuilder _promptBuilder;
+    private readonly IRecommendationInsightEntityMapper _insightEntityMapper;
     private readonly ILlmRecommendationTextService _llmRecommendationTextService;
     private readonly RecommendationEngineOptions _options;
     private readonly IConfiguration _configuration;
@@ -45,6 +46,7 @@ public class RecommendationService : IRecommendationService
         IPriorityScoringService priorityScoringService,
         IInsightSelectionService insightSelectionService,
         IRecommendationPromptBuilder promptBuilder,
+        IRecommendationInsightEntityMapper insightEntityMapper,
         ILlmRecommendationTextService llmRecommendationTextService,
         IOptions<RecommendationEngineOptions> options,
         IConfiguration configuration,
@@ -58,6 +60,7 @@ public class RecommendationService : IRecommendationService
         _priorityScoringService = priorityScoringService;
         _insightSelectionService = insightSelectionService;
         _promptBuilder = promptBuilder;
+        _insightEntityMapper = insightEntityMapper;
         _llmRecommendationTextService = llmRecommendationTextService;
         _options = options.Value;
         _configuration = configuration;
@@ -145,6 +148,20 @@ public class RecommendationService : IRecommendationService
         };
 
         _dbContext.Recommendations.Add(recommendation);
+        var periodFrom = statistics?.StartDate
+            ?? keywordStatistics.MinBy(keyword => keyword.StartDate)?.StartDate
+            ?? DateTime.UtcNow.Date;
+        var periodTo = statistics?.EndDate
+            ?? keywordStatistics.MaxBy(keyword => keyword.EndDate)?.EndDate
+            ?? periodFrom;
+
+        _dbContext.RecommendationInsights.AddRange(scoredInsights.Select(insight =>
+            _insightEntityMapper.Map(
+                recommendation,
+                insight,
+                periodFrom,
+                periodTo)));
+
         await _dbContext.SaveChangesAsync();
 
         _logger.LogInformation(
