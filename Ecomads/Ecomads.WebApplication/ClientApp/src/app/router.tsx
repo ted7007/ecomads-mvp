@@ -1,49 +1,47 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
-import { Box, Button, Card, CardContent, Container, Stack, Typography } from '@mui/material';
-import { LoadingState } from '../shared/ui/LoadingState';
-
-function AppPlaceholderPage() {
-  return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', py: 6 }}>
-      <Container maxWidth="md">
-        <Card>
-          <CardContent>
-            <Stack spacing={2}>
-              <Typography component="h1" variant="h4" fontWeight={700}>
-                EcomAds React frontend
-              </Typography>
-              <Typography color="text.secondary">
-                Технический placeholder для изолированного ClientApp. Реальные страницы пока не перенесены.
-              </Typography>
-              <Stack direction="row" spacing={2}>
-                <Button href="/dashboard.html" variant="contained">
-                  Legacy dashboard
-                </Button>
-                <Button href="/report.html" variant="outlined">
-                  Legacy report
-                </Button>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Container>
-    </Box>
-  );
-}
+import { CampaignPage } from '../pages/CampaignPage/CampaignPage';
+import { DashboardPage } from '../pages/DashboardPage/DashboardPage';
+import { LoginPage } from '../pages/LoginPage/LoginPage';
+import { ReportPage } from '../pages/ReportPage/ReportPage';
+import { RequireAuth } from '../shared/auth/RequireAuth';
+import { AppLayout } from '../shared/ui/AppLayout';
+import { appRoutes } from './routes';
 
 export const router = createBrowserRouter(
   [
     {
-      path: '/',
-      element: <AppPlaceholderPage />
+      path: appRoutes.login,
+      element: <LoginPage />
     },
     {
-      path: '/report-placeholder',
-      element: <LoadingState title="Report placeholder" description="React report page будет добавлена отдельной задачей." />
+      element: <RequireAuth />,
+      children: [
+        {
+          element: <AppLayout />,
+          children: [
+            {
+              path: appRoutes.root,
+              element: <Navigate to={appRoutes.dashboard} replace />
+            },
+            {
+              path: appRoutes.dashboard,
+              element: <DashboardPage />
+            },
+            {
+              path: appRoutes.report,
+              element: <ReportPage />
+            },
+            {
+              path: appRoutes.campaign,
+              element: <CampaignPage />
+            }
+          ]
+        }
+      ]
     },
     {
       path: '*',
-      element: <Navigate to="/" replace />
+      element: <Navigate to={appRoutes.dashboard} replace />
     }
   ],
   {

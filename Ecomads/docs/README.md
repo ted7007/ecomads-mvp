@@ -9,6 +9,7 @@
 - `migration/` — общая стратегия постепенной миграции.
 - `refactoring-tasks/` — планы конкретных задач рефакторинга.
 - `scenario-plans/` — промпты и планы под конкретные рабочие ситуации.
+- `expert-review/` — документы для передачи внешним экспертам на оценку бизнес-логики.
 
 ## Рекомендуемый порядок чтения
 
@@ -22,6 +23,7 @@
 
 ## Рекомендательная система
 
+0. `expert-review/recommendation-logic-for-marketplace-expert.md`
 1. `architecture/recommendation-engine.md`
 2. `guidelines/recommendation-business-rules.md`
 3. `refactoring-tasks/03-recommendation-engine-mvp.md`

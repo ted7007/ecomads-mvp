@@ -4,7 +4,9 @@ export const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#4F46E5'
+      main: '#FF6B4A',
+      dark: '#E85A3A',
+      contrastText: '#FFFFFF'
     },
     success: {
       main: '#10B981'
@@ -39,7 +41,8 @@ export const theme = createTheme({
     MuiCard: {
       styleOverrides: {
         root: {
-          boxShadow: '0 20px 45px rgba(15, 23, 42, 0.08)'
+          backgroundColor: '#F8FAFC',
+          boxShadow: '0 20px 25px -12px rgba(0,0,0,0.5)'
         }
       }
     },

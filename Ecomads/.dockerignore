@@ -1,0 +1,13 @@
+**/.git/
+**/.idea/
+**/.vs/
+**/bin/
+**/obj/
+**/node_modules/
+
+artifacts/
+TestConsoleApp/bin/
+TestConsoleApp/obj/
+
+Ecomads.WebApplication/ClientApp/dist/
+Ecomads.WebApplication/wwwroot/app/

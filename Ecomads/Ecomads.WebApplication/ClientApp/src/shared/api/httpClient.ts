@@ -26,6 +26,12 @@ export async function httpClient<TResponse>(url: string, options: HttpClientOpti
     return undefined as TResponse;
   }
 
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!contentType.includes('application/json')) {
+    return (await response.text()) as TResponse;
+  }
+
   return (await response.json()) as TResponse;
 }
 
@@ -53,7 +59,7 @@ export async function sendRequest(url: string, options: HttpClientOptions = {}):
 
   if (response.status === 401) {
     clearAuth();
-    window.location.href = '/index.html';
+    window.location.href = '/app/login';
   }
 
   if (!response.ok) {
