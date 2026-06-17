@@ -109,7 +109,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.UseDefaultFiles();
 app.UseStaticFiles();
 
 // Добавляем middleware для аутентификации и авторизации
@@ -117,6 +116,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapGet("/", () => Results.Redirect("/app/"));
+app.MapGet("/app", () => Results.Redirect("/app/"));
 app.MapFallbackToFile("/app/{*path:nonfile}", "app/index.html");
 
 app.Run();

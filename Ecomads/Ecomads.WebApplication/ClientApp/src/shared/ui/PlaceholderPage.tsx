@@ -1,5 +1,4 @@
 import { Button, Card, CardContent, Stack, Typography } from '@mui/material';
-import { legacyRoutes } from '../../app/routes';
 import { PageHeader } from './PageHeader';
 
 type PlaceholderPageProps = {
@@ -22,12 +21,9 @@ export function PlaceholderPage({ title, description, legacyHref }: PlaceholderP
             <Stack direction="row" spacing={2}>
               {legacyHref ? (
                 <Button href={legacyHref} variant="contained">
-                  Открыть legacy
+                  Открыть
                 </Button>
               ) : null}
-              <Button href={legacyRoutes.dashboard} variant="outlined">
-                Legacy dashboard
-              </Button>
             </Stack>
           </Stack>
         </CardContent>
@@ -35,4 +31,3 @@ export function PlaceholderPage({ title, description, legacyHref }: PlaceholderP
     </Stack>
   );
 }
-

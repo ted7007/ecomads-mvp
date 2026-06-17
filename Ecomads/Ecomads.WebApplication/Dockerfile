@@ -18,6 +18,7 @@ RUN dotnet restore "Ecomads.WebApplication/Ecomads.WebApplication.csproj"
 
 # Копируем остальной исходный код и собираем
 COPY . .
+RUN rm -rf Ecomads.WebApplication/wwwroot
 COPY --from=client-build /src/Ecomads.WebApplication/wwwroot/app ./Ecomads.WebApplication/wwwroot/app
 WORKDIR "/src/Ecomads.WebApplication"
 RUN dotnet publish "Ecomads.WebApplication.csproj" -c Release -o /app/publish /p:UseAppHost=false
