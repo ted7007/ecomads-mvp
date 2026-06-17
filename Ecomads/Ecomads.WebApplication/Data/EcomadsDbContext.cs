@@ -14,6 +14,9 @@ public class EcomadsDbContext : DbContext
     public DbSet<KeywordStatistics> KeywordStatistics { get; set; }
     public DbSet<Recommendation> Recommendations { get; set; }
     public DbSet<RecommendationInsightEntity> RecommendationInsights { get; set; }
+    public DbSet<DemoFeedback> DemoFeedbacks { get; set; }
+    public DbSet<ProductUsageEvent> ProductUsageEvents { get; set; }
+    public DbSet<LlmUsageEvent> LlmUsageEvents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,9 +31,107 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.Phone).HasMaxLength(50).HasColumnName("phone");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at");
+            entity.Property(e => e.IsDemoUser).HasColumnName("is_demo_user").HasDefaultValue(false);
+            entity.Property(e => e.AccessType).HasColumnName("access_type").HasDefaultValue(UserAccessType.Regular);
+            entity.Property(e => e.DemoStatus).HasColumnName("demo_status").HasDefaultValue(DemoAccessStatus.None);
+            entity.Property(e => e.DemoStartedAtUtc).HasColumnName("demo_started_at_utc");
+            entity.Property(e => e.DemoExpiresAtUtc).HasColumnName("demo_expires_at_utc");
+            entity.Property(e => e.DemoFeedbackSubmittedAtUtc).HasColumnName("demo_feedback_submitted_at_utc");
+            entity.Property(e => e.MvpAccessGrantedAtUtc).HasColumnName("mvp_access_granted_at_utc");
             
             // Email должен быть уникальным
             entity.HasIndex(e => e.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<DemoFeedback>(entity =>
+        {
+            entity.ToTable("demo_feedbacks");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.GeneralComment).IsRequired().HasColumnName("general_comment").HasColumnType("text");
+            entity.Property(e => e.DashboardClarityScore).HasColumnName("dashboard_clarity_score");
+            entity.Property(e => e.RecommendationsUsefulnessScore).HasColumnName("recommendations_usefulness_score");
+            entity.Property(e => e.WrongOrQuestionableRecommendations).HasColumnName("wrong_or_questionable_recommendations").HasColumnType("text");
+            entity.Property(e => e.MostUsefulFeature).IsRequired().HasColumnName("most_useful_feature").HasMaxLength(80);
+            entity.Property(e => e.MissingForRegularUsage).HasColumnName("missing_for_regular_usage").HasColumnType("text");
+            entity.Property(e => e.ContinueTestingAnswer).IsRequired().HasColumnName("continue_testing_answer").HasMaxLength(40);
+            entity.Property(e => e.WillingToPayAnswer).IsRequired().HasColumnName("willing_to_pay_answer").HasMaxLength(40);
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+
+            entity.HasOne<Seller>()
+                .WithOne()
+                .HasForeignKey<DemoFeedback>(e => e.UserId)
+                .HasConstraintName("FK_demo_feedbacks_sellers_user_id")
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.UserId).IsUnique();
+        });
+
+        modelBuilder.Entity<ProductUsageEvent>(entity =>
+        {
+            entity.ToTable("product_usage_events");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.EventName).IsRequired().HasColumnName("event_name").HasMaxLength(120);
+            entity.Property(e => e.FeatureName).IsRequired().HasColumnName("feature_name").HasMaxLength(120);
+            entity.Property(e => e.CampaignId).HasColumnName("campaign_id");
+            entity.Property(e => e.KeywordId).HasColumnName("keyword_id");
+            entity.Property(e => e.LlmUsageId).HasColumnName("llm_usage_id");
+            entity.Property(e => e.MetadataJson).HasColumnName("metadata_json").HasColumnType("jsonb");
+            entity.Property(e => e.Path).HasColumnName("path").HasMaxLength(500);
+            entity.Property(e => e.Method).HasColumnName("method").HasMaxLength(20);
+            entity.Property(e => e.UserAgent).HasColumnName("user_agent").HasMaxLength(500);
+            entity.Property(e => e.IpHash).HasColumnName("ip_hash").HasMaxLength(128);
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+
+            entity.HasOne<LlmUsageEvent>()
+                .WithMany()
+                .HasForeignKey(e => e.LlmUsageId)
+                .HasConstraintName("FK_product_usage_events_llm_usage_events_llm_usage_id")
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.FeatureName);
+            entity.HasIndex(e => e.EventName);
+            entity.HasIndex(e => e.CreatedAtUtc);
+            entity.HasIndex(e => e.LlmUsageId);
+            entity.HasIndex(e => e.CampaignId);
+        });
+
+        modelBuilder.Entity<LlmUsageEvent>(entity =>
+        {
+            entity.ToTable("llm_usage_events");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.CampaignId).HasColumnName("campaign_id");
+            entity.Property(e => e.KeywordId).HasColumnName("keyword_id");
+            entity.Property(e => e.Provider).IsRequired().HasColumnName("provider").HasMaxLength(80);
+            entity.Property(e => e.Model).IsRequired().HasColumnName("model").HasMaxLength(120);
+            entity.Property(e => e.OperationName).IsRequired().HasColumnName("operation_name").HasMaxLength(160);
+            entity.Property(e => e.PromptTokens).HasColumnName("prompt_tokens");
+            entity.Property(e => e.CompletionTokens).HasColumnName("completion_tokens");
+            entity.Property(e => e.TotalTokens).HasColumnName("total_tokens");
+            entity.Property(e => e.BothubCaps).HasColumnName("bothub_caps").HasColumnType("decimal(18,6)");
+            entity.Property(e => e.EstimatedCostRub).HasColumnName("estimated_cost_rub").HasColumnType("decimal(18,6)");
+            entity.Property(e => e.IsSuccess).HasColumnName("is_success");
+            entity.Property(e => e.HttpStatusCode).HasColumnName("http_status_code");
+            entity.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(120);
+            entity.Property(e => e.ErrorMessage).HasColumnName("error_message").HasMaxLength(1000);
+            entity.Property(e => e.DurationMs).HasColumnName("duration_ms");
+            entity.Property(e => e.RequestMetadataJson).HasColumnName("request_metadata_json").HasColumnType("jsonb");
+            entity.Property(e => e.ResponseMetadataJson).HasColumnName("response_metadata_json").HasColumnType("jsonb");
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.CampaignId);
+            entity.HasIndex(e => e.Provider);
+            entity.HasIndex(e => e.Model);
+            entity.HasIndex(e => e.OperationName);
+            entity.HasIndex(e => e.CreatedAtUtc);
+            entity.HasIndex(e => e.IsSuccess);
         });
 
         modelBuilder.Entity<Store>(entity =>

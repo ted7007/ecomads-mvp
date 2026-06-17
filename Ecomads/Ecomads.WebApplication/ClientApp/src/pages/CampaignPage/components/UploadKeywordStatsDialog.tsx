@@ -1,4 +1,4 @@
-import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField } from '@mui/material';
+import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material';
 import { useState } from 'react';
 import type { UploadKeywordStatsRequest } from '../campaignApi';
 
@@ -33,6 +33,9 @@ export function UploadKeywordStatsDialog({ campaignId, open, isUploading, error,
       <DialogTitle>Загрузка ключевых слов</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
+          <Typography color="text.secondary">
+            Загрузите статистику по ключевым словам из Эвирмы. Выберите тот же период, за который выгружали отчет.
+          </Typography>
           {(localError || error) ? <Alert severity="error">{localError || error}</Alert> : null}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField InputLabelProps={{ shrink: true }} fullWidth label="С даты" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
@@ -42,7 +45,7 @@ export function UploadKeywordStatsDialog({ campaignId, open, isUploading, error,
             InputLabelProps={{ shrink: true }}
             fullWidth
             inputProps={{ accept: '.xlsx' }}
-            label="Файл статистики по ключевым словам (.xlsx)"
+            label="Статистика по ключевым словам из Эвирмы (.xlsx)"
             type="file"
             onChange={(event) => setFile((event.target as HTMLInputElement).files?.[0] ?? null)}
           />
@@ -59,4 +62,3 @@ export function UploadKeywordStatsDialog({ campaignId, open, isUploading, error,
     </Dialog>
   );
 }
-

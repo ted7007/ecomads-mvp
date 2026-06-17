@@ -3,7 +3,17 @@ import { z } from 'zod';
 export const currentUserSchema = z.object({
   id: z.string(),
   name: z.string(),
-  email: z.string().email()
+  email: z.string().email(),
+  phone: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  lastLoginAt: z.string().nullable().optional(),
+  isDemoUser: z.boolean().optional(),
+  accessType: z.number().optional(),
+  demoStatus: z.number().optional(),
+  demoStartedAtUtc: z.string().nullable().optional(),
+  demoExpiresAtUtc: z.string().nullable().optional(),
+  demoFeedbackSubmittedAtUtc: z.string().nullable().optional(),
+  mvpAccessGrantedAtUtc: z.string().nullable().optional()
 });
 
 export const tokenResponseSchema = z.object({
@@ -12,4 +22,3 @@ export const tokenResponseSchema = z.object({
   name: z.string(),
   email: z.string().email()
 });
-

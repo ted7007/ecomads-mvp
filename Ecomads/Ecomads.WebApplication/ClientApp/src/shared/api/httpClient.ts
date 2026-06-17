@@ -59,7 +59,14 @@ export async function sendRequest(url: string, options: HttpClientOptions = {}):
 
   if (response.status === 401) {
     clearAuth();
-    window.location.href = '/app/login';
+    window.location.href = '/login';
+  }
+
+  if (response.status === 403) {
+    const redirectTo = await getRedirectTo(response.clone());
+    if (redirectTo && window.location.pathname !== redirectTo) {
+      window.location.href = redirectTo;
+    }
   }
 
   if (!response.ok) {
@@ -67,6 +74,16 @@ export async function sendRequest(url: string, options: HttpClientOptions = {}):
   }
 
   return response;
+}
+
+async function getRedirectTo(response: Response): Promise<string | null> {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+
+  const data = (await response.json().catch(() => null)) as { redirectTo?: string } | null;
+  return typeof data?.redirectTo === 'string' ? data.redirectTo : null;
 }
 
 async function getErrorMessage(response: Response): Promise<string> {

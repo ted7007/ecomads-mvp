@@ -3,7 +3,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
+using Ecomads.WebApplication.Models;
 using Ecomads.WebApplication.Models.Recommendations;
+using Ecomads.WebApplication.Services.Analytics;
 using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -27,6 +29,7 @@ public class RecommendationService : IRecommendationService
     private readonly IRecommendationPromptBuilder _promptBuilder;
     private readonly IRecommendationInsightEntityMapper _insightEntityMapper;
     private readonly ILlmRecommendationTextService _llmRecommendationTextService;
+    private readonly IProductAnalyticsService _productAnalyticsService;
     private readonly RecommendationEngineOptions _options;
     private readonly IConfiguration _configuration;
     private readonly ILogger<RecommendationService> _logger;
@@ -48,6 +51,7 @@ public class RecommendationService : IRecommendationService
         IRecommendationPromptBuilder promptBuilder,
         IRecommendationInsightEntityMapper insightEntityMapper,
         ILlmRecommendationTextService llmRecommendationTextService,
+        IProductAnalyticsService productAnalyticsService,
         IOptions<RecommendationEngineOptions> options,
         IConfiguration configuration,
         ILogger<RecommendationService> logger)
@@ -62,6 +66,7 @@ public class RecommendationService : IRecommendationService
         _promptBuilder = promptBuilder;
         _insightEntityMapper = insightEntityMapper;
         _llmRecommendationTextService = llmRecommendationTextService;
+        _productAnalyticsService = productAnalyticsService;
         _options = options.Value;
         _configuration = configuration;
         _logger = logger;
@@ -69,11 +74,16 @@ public class RecommendationService : IRecommendationService
 
     public async Task<Recommendation?> GenerateRecommendationAsync(Guid campaignId, string goal)
     {
-        var campaign = await _dbContext.Compaigns.FindAsync(campaignId);
+        var campaign = await _dbContext.Compaigns
+            .Include(item => item.Store)
+            .FirstOrDefaultAsync(item => item.Id == campaignId);
+
         if (campaign == null)
         {
             return null;
         }
+
+        var sellerId = campaign.Store.SellerId;
 
         var statistics = await _dbContext.CompaignStatistics
             .Where(stat => stat.CompaignId == campaignId && stat.Type == CompaignStatisticsType.General)
@@ -108,7 +118,31 @@ public class RecommendationService : IRecommendationService
         var selectedInsights = _insightSelectionService.SelectForLlm(scoredInsights);
 
         var prompt = _promptBuilder.BuildPrompt(context, selectedInsights);
-        var llmResult = await _llmRecommendationTextService.GenerateTextAsync(prompt);
+
+        await _productAnalyticsService.TrackAsync(new ProductUsageEventCreateDto
+        {
+            UserId = sellerId,
+            EventName = ProductEvents.LlmRecommendationRequested,
+            FeatureName = ProductFeatures.LlmRecommendations,
+            CampaignId = campaignId,
+            Metadata = new
+            {
+                goalType = goalType.ToString(),
+                selectedInsightsCount = selectedInsights.Count,
+                source = "llm",
+                model = _configuration["OpenAI:Model"]
+            }
+        });
+
+        var llmResult = await _llmRecommendationTextService.GenerateTextAsync(
+            prompt,
+            new LlmRecommendationTextContext(
+                sellerId,
+                campaignId,
+                null,
+                LlmOperations.GenerateCampaignRecommendations,
+                selectedInsights.Count));
+
         var finalText = llmResult.GeneratedWithoutLlm
             ? BuildTechnicalFallbackText(context, selectedInsights, llmResult.Error)
             : llmResult.Text;
@@ -141,6 +175,7 @@ public class RecommendationService : IRecommendationService
                 timestamp = DateTime.UtcNow,
                 recommendationEngineVersion = additionalData.MetricsVersion,
                 generatedWithoutLlm = llmResult.GeneratedWithoutLlm,
+                llmUsageId = llmResult.LlmUsageId,
                 llmError = llmResult.Error
             }, JsonOptions),
             AdditionalData = JsonSerializer.Serialize(additionalData, JsonOptions),
@@ -164,13 +199,54 @@ public class RecommendationService : IRecommendationService
 
         await _dbContext.SaveChangesAsync();
 
+        if (llmResult.GeneratedWithoutLlm)
+        {
+            await _productAnalyticsService.TrackAsync(new ProductUsageEventCreateDto
+            {
+                UserId = sellerId,
+                EventName = ProductEvents.LlmRecommendationFailed,
+                FeatureName = ProductFeatures.LlmRecommendations,
+                CampaignId = campaignId,
+                LlmUsageId = llmResult.LlmUsageId,
+                Metadata = new
+                {
+                    recommendationId = recommendation.Id,
+                    goalType = goalType.ToString(),
+                    selectedInsightsCount = selectedInsights.Count,
+                    source = "llm_fallback",
+                    fallbackSource = "deterministic",
+                    error = llmResult.Error
+                }
+            });
+        }
+        else
+        {
+            await _productAnalyticsService.TrackAsync(new ProductUsageEventCreateDto
+            {
+                UserId = sellerId,
+                EventName = ProductEvents.LlmRecommendationGenerated,
+                FeatureName = ProductFeatures.LlmRecommendations,
+                CampaignId = campaignId,
+                LlmUsageId = llmResult.LlmUsageId,
+                Metadata = new
+                {
+                    recommendationId = recommendation.Id,
+                    goalType = goalType.ToString(),
+                    selectedInsightsCount = selectedInsights.Count,
+                    source = "llm"
+                }
+            });
+        }
+
         _logger.LogInformation(
-            "Рекомендация сохранена в БД: {RecommendationId} для кампании {CampaignId}. Insights: {InsightsCount}, Selected: {SelectedCount}, WithoutLlm: {WithoutLlm}",
+            "Recommendation saved. RecommendationId: {RecommendationId}, CampaignId: {CampaignId}, UserId: {UserId}, Insights: {InsightsCount}, Selected: {SelectedCount}, WithoutLlm: {WithoutLlm}, LlmUsageId: {LlmUsageId}",
             recommendation.Id,
             campaignId,
+            sellerId,
             scoredInsights.Count,
             selectedInsights.Count,
-            llmResult.GeneratedWithoutLlm);
+            llmResult.GeneratedWithoutLlm,
+            llmResult.LlmUsageId);
 
         return recommendation;
     }

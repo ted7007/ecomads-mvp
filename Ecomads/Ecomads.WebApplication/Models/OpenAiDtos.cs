@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Ecomads.WebApplication.Models;
 
 public class CampaignAnalyticsDto
@@ -22,15 +24,51 @@ public class TopKeywordDto
 
 public class LlmResponse
 {
-    public List<Choice> choices { get; set; }
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("created")]
+    public long? Created { get; set; }
+
+    [JsonPropertyName("choices")]
+    public List<Choice>? Choices { get; set; }
+
+    [JsonPropertyName("usage")]
+    public LlmUsage? Usage { get; set; }
 
     public class Choice
     {
-        public Message message { get; set; }
+        [JsonPropertyName("message")]
+        public Message? Message { get; set; }
     }
 
     public class Message
     {
-        public string content { get; set; }
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+    }
+
+    public class LlmUsage
+    {
+        [JsonPropertyName("prompt_tokens")]
+        public int? PromptTokens { get; set; }
+
+        [JsonPropertyName("completion_tokens")]
+        public int? CompletionTokens { get; set; }
+
+        [JsonPropertyName("total_tokens")]
+        public int? TotalTokens { get; set; }
+
+        [JsonPropertyName("bothub")]
+        public BothubUsage? Bothub { get; set; }
+    }
+
+    public class BothubUsage
+    {
+        [JsonPropertyName("caps")]
+        public decimal? Caps { get; set; }
     }
 }

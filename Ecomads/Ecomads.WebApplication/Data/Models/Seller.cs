@@ -28,6 +28,20 @@ public class Seller
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     
     public DateTime? LastLoginAt { get; set; }
+
+    public bool IsDemoUser { get; set; }
+
+    public UserAccessType AccessType { get; set; } = UserAccessType.Regular;
+
+    public DemoAccessStatus DemoStatus { get; set; } = DemoAccessStatus.None;
+
+    public DateTime? DemoStartedAtUtc { get; set; }
+
+    public DateTime? DemoExpiresAtUtc { get; set; }
+
+    public DateTime? DemoFeedbackSubmittedAtUtc { get; set; }
+
+    public DateTime? MvpAccessGrantedAtUtc { get; set; }
     
     // Навигационные свойства
     public virtual ICollection<Store> Stores { get; set; } = new List<Store>();

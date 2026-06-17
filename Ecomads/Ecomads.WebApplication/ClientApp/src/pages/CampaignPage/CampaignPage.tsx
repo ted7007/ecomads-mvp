@@ -18,6 +18,7 @@ import {
   getCampaignPeriods,
   getCampaignSummary,
   getKeywordOverlay,
+  trackKeywordRecommendationOpened,
   updateInsightComment,
   updateInsightDecision,
   uploadKeywordStats,
@@ -139,6 +140,18 @@ export function CampaignPage() {
   const handleSelectRow = (row: KeywordRecommendationRow) => {
     setSelectedKeywordId(row.keywordId);
     setSelectedInsightId(row.mainInsightId ?? '');
+
+    if (row.mainInsightId) {
+      void trackKeywordRecommendationOpened({
+        campaignId: campaignIdValue,
+        keywordId: row.keywordId,
+        insightId: row.mainInsightId,
+        recommendationStatus: row.status,
+        actionType: row.recommendedAction,
+        priorityScore: row.priorityScore,
+        source: overlay?.recommendationSummary.generatedWithoutLlm ? 'deterministic' : 'llm'
+      }).catch(() => undefined);
+    }
   };
 
   const handleCloseDetails = () => {

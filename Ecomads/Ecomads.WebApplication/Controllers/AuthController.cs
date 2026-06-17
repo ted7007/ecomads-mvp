@@ -56,7 +56,7 @@ public class AuthController : ControllerBase
     }
     
     /// <summary>
-    /// Регистрация нового пользователя (только для тестирования)
+    /// Создание demo-user на 3 дня. Публичная regular-регистрация закрыта до открытия продукта.
     /// </summary>
     [HttpPost("register")]
     [AllowAnonymous]
@@ -71,14 +71,24 @@ public class AuthController : ControllerBase
             return Conflict(new { message = "Пользователь с таким email уже существует" });
         }
 
-        // Создаем нового пользователя
+        var now = DateTime.UtcNow;
+        var demoExpiresAtUtc = now.AddDays(3);
+
+        // Создаем demo-user вместо regular-пользователя до открытия продукта
         var seller = new Seller
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
             Email = request.Email,
             PasswordHash = _authService.HashPassword(request.Password),
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now,
+            IsDemoUser = true,
+            AccessType = UserAccessType.Demo,
+            DemoStatus = DemoAccessStatus.Active,
+            DemoStartedAtUtc = now,
+            DemoExpiresAtUtc = demoExpiresAtUtc,
+            DemoFeedbackSubmittedAtUtc = null,
+            MvpAccessGrantedAtUtc = null
         };
 
         var firstStore = new Store
@@ -89,8 +99,8 @@ public class AuthController : ControllerBase
             Marketplace = null,
             ExternalId = null,
             ApiKey = null,
-            CreatedAt = DateTime.UtcNow,
-            LastSyncAt = DateTime.UtcNow,
+            CreatedAt = now,
+            LastSyncAt = now,
             SellerId = seller.Id
         };
 
@@ -98,7 +108,10 @@ public class AuthController : ControllerBase
         _dbContext.Stores.Add(firstStore);
         await _dbContext.SaveChangesAsync();
         
-        _logger.LogInformation("Зарегистрирован новый пользователь {Email}", request.Email);
+        _logger.LogInformation(
+            "Demo access created for user {UserId}. ExpiresAtUtc: {DemoExpiresAtUtc}",
+            seller.Id,
+            seller.DemoExpiresAtUtc);
         
         // Сразу возвращаем токен для авторизации
         var tokenResponse = _authService.GenerateToken(seller);
@@ -128,7 +141,14 @@ public class AuthController : ControllerBase
                 s.Email,
                 s.Phone,
                 s.CreatedAt,
-                s.LastLoginAt
+                s.LastLoginAt,
+                s.IsDemoUser,
+                s.AccessType,
+                s.DemoStatus,
+                s.DemoStartedAtUtc,
+                s.DemoExpiresAtUtc,
+                s.DemoFeedbackSubmittedAtUtc,
+                s.MvpAccessGrantedAtUtc
             })
             .FirstOrDefaultAsync(s => s.Id == sellerId);
         

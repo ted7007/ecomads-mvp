@@ -40,3 +40,7 @@
 4. `refactoring-tasks/04b-insight-decision-api.md`
 5. `refactoring-tasks/04c-legacy-campaign-keyword-overlay-ui.md`
 6. `scenario-plans/keyword-recommendation-overlay-prompts.md`
+
+## Demo access and product analytics
+
+1. `refactoring-tasks/05-demo-access-and-product-analytics-mvp.md`

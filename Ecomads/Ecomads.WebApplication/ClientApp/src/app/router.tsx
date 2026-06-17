@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { CampaignPage } from '../pages/CampaignPage/CampaignPage';
 import { DashboardPage } from '../pages/DashboardPage/DashboardPage';
+import { DemoFeedbackPage } from '../pages/DemoFeedbackPage/DemoFeedbackPage';
 import { LoginPage } from '../pages/LoginPage/LoginPage';
 import { ReportPage } from '../pages/ReportPage/ReportPage';
 import { RequireAuth } from '../shared/auth/RequireAuth';
@@ -28,6 +29,10 @@ export const router = createBrowserRouter(
               element: <DashboardPage />
             },
             {
+              path: appRoutes.demoFeedback,
+              element: <DemoFeedbackPage />
+            },
+            {
               path: appRoutes.report,
               element: <ReportPage />
             },
@@ -43,9 +48,6 @@ export const router = createBrowserRouter(
       path: '*',
       element: <Navigate to={appRoutes.dashboard} replace />
     }
-  ],
-  {
-    basename: '/app'
-  }
+  ]
 );
 

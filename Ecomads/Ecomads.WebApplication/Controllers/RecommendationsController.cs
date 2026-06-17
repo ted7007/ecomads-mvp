@@ -9,8 +9,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
+using Ecomads.WebApplication.Models;
 using Ecomads.WebApplication.Models.Recommendations;
 using Ecomads.WebApplication.Services;
+using Ecomads.WebApplication.Services.Analytics;
 using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.Extensions.Logging;
 
@@ -25,6 +27,7 @@ namespace Ecomads.WebApplication.Controllers
         private readonly IRecommendationService _recommendationService;
         private readonly IKeywordRecommendationOverlayService _keywordRecommendationOverlayService;
         private readonly IInsightDecisionService _insightDecisionService;
+        private readonly IProductAnalyticsService _analyticsService;
         private readonly ILogger<RecommendationsController> _logger;
 
         public RecommendationsController(
@@ -32,12 +35,14 @@ namespace Ecomads.WebApplication.Controllers
             IRecommendationService recommendationService,
             IKeywordRecommendationOverlayService keywordRecommendationOverlayService,
             IInsightDecisionService insightDecisionService,
+            IProductAnalyticsService analyticsService,
             ILogger<RecommendationsController> logger)
         {
             _context = context;
             _recommendationService = recommendationService;
             _keywordRecommendationOverlayService = keywordRecommendationOverlayService;
             _insightDecisionService = insightDecisionService;
+            _analyticsService = analyticsService;
             _logger = logger;
         }
 
@@ -47,8 +52,8 @@ namespace Ecomads.WebApplication.Controllers
         [HttpGet("campaign/{campaignId}/keyword-overlay")]
         public async Task<IActionResult> GetKeywordRecommendationOverlay(
             Guid campaignId,
-            [FromQuery] DateTime? startDate,
-            [FromQuery] DateTime? endDate,
+            [FromQuery] DateOnly? startDate,
+            [FromQuery] DateOnly? endDate,
             CancellationToken cancellationToken)
         {
             try
@@ -251,6 +256,27 @@ namespace Ecomads.WebApplication.Controllers
             {
                 return NotFound($"Рекомендация с ID {id} не найдена");
             }
+
+            await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
+            {
+                UserId = sellerId,
+                EventName = ProductEvents.KeywordRecommendationOpened,
+                FeatureName = ProductFeatures.KeywordRecommendations,
+                CampaignId = recommendation.CampaignId,
+                Metadata = new
+                {
+                    recommendationId = recommendation.Id,
+                    recommendationStatus = recommendation.Status,
+                    source = GetRecommendationSource(recommendation)
+                }
+            }.WithRequestContext(HttpContext));
+
+            _logger.LogInformation(
+                "Recommendation opened by user {UserId}. RecommendationId: {RecommendationId}, CampaignId: {CampaignId}, Status: {Status}",
+                sellerId,
+                recommendation.Id,
+                recommendation.CampaignId,
+                recommendation.Status);
 
             return Ok(recommendation);
         }
@@ -459,6 +485,29 @@ namespace Ecomads.WebApplication.Controllers
                     });
                 }
 
+                await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
+                {
+                    UserId = sellerId,
+                    EventName = ProductEvents.ExpectedEffectPageViewed,
+                    FeatureName = ProductFeatures.ExpectedEffectPage,
+                    Metadata = new
+                    {
+                        period,
+                        insightsCount = insights.Count,
+                        visibleRecommendationsCount = response.Recommendations.Count,
+                        expectedSaving = response.ExpectedSaving,
+                        expectedAdditionalRevenue = response.ExpectedAdditionalRevenue,
+                        notCalculatedCount = response.NotCalculatedCount
+                    }
+                }.WithRequestContext(HttpContext));
+
+                _logger.LogInformation(
+                    "Expected effect page opened by user {UserId}. Period: {Period}, InsightsCount: {InsightsCount}, VisibleRecommendationsCount: {VisibleRecommendationsCount}",
+                    sellerId,
+                    period,
+                    insights.Count,
+                    response.Recommendations.Count);
+
                 return Ok(response);
             }
             catch (Exception ex)
@@ -535,6 +584,22 @@ namespace Ecomads.WebApplication.Controllers
                 null => "-",
                 _ => action.ToString() ?? "-"
             };
+        }
+
+        private static string GetRecommendationSource(Recommendation recommendation)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(recommendation.AdditionalData);
+                return document.RootElement.TryGetProperty("generatedWithoutLlm", out var generatedWithoutLlm) &&
+                    generatedWithoutLlm.ValueKind == JsonValueKind.True
+                    ? "deterministic"
+                    : "llm";
+            }
+            catch (JsonException)
+            {
+                return "unknown";
+            }
         }
 
         private bool TryGetCurrentSellerId(out Guid sellerId)

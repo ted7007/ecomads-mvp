@@ -3,6 +3,7 @@ import UploadIcon from '@mui/icons-material/Upload';
 import { Alert, Button, Card, CardContent, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { queryKeys } from '../../shared/api/queryKeys';
 import type { DashboardFilters, UploadStatisticsRequest } from './dashboardApi';
 import { getCampaigns, getLoadedPeriods, uploadDashboardStatistics } from './dashboardApi';
@@ -15,6 +16,7 @@ import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
 
 export function DashboardPage() {
+  const location = useLocation();
   const [filters, setFilters] = useState<DashboardFilters>({});
   const [draftFilters, setDraftFilters] = useState<DashboardFilters>({});
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -49,11 +51,12 @@ export function DashboardPage() {
   });
 
   const campaigns = campaignsQuery.data ?? [];
+  const demoFeedbackSuccess = (location.state as { demoFeedbackSuccess?: string } | null)?.demoFeedbackSuccess;
 
   return (
     <Stack spacing={3}>
       <PageHeader
-        title="Главный дашборд"
+        title="Обзор рекламы"
         actions={
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Button
@@ -76,6 +79,7 @@ export function DashboardPage() {
       />
 
       {uploadSuccess ? <Alert severity="success">Данные успешно загружены.</Alert> : null}
+      {demoFeedbackSuccess ? <Alert severity="success">{demoFeedbackSuccess}</Alert> : null}
 
       <Card>
         <CardContent>
@@ -88,11 +92,11 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {campaignsQuery.isLoading ? <LoadingState title="Загружаем дашборд" /> : null}
+      {campaignsQuery.isLoading ? <LoadingState title="Загружаем обзор рекламы" /> : null}
 
       {campaignsQuery.isError ? (
         <ErrorState
-          title="Не удалось загрузить дашборд"
+          title="Не удалось загрузить обзор рекламы"
           description={campaignsQuery.error instanceof Error ? campaignsQuery.error.message : 'Проверьте соединение и авторизацию.'}
           onRetry={() => void campaignsQuery.refetch()}
         />

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Models.Recommendations;
+using Ecomads.WebApplication.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -12,8 +13,8 @@ public interface IKeywordRecommendationOverlayService
 {
     Task<KeywordRecommendationOverlayDto?> GetOverlayAsync(
         Guid campaignId,
-        DateTime? startDate,
-        DateTime? endDate,
+        DateOnly? startDate,
+        DateOnly? endDate,
         CancellationToken cancellationToken = default);
 }
 
@@ -41,8 +42,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
     public async Task<KeywordRecommendationOverlayDto?> GetOverlayAsync(
         Guid campaignId,
-        DateTime? startDate,
-        DateTime? endDate,
+        DateOnly? startDate,
+        DateOnly? endDate,
         CancellationToken cancellationToken = default)
     {
         var campaignExists = await _dbContext.Compaigns
@@ -55,6 +56,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
         var keywordStats = await LoadKeywordStatsAsync(campaignId, startDate, endDate, cancellationToken);
         var campaignStats = await LoadCampaignStatsAsync(campaignId, startDate, endDate, cancellationToken);
+        var allTimeWbKpi = await LoadAllTimeWbKpiAsync(campaignId, cancellationToken);
         var recommendation = await LoadLatestRecommendationAsync(campaignId, cancellationToken);
         var insights = recommendation == null
             ? new List<OverlayInsight>()
@@ -72,7 +74,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
         var insightDetails = BuildInsightDetails(keywordStats, keywordInsights, _options);
         var rows = keywordStats
-            .Select(keyword => BuildKeywordRow(keyword, keywordInsights.GetValueOrDefault(keyword.Id), _options))
+            .Select(keyword => BuildKeywordRow(keyword, keywordInsights.GetValueOrDefault(keyword.Id), _options, allTimeWbKpi))
             .OrderByDescending(row => row.HasInsight)
             .ThenByDescending(row => row.PriorityScore)
             .ThenByDescending(row => row.Spend ?? 0m)
@@ -100,8 +102,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
     private async Task<List<KeywordStatistics>> LoadKeywordStatsAsync(
         Guid campaignId,
-        DateTime? startDate,
-        DateTime? endDate,
+        DateOnly? startDate,
+        DateOnly? endDate,
         CancellationToken cancellationToken)
     {
         var query = _dbContext.KeywordStatistics
@@ -109,13 +111,13 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
         if (startDate.HasValue)
         {
-            var startDateUtc = DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc);
+            var startDateUtc = UtcDate.FromDateOnly(startDate.Value);
             query = query.Where(keyword => keyword.StartDate >= startDateUtc);
         }
 
         if (endDate.HasValue)
         {
-            var endDateUtc = DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc);
+            var endDateUtc = UtcDate.FromDateOnly(endDate.Value);
             query = query.Where(keyword => keyword.EndDate <= endDateUtc);
         }
 
@@ -124,8 +126,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
     private async Task<CompaignStatistics?> LoadCampaignStatsAsync(
         Guid campaignId,
-        DateTime? startDate,
-        DateTime? endDate,
+        DateOnly? startDate,
+        DateOnly? endDate,
         CancellationToken cancellationToken)
     {
         var query = _dbContext.CompaignStatistics
@@ -133,13 +135,13 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
 
         if (startDate.HasValue)
         {
-            var startDateUtc = DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc);
+            var startDateUtc = UtcDate.FromDateOnly(startDate.Value);
             query = query.Where(stat => stat.StartDate >= startDateUtc);
         }
 
         if (endDate.HasValue)
         {
-            var endDateUtc = DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc);
+            var endDateUtc = UtcDate.FromDateOnly(endDate.Value);
             query = query.Where(stat => stat.EndDate <= endDateUtc);
         }
 
@@ -147,6 +149,34 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             .OrderByDescending(stat => stat.EndDate)
             .ThenByDescending(stat => stat.StartDate)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<KeywordKpiDto> LoadAllTimeWbKpiAsync(
+        Guid campaignId,
+        CancellationToken cancellationToken)
+    {
+        var stats = await _dbContext.CompaignStatistics
+            .Where(stat => stat.CompaignId == campaignId && stat.Type == CompaignStatisticsType.General)
+            .ToListAsync(cancellationToken);
+
+        if (stats.Count == 0)
+        {
+            return new KeywordKpiDto();
+        }
+
+        var spend = stats.Sum(stat => Convert.ToDecimal(stat.Spend));
+        var revenue = stats.Sum(stat => Convert.ToDecimal(stat.Revenue));
+        var clicks = stats.Sum(stat => stat.Clicks);
+        var weightedCtrClicks = stats.Sum(stat => stat.Ctr * stat.Clicks);
+
+        return new KeywordKpiDto
+        {
+            Clicks = Convert.ToDecimal(clicks),
+            Ctr = clicks > 0 ? Convert.ToDecimal(weightedCtrClicks / clicks) : null,
+            Spend = spend,
+            Revenue = revenue,
+            Drr = revenue > 0m ? spend / revenue * 100m : null
+        };
     }
 
     private async Task<Recommendation?> LoadLatestRecommendationAsync(
@@ -237,7 +267,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     private static KeywordRecommendationRowDto BuildKeywordRow(
         KeywordStatistics keyword,
         IReadOnlyCollection<OverlayInsight>? insights,
-        RecommendationEngineOptions options)
+        RecommendationEngineOptions options,
+        KeywordKpiDto allTimeWbKpi)
     {
         var mainInsight = GetMainInsight(insights);
         var status = mainInsight != null
@@ -275,7 +306,23 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             ExpectedEffectText = mainInsight?.ExpectedEffectText ?? string.Empty,
             MainInsightId = mainInsight?.Id,
             HasInsight = mainInsight != null,
-            DecisionStatus = mainInsight?.DecisionStatus ?? InsightDecisionStatus.None
+            DecisionStatus = mainInsight?.DecisionStatus ?? InsightDecisionStatus.None,
+            WbKpi = allTimeWbKpi,
+            PeriodKeywordKpi = BuildPeriodKeywordKpi(keyword)
+        };
+    }
+
+    private static KeywordKpiDto BuildPeriodKeywordKpi(KeywordStatistics keyword)
+    {
+        return new KeywordKpiDto
+        {
+            Views = keyword.Impressions,
+            Clicks = keyword.Clicks.HasValue ? keyword.Clicks.Value : null,
+            Ctr = GetDisplayCtr(keyword),
+            Spend = keyword.Spend,
+            Orders = keyword.Orders,
+            Revenue = keyword.Revenue,
+            Drr = GetDisplayDrr(keyword)
         };
     }
 

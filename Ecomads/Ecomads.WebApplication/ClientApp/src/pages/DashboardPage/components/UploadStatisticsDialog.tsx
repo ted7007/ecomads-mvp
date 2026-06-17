@@ -52,7 +52,8 @@ export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSu
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <Typography color="text.secondary">
-            Загрузите общий отчет Wildberries за период. Можно дополнительно приложить отчет по ключевым словам.
+            Общая статистика — это отчет из Wildberries. Статистика по ключевым словам — отчет из Эвирмы.
+            Если добавляете оба файла, выберите здесь тот же период, за который выгружали отчет Эвирмы.
           </Typography>
 
           {(localError || error) ? <Alert severity="error">{localError || error}</Alert> : null}
@@ -80,7 +81,7 @@ export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSu
             InputLabelProps={{ shrink: true }}
             fullWidth
             inputProps={{ accept: '.xlsx' }}
-            label="Файл статистики (.xlsx)"
+            label="Общая статистика из WB (.xlsx)"
             type="file"
             onChange={(event) => setFile((event.target as HTMLInputElement).files?.[0] ?? null)}
           />
@@ -88,8 +89,8 @@ export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSu
           <FormControl>
             <FormLabel>Режим загрузки</FormLabel>
             <RadioGroup value={mode} onChange={(event) => setMode(event.target.value as DashboardUploadMode)}>
-              <FormControlLabel value="general" control={<Radio />} label="Только общий отчет" />
-              <FormControlLabel value="with-keywords" control={<Radio />} label="Общий отчет + отчет по ключевым словам" />
+              <FormControlLabel value="general" control={<Radio />} label="Только общая статистика из WB" />
+              <FormControlLabel value="with-keywords" control={<Radio />} label="Статистика из WB + ключевые слова из Эвирмы" />
             </RadioGroup>
           </FormControl>
 
@@ -98,7 +99,8 @@ export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSu
             disabled={mode !== 'with-keywords'}
             fullWidth
             inputProps={{ accept: '.xlsx' }}
-            label="Файл по ключевым словам (.xlsx)"
+            helperText={mode === 'with-keywords' ? 'Период отчета из Эвирмы должен совпадать с датами выше.' : undefined}
+            label="Статистика по ключевым словам из Эвирмы (.xlsx)"
             type="file"
             onChange={(event) => setKeywordsFile((event.target as HTMLInputElement).files?.[0] ?? null)}
           />
@@ -115,4 +117,3 @@ export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSu
     </Dialog>
   );
 }
-

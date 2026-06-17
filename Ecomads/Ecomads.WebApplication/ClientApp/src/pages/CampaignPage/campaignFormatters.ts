@@ -140,6 +140,21 @@ export function normalizeKeywordRow(row: KeywordRecommendationRow): KeywordRecom
     revenue,
     ctr: views > 0 ? (clicks / views) * 100 : row.ctr,
     drr: revenue > 0 ? (spend / revenue) * 100 : row.drr,
-    orders: row.orders ?? 0
+    orders: row.orders ?? 0,
+    wbKpi: normalizeKeywordKpi(row.wbKpi),
+    periodKeywordKpi: normalizeKeywordKpi(row.periodKeywordKpi)
+  };
+}
+
+function normalizeKeywordKpi(kpi: KeywordRecommendationRow['wbKpi']): KeywordRecommendationRow['wbKpi'] {
+  const views = kpi.views ?? null;
+  const clicks = kpi.clicks ?? null;
+  const spend = kpi.spend ?? 0;
+  const revenue = kpi.revenue ?? 0;
+
+  return {
+    ...kpi,
+    ctr: views && clicks !== null ? (clicks / views) * 100 : kpi.ctr,
+    drr: revenue > 0 ? (spend / revenue) * 100 : kpi.drr
   };
 }

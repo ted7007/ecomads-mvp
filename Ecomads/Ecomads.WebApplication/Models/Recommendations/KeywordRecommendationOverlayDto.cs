@@ -20,6 +20,17 @@ public sealed class KeywordRecommendationSummaryDto
     public decimal? Ctr { get; init; }
 }
 
+public sealed class KeywordKpiDto
+{
+    public int? Views { get; init; }
+    public decimal? Clicks { get; init; }
+    public decimal? Ctr { get; init; }
+    public decimal? Spend { get; init; }
+    public int? Orders { get; init; }
+    public decimal? Revenue { get; init; }
+    public decimal? Drr { get; init; }
+}
+
 public sealed class RecommendationOverlaySummaryDto
 {
     public string Text { get; init; } = string.Empty;
@@ -60,6 +71,8 @@ public sealed class KeywordRecommendationRowDto
     public string? MainInsightId { get; init; }
     public bool HasInsight { get; init; }
     public InsightDecisionStatus DecisionStatus { get; init; } = InsightDecisionStatus.None;
+    public KeywordKpiDto WbKpi { get; init; } = new();
+    public KeywordKpiDto PeriodKeywordKpi { get; init; } = new();
 }
 
 public sealed class KeywordRecommendationInsightDetailDto

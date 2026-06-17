@@ -80,6 +80,16 @@ export const recommendationOverlaySummarySchema = z.object({
   counts: recommendationStatusCountsSchema.default({})
 });
 
+export const keywordKpiSchema = z.object({
+  views: z.coerce.number().nullish(),
+  clicks: z.coerce.number().nullish(),
+  ctr: nullableNumber,
+  spend: nullableNumber,
+  orders: z.coerce.number().nullish(),
+  revenue: nullableNumber,
+  drr: nullableNumber
+});
+
 export const keywordRecommendationRowSchema = z.object({
   keywordId: z.string(),
   phrase: z.string(),
@@ -101,7 +111,9 @@ export const keywordRecommendationRowSchema = z.object({
   expectedEffectText: z.string().default(''),
   mainInsightId: z.string().nullish(),
   hasInsight: z.boolean().default(false),
-  decisionStatus: decisionStatusSchema
+  decisionStatus: decisionStatusSchema,
+  wbKpi: keywordKpiSchema.default({}),
+  periodKeywordKpi: keywordKpiSchema.default({})
 });
 
 export const insightHistoryItemSchema = z.object({

@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, Box, Button, Card, CardContent, Container, Stack, Tab, Tabs, TextField, Typography } from '@mui/material';
+import TelegramIcon from '@mui/icons-material/Telegram';
+import { Alert, Box, Button, Card, CardContent, Container, Link, Stack, Tab, Tabs, TextField, Typography } from '@mui/material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -8,7 +9,7 @@ import { login, register } from '../../shared/auth/authApi';
 import { getToken, persistAuthResponse } from '../../shared/auth/tokenStorage';
 import { loginFormSchema, registerFormSchema, type LoginFormValues, type RegisterFormValues } from './loginSchemas';
 
-type AuthMode = 'login' | 'register';
+type AuthMode = 'login' | 'demo';
 
 type LocationState = {
   from?: {
@@ -32,39 +33,68 @@ export function LoginPage() {
   };
 
   return (
-    <Container maxWidth="sm" sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', py: 4 }}>
-      <Card sx={{ width: '100%' }}>
-        <CardContent>
-          <Stack spacing={3}>
-            <Typography component="h1" variant="h4" fontWeight={800} textAlign="center">
+    <Box
+      sx={{
+        minHeight: '100vh',
+        bgcolor: '#0F172A',
+        display: 'grid',
+        placeItems: 'center',
+        px: 2,
+        py: 4
+      }}
+    >
+      <Container maxWidth="sm" disableGutters>
+        <Stack spacing={3}>
+          <Stack spacing={1} alignItems="center">
+            <Typography component="h1" variant="h4" fontWeight={900} color="#F8FAFC" textAlign="center">
               EcomAds
             </Typography>
-
-            <Tabs
-              value={mode}
-              onChange={(_, value: AuthMode) => {
-                setMode(value);
-                setError(null);
-              }}
-              variant="fullWidth"
-            >
-              <Tab label="Вход" value="login" />
-              <Tab label="Регистрация" value="register" />
-            </Tabs>
-
-            {error ? <Alert severity="error">{error}</Alert> : null}
-
-            <Box>
-              {mode === 'login' ? (
-                <LoginForm setError={setError} onSuccess={handleSuccess} />
-              ) : (
-                <RegisterForm setError={setError} onSuccess={handleSuccess} />
-              )}
-            </Box>
+            <Typography color="#CBD5E1" textAlign="center">
+              Аналитика рекламы и рекомендации для Wildberries
+            </Typography>
           </Stack>
-        </CardContent>
-      </Card>
-    </Container>
+
+          <Card sx={{ width: '100%', borderRadius: 3, boxShadow: '0 24px 80px rgba(0,0,0,0.35)' }}>
+            <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+              <Stack spacing={3}>
+                <Tabs
+                  value={mode}
+                  onChange={(_, value: AuthMode) => {
+                    setMode(value);
+                    setError(null);
+                  }}
+                  variant="fullWidth"
+                >
+                  <Tab label="Вход" value="login" />
+                  <Tab label="Демо-доступ" value="demo" />
+                </Tabs>
+
+                {error ? <Alert severity="error">{error}</Alert> : null}
+
+                <Box>
+                  {mode === 'login' ? (
+                    <LoginForm setError={setError} onSuccess={handleSuccess} />
+                  ) : (
+                    <RegisterForm setError={setError} onSuccess={handleSuccess} />
+                  )}
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Link
+            href="https://t.me/ecomads_mvp01"
+            rel="noopener noreferrer"
+            target="_blank"
+            underline="hover"
+            sx={{ alignSelf: 'center', color: '#BAE6FD', display: 'inline-flex', alignItems: 'center', gap: 0.75, fontWeight: 700 }}
+          >
+            <TelegramIcon fontSize="small" />
+            Группа EcomAds в Telegram
+          </Link>
+        </Stack>
+      </Container>
+    </Box>
   );
 }
 
@@ -186,8 +216,11 @@ function RegisterForm({ setError, onSuccess }: AuthFormProps) {
         type="password"
         {...registerField('password')}
       />
+      <Typography color="text.secondary" variant="body2">
+        Сейчас продукт открыт только в формате demo на 3 дня.
+      </Typography>
       <Button disabled={isSubmitting} fullWidth size="large" type="submit" variant="contained">
-        {isSubmitting ? 'Регистрируем...' : 'Зарегистрироваться'}
+        {isSubmitting ? 'Создаем demo...' : 'Получить demo-доступ'}
       </Button>
     </Stack>
   );

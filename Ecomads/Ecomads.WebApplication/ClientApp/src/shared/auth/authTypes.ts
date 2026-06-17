@@ -5,6 +5,13 @@ export type CurrentUser = {
   phone?: string | null;
   createdAt?: string | null;
   lastLoginAt?: string | null;
+  isDemoUser?: boolean;
+  accessType?: number;
+  demoStatus?: number;
+  demoStartedAtUtc?: string | null;
+  demoExpiresAtUtc?: string | null;
+  demoFeedbackSubmittedAtUtc?: string | null;
+  mvpAccessGrantedAtUtc?: string | null;
 };
 
 export type AuthTokenResponse = {

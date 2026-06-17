@@ -2,10 +2,11 @@ using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Models;
 using Ecomads.WebApplication.Services;
+using Ecomads.WebApplication.Services.Analytics;
+using Ecomads.WebApplication.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Ecomads.WebApplication.Services;
 using System.Globalization;
 using System.Security.Claims;
 using DocumentFormat.OpenXml.Packaging;
@@ -19,17 +20,25 @@ public class StatisticsController : ControllerBase
 {
     private readonly EcomadsDbContext _context;
     private readonly IStatisticsQueue _queue;
+    private readonly IProductAnalyticsService _analyticsService;
+    private readonly ILogger<StatisticsController> _logger;
 
-    public StatisticsController(EcomadsDbContext context, IStatisticsQueue queue)
+    public StatisticsController(
+        EcomadsDbContext context,
+        IStatisticsQueue queue,
+        IProductAnalyticsService analyticsService,
+        ILogger<StatisticsController> logger)
     {
         _context = context;
         _queue = queue;
+        _analyticsService = analyticsService;
+        _logger = logger;
     }
     
     [HttpPost("upload")]
     [Authorize]
     public async Task<IActionResult> UploadStatistics([FromForm] IFormFile file,
-        [FromForm] DateTime startDate, [FromForm] DateTime endDate)
+        [FromForm] DateOnly startDate, [FromForm] DateOnly endDate)
     {
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         
@@ -41,6 +50,9 @@ public class StatisticsController : ControllerBase
         var store = _context.Stores.First(s => s.SellerId == sellerId);
         
         if (file == null || file.Length == 0) return BadRequest("File is empty.");
+
+        var startDateUtc = UtcDate.FromDateOnly(startDate);
+        var endDateUtc = UtcDate.FromDateOnly(endDate);
 
         using var stream = new MemoryStream();
         await file.CopyToAsync(stream);
@@ -87,6 +99,8 @@ public class StatisticsController : ControllerBase
         var conversionTypeIndex = conversionTypeHeader != null ? headerIndexByName[conversionTypeHeader] : (int?)null;
 
         var statsToAdd = new List<CompaignStatistics>();
+        var processedRows = 0;
+        var campaignIds = new HashSet<Guid>();
 
         foreach (var row in rows.Skip(1))
         {
@@ -144,11 +158,14 @@ public class StatisticsController : ControllerBase
                 campaign.Name = name;
             }
 
+            processedRows++;
+            campaignIds.Add(campaign.Id);
+
             var existingStat = await _context.CompaignStatistics
                 .FirstOrDefaultAsync(s =>
                     s.CompaignId == campaign.Id &&
-                    s.StartDate == DateTime.SpecifyKind(startDate, DateTimeKind.Utc) &&
-                    s.EndDate == DateTime.SpecifyKind(endDate, DateTimeKind.Utc));
+                    s.StartDate == startDateUtc &&
+                    s.EndDate == endDateUtc);
 
             if (existingStat != null)
             {
@@ -163,8 +180,8 @@ public class StatisticsController : ControllerBase
                 statsToAdd.Add(new CompaignStatistics
                 {
                     CompaignId = campaign.Id,
-                    StartDate = DateTime.SpecifyKind(startDate, DateTimeKind.Utc),
-                    EndDate = DateTime.SpecifyKind(endDate, DateTimeKind.Utc),
+                    StartDate = startDateUtc,
+                    EndDate = endDateUtc,
 
                     Spend = (float)spend,
                     Revenue = (float)revenue,
@@ -182,6 +199,31 @@ public class StatisticsController : ControllerBase
 
         await _context.SaveChangesAsync();
 
+        _logger.LogInformation(
+            "Campaign statistics uploaded by user {UserId}. RowsCount: {RowsCount}, CampaignsCount: {CampaignsCount}, FileSizeBytes: {FileSizeBytes}, StartDate: {StartDate}, EndDate: {EndDate}",
+            sellerId,
+            processedRows,
+            campaignIds.Count,
+            file.Length,
+            startDateUtc,
+            endDateUtc);
+
+        await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
+        {
+            UserId = sellerId,
+            EventName = ProductEvents.StatisticsUploaded,
+            FeatureName = ProductFeatures.StatisticsUpload,
+            Metadata = new
+            {
+                reportType = "campaign_statistics",
+                rowsCount = processedRows,
+                fileSizeBytes = file.Length,
+                campaignsCount = campaignIds.Count,
+                startDate = startDateUtc,
+                endDate = endDateUtc
+            }
+        }.WithRequestContext(HttpContext));
+
         return Ok();
     }
 
@@ -190,8 +232,8 @@ public class StatisticsController : ControllerBase
     public async Task<IActionResult> UploadStatisticsWithKeywords(
         [FromForm] IFormFile file,
         [FromForm] IFormFile keywordsFile,
-        [FromForm] DateTime startDate,
-        [FromForm] DateTime endDate)
+        [FromForm] DateOnly startDate,
+        [FromForm] DateOnly endDate)
     {
         if (file == null || file.Length == 0)
             return BadRequest("General statistics file is empty.");
@@ -212,8 +254,8 @@ public class StatisticsController : ControllerBase
         if (generalUploadResult is not OkResult)
             return generalUploadResult;
 
-        var startDateUtc = DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
-        var endDateUtc = DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
+        var startDateUtc = UtcDate.FromDateOnly(startDate);
+        var endDateUtc = UtcDate.FromDateOnly(endDate);
 
         var campaignIds = await _context.CompaignStatistics
             .Where(s => s.StartDate == startDateUtc && s.EndDate == endDateUtc)
@@ -243,8 +285,8 @@ public class StatisticsController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetKeywordStatistics(
         Guid campaignId,
-        [FromQuery] DateTime? startDate,
-        [FromQuery] DateTime? endDate)
+        [FromQuery] DateOnly? startDate,
+        [FromQuery] DateOnly? endDate)
     {
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
@@ -263,10 +305,16 @@ public class StatisticsController : ControllerBase
             .Where(s => s.CompaignId == campaignId);
 
         if (startDate.HasValue)
-            query = query.Where(s => s.StartDate >= DateTime.SpecifyKind(startDate.Value, DateTimeKind.Utc));
+        {
+            var startDateUtc = UtcDate.FromDateOnly(startDate.Value);
+            query = query.Where(s => s.StartDate >= startDateUtc);
+        }
         
         if (endDate.HasValue)
-            query = query.Where(s => s.EndDate <= DateTime.SpecifyKind(endDate.Value, DateTimeKind.Utc));
+        {
+            var endDateUtc = UtcDate.FromDateOnly(endDate.Value);
+            query = query.Where(s => s.EndDate <= endDateUtc);
+        }
 
         var stats = await query
             .GroupBy(s => s.Phrase)
@@ -318,7 +366,7 @@ public class StatisticsController : ControllerBase
     [HttpPost("upload-keywords")]
     [Authorize]
     public async Task<IActionResult> UploadKeywordStats([FromForm] IFormFile file,
-        [FromForm] DateTime startDate, [FromForm] DateTime endDate, [FromForm] Guid campaignId)
+        [FromForm] DateOnly startDate, [FromForm] DateOnly endDate, [FromForm] Guid campaignId)
     {
         if (file == null || file.Length == 0)
             return BadRequest("File is empty");
@@ -335,6 +383,9 @@ public class StatisticsController : ControllerBase
             .FirstOrDefaultAsync(c => c.Id == campaignId && c.StoreId == store.Id);
         if (campaign == null)
             return BadRequest($"Campaign with ID {campaignId} does not exist for current user.");
+
+        var startDateUtc = UtcDate.FromDateOnly(startDate);
+        var endDateUtc = UtcDate.FromDateOnly(endDate);
 
         using var stream = file.OpenReadStream();
         using var doc = SpreadsheetDocument.Open(stream, false);
@@ -385,11 +436,12 @@ public class StatisticsController : ControllerBase
 
         var existingStats = await _context.KeywordStatistics
             .Where(s => s.CompaignId == campaignId &&
-                        s.StartDate == DateTime.SpecifyKind(startDate, DateTimeKind.Utc) &&
-                        s.EndDate == DateTime.SpecifyKind(endDate, DateTimeKind.Utc))
+                        s.StartDate == startDateUtc &&
+                        s.EndDate == endDateUtc)
             .ToListAsync();
 
         var statsToAdd = new List<KeywordStatistics>();
+        var processedRows = 0;
 
         var keywordRows = rows.Skip(2).SkipLast(1);
 
@@ -414,14 +466,15 @@ public class StatisticsController : ControllerBase
                 continue;
 
             var drr = revenue > 0 ? (double)(spend / revenue * 100) : 0;
+            processedRows++;
 
             var existingStat = existingStats.FirstOrDefault(s => s.Phrase == phrase);
 
             if (existingStat != null)
             {
                 // ✅ MERGE (перезапись)
-                existingStat.StartDate = DateTime.SpecifyKind(startDate, DateTimeKind.Utc);
-                existingStat.EndDate = DateTime.SpecifyKind(endDate, DateTimeKind.Utc);
+                existingStat.StartDate = startDateUtc;
+                existingStat.EndDate = endDateUtc;
                 existingStat.Frequency = freq ?? 0;
                 existingStat.Cpm = (decimal?)(cpm ?? 0);
                 existingStat.AvgPosition = (double?)(avgPos ?? 0);
@@ -439,8 +492,8 @@ public class StatisticsController : ControllerBase
                 {
                     Id = Guid.NewGuid(),
                     CompaignId = campaignId,
-                    StartDate = DateTime.SpecifyKind(startDate, DateTimeKind.Utc),
-                    EndDate = DateTime.SpecifyKind(endDate, DateTimeKind.Utc),
+                    StartDate = startDateUtc,
+                    EndDate = endDateUtc,
                     Phrase = phrase,
                     Frequency = freq ?? 0,
                     Cpm = (decimal?)(cpm ?? 0),
@@ -461,8 +514,34 @@ public class StatisticsController : ControllerBase
             _context.KeywordStatistics.AddRange(statsToAdd);
         }
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Keyword statistics uploaded by user {UserId}. CampaignId: {CampaignId}, RowsCount: {RowsCount}, FileSizeBytes: {FileSizeBytes}, StartDate: {StartDate}, EndDate: {EndDate}",
+            sellerId,
+            campaignId,
+            processedRows,
+            file.Length,
+            startDateUtc,
+            endDateUtc);
+
+        await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
+        {
+            UserId = sellerId,
+            EventName = ProductEvents.StatisticsUploaded,
+            FeatureName = ProductFeatures.StatisticsUpload,
+            CampaignId = campaignId,
+            Metadata = new
+            {
+                reportType = "keyword_statistics",
+                rowsCount = processedRows,
+                fileSizeBytes = file.Length,
+                campaignId,
+                startDate = startDateUtc,
+                endDate = endDateUtc
+            }
+        }.WithRequestContext(HttpContext));
         
-        _queue.Enqueue(new StatisticsJob(campaignId, startDate, endDate));
+        _queue.Enqueue(new StatisticsJob(campaignId, startDateUtc, endDateUtc));
         return Ok();
     }
 

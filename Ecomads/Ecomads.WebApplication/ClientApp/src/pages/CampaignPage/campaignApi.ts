@@ -18,8 +18,19 @@ export type UploadKeywordStatsRequest = {
   campaignId: string;
 };
 
+export type TrackKeywordRecommendationOpenedRequest = {
+  campaignId: string;
+  keywordId: string;
+  insightId?: string | null;
+  recommendationStatus?: string | null;
+  actionType?: string | null;
+  priorityScore?: number | null;
+  source?: 'deterministic' | 'llm';
+};
+
 export async function getCampaignSummary(campaignId: string, filters: DashboardFilters = {}): Promise<ProjectDashboard | null> {
   const query = new URLSearchParams();
+  query.set('source', 'campaign-summary');
 
   if (filters.startDate) {
     query.set('startDate', filters.startDate);
@@ -99,3 +110,19 @@ export async function uploadKeywordStats(request: UploadKeywordStatsRequest): Pr
   });
 }
 
+export async function trackKeywordRecommendationOpened(request: TrackKeywordRecommendationOpenedRequest): Promise<void> {
+  await httpClient<unknown>('/api/product-analytics/events', {
+    method: 'POST',
+    body: {
+      eventName: 'keyword_recommendation_opened',
+      featureName: 'keyword_recommendations',
+      campaignId: request.campaignId,
+      keywordId: request.keywordId,
+      insightId: request.insightId,
+      recommendationStatus: request.recommendationStatus,
+      actionType: request.actionType,
+      priorityScore: request.priorityScore,
+      source: request.source
+    }
+  });
+}

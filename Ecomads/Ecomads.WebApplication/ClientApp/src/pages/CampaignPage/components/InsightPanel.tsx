@@ -38,6 +38,7 @@ export function InsightPanel({ insight, keyword, isUpdating, onDecision, onSaveC
             <Typography variant="h6" fontWeight={800}>
               {keyword.phrase}
             </Typography>
+            <KeywordKpiComparison keyword={keyword} />
             <Alert severity="info">По этому ключевому слову нет активной рекомендации.</Alert>
           </Stack>
         </CardContent>
@@ -62,6 +63,10 @@ export function InsightPanel({ insight, keyword, isUpdating, onDecision, onSaveC
               {insight.decisionStatus !== 'None' ? <Chip color="primary" label={getDecisionLabel(insight.decisionStatus)} size="small" /> : null}
             </Stack>
           </Box>
+
+          <Divider />
+
+          <KeywordKpiComparison keyword={keyword} />
 
           <Divider />
 
@@ -112,6 +117,38 @@ const metricGroups = [
   { title: 'Экономика', keys: ['spend', 'orders', 'revenue', 'drr'] },
   { title: 'Эффективность', keys: ['cr', 'cpc', 'cpo', 'averageOrderValue', 'confidenceScore'] }
 ];
+
+function KeywordKpiComparison({ keyword }: { keyword: KeywordRecommendationRow }) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="subtitle2" fontWeight={800}>
+        KPI
+      </Typography>
+      <MetricGroup
+        title="A. ВБ за все время"
+        entries={[
+          ['clicks', keyword.wbKpi.clicks],
+          ['ctr', keyword.wbKpi.ctr],
+          ['spend', keyword.wbKpi.spend],
+          ['revenue', keyword.wbKpi.revenue],
+          ['drr', keyword.wbKpi.drr]
+        ]}
+      />
+      <MetricGroup
+        title="B. Ключ за период"
+        entries={[
+          ['views', keyword.periodKeywordKpi.views],
+          ['clicks', keyword.periodKeywordKpi.clicks],
+          ['ctr', keyword.periodKeywordKpi.ctr],
+          ['spend', keyword.periodKeywordKpi.spend],
+          ['orders', keyword.periodKeywordKpi.orders],
+          ['revenue', keyword.periodKeywordKpi.revenue],
+          ['drr', keyword.periodKeywordKpi.drr]
+        ]}
+      />
+    </Stack>
+  );
+}
 
 function MetricGroups({ metrics }: { metrics: Record<string, number | null | undefined> }) {
   const renderedKeys = new Set<string>();

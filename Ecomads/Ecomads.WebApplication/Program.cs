@@ -3,7 +3,9 @@ using System;
 using System.Text;
 using Ecomads.WebApplication.Auth;
 using Ecomads.WebApplication.Data;
+using Ecomads.WebApplication.Middleware;
 using Ecomads.WebApplication.Services;
+using Ecomads.WebApplication.Services.Analytics;
 using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +32,7 @@ if (jwtSettings == null)
         Audience = "ecomads_clients",
         ExpiryMinutes = 60 * 24 // 24 часа
     };
-    
+
     // Сохраняем настройки в конфигурацию
     jwtSettingsSection.Bind(jwtSettings);
 }
@@ -61,6 +63,9 @@ builder.Services.AddAuthentication(options =>
 
 // Добавляем сервис авторизации
 builder.Services.AddScoped<IJwtAuthService, JwtAuthService>();
+builder.Services.AddScoped<IUserAccessService, UserAccessService>();
+builder.Services.AddScoped<IProductAnalyticsService, ProductAnalyticsService>();
+builder.Services.AddScoped<ILlmUsageTrackingService, LlmUsageTrackingService>();
 
 // Add services to the container.
 builder.Services.AddDbContext<EcomadsDbContext>(options =>
@@ -114,11 +119,14 @@ app.UseStaticFiles();
 // Добавляем middleware для аутентификации и авторизации
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<DemoAccessMiddleware>();
 
 app.MapControllers();
-app.MapGet("/", () => Results.Redirect("/app/"));
-app.MapGet("/app", () => Results.Redirect("/app/"));
-app.MapFallbackToFile("/app/{*path:nonfile}", "app/index.html");
+app.MapFallbackToFile("/{*path:nonfile}", "index.html");
 
 app.Run();
+
+public partial class Program
+{
+}
 
