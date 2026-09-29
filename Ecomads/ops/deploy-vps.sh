@@ -80,6 +80,7 @@ if docker inspect ecomads-db >/dev/null 2>&1 && [[ "$(docker inspect ecomads-db 
 fi
 
 set_image "$new_image"
+export ECOMADS_IMAGE="$new_image"
 echo "Starting $new_image"
 compose up -d --remove-orphans
 docker exec ecomads-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
@@ -94,13 +95,16 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 
-if [[ "$healthy" -ne 1 ]]; then
+running_image="$(docker inspect ecomads-web --format '{{.Config.Image}}' 2>/dev/null || true)"
+if [[ "$healthy" -ne 1 || "$running_image" != "$new_image" ]]; then
   echo "Deployment health check failed." >&2
+  echo "Expected image: $new_image; running image: $running_image" >&2
   compose ps >&2 || true
   compose logs --tail=150 web caddy >&2 || true
   if [[ -n "$previous_image" ]]; then
     echo "Rolling back to $previous_image" >&2
     set_image "$previous_image"
+    export ECOMADS_IMAGE="$previous_image"
     compose up -d --remove-orphans
   fi
   exit 1
