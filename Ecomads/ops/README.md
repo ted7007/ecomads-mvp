@@ -18,9 +18,10 @@ From PowerShell in the repository root:
 .\ops\deploy.ps1
 ```
 
-Before DNS is configured, open `http://31.76.53.166`. After the `ecomads.ru`
-and `www.ecomads.ru` A records point to that IP, Caddy obtains certificates and
-the application becomes available over HTTPS automatically.
+Open `https://ecomads.ru`. The direct IP address serves HTTP for operational
+health checks; enter account credentials and WB tokens only through the HTTPS
+domain. On 2026-09-30, the domain resolved to `31.76.53.166` and HTTPS passed
+certificate verification.
 
 ## Later deployments
 
