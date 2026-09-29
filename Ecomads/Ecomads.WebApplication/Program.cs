@@ -8,6 +8,7 @@ using Ecomads.WebApplication.Services;
 using Ecomads.WebApplication.Services.Analytics;
 using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -22,19 +23,9 @@ builder.Services.Configure<JwtSettings>(jwtSettingsSection);
 
 // Получаем настройки JWT из конфигурации
 var jwtSettings = jwtSettingsSection.Get<JwtSettings>();
-if (jwtSettings == null)
+if (jwtSettings == null || string.IsNullOrWhiteSpace(jwtSettings.SecretKey))
 {
-    // Создаем настройки по умолчанию, если их нет в конфигурации
-    jwtSettings = new JwtSettings
-    {
-        SecretKey = "your_super_secret_key_at_least_32_bytes_long",
-        Issuer = "ecomads",
-        Audience = "ecomads_clients",
-        ExpiryMinutes = 60 * 24 // 24 часа
-    };
-
-    // Сохраняем настройки в конфигурацию
-    jwtSettingsSection.Bind(jwtSettings);
+    throw new InvalidOperationException("JwtSettings:SecretKey must be configured.");
 }
 
 // Настраиваем JWT аутентификацию
@@ -65,6 +56,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddScoped<IJwtAuthService, JwtAuthService>();
 builder.Services.AddScoped<IUserAccessService, UserAccessService>();
 builder.Services.AddScoped<IProductAnalyticsService, ProductAnalyticsService>();
+builder.Services.AddScoped<IStatisticsImportService, StatisticsImportService>();
 builder.Services.AddScoped<ILlmUsageTrackingService, LlmUsageTrackingService>();
 
 // Add services to the container.
@@ -97,6 +89,13 @@ builder.Services.AddScoped<IInsightDecisionService, InsightDecisionService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddHostedService<StatisticsBackgroundService>();
 builder.Services.AddControllers();
+builder.Services.AddHealthChecks();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 
 var app = builder.Build();
@@ -104,16 +103,10 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
-    if (app.Environment.IsDevelopment())
-    {
-        dbContext.Database.EnsureCreated();
-    }
-    else
-    {
-        dbContext.Database.Migrate();
-    }
+    dbContext.Database.Migrate();
 }
 
+app.UseForwardedHeaders();
 app.UseStaticFiles();
 
 // Добавляем middleware для аутентификации и авторизации
@@ -122,6 +115,7 @@ app.UseAuthorization();
 app.UseMiddleware<DemoAccessMiddleware>();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
 app.MapFallbackToFile("/{*path:nonfile}", "index.html");
 
 app.Run();

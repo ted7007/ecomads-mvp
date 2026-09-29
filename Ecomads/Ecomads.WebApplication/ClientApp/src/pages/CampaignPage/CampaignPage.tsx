@@ -1,5 +1,4 @@
 import RefreshIcon from '@mui/icons-material/Refresh';
-import UploadIcon from '@mui/icons-material/Upload';
 import BoltIcon from '@mui/icons-material/Bolt';
 import CloseIcon from '@mui/icons-material/Close';
 import { Alert, Box, Button, Card, CardContent, Drawer, IconButton, Stack, Typography } from '@mui/material';
@@ -16,14 +15,13 @@ import type { DashboardFilters } from '../DashboardPage/dashboardApi';
 import {
   generateCampaignRecommendation,
   getCampaignPeriods,
+  getNomenclatureStatistics,
   getCampaignSummary,
   getKeywordOverlay,
   trackKeywordRecommendationOpened,
   updateInsightComment,
   updateInsightDecision,
-  uploadKeywordStats,
   type InsightDecision,
-  type UploadKeywordStatsRequest
 } from './campaignApi';
 import { normalizeKeywordRow } from './campaignFormatters';
 import type { KeywordRecommendationRow } from './campaignSchemas';
@@ -31,7 +29,7 @@ import { CampaignKpiGrid } from './components/CampaignKpiGrid';
 import { InsightPanel } from './components/InsightPanel';
 import { KeywordOverlaySummary } from './components/KeywordOverlaySummary';
 import { KeywordTable, type KeywordSort, type KeywordSortField } from './components/KeywordTable';
-import { UploadKeywordStatsDialog } from './components/UploadKeywordStatsDialog';
+import { NomenclatureTable } from './components/NomenclatureTable';
 
 export function CampaignPage() {
   const { campaignId } = useParams();
@@ -43,8 +41,6 @@ export function CampaignPage() {
   const [selectedInsightId, setSelectedInsightId] = useState('');
   const [selectedKeywordId, setSelectedKeywordId] = useState('');
   const [sort, setSort] = useState<KeywordSort>({ field: '', direction: 'asc' });
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const summaryQuery = useQuery({
@@ -62,6 +58,12 @@ export function CampaignPage() {
     enabled: Boolean(campaignIdValue),
     queryKey: queryKeys.recommendations.keywordOverlay(campaignIdValue, filters),
     queryFn: () => getKeywordOverlay(campaignIdValue, filters)
+  });
+
+  const nomenclaturesQuery = useQuery({
+    enabled: Boolean(campaignIdValue),
+    queryKey: ['campaign-nomenclatures', campaignIdValue, filters],
+    queryFn: () => getNomenclatureStatistics(campaignIdValue, filters)
   });
 
   const generateMutation = useMutation({
@@ -87,22 +89,6 @@ export function CampaignPage() {
     }
   });
 
-  const uploadMutation = useMutation({
-    mutationFn: (request: UploadKeywordStatsRequest) => uploadKeywordStats(request),
-    onSuccess: async () => {
-      setUploadOpen(false);
-      setUploadError(null);
-      setSuccessMessage('Ключевые слова успешно загружены.');
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.recommendations.keywordOverlay(campaignIdValue, filters) }),
-        queryClient.invalidateQueries({ queryKey: ['campaign-summary'] })
-      ]);
-    },
-    onError: (error) => {
-      setUploadError(error instanceof Error ? error.message : 'Ошибка загрузки ключевых слов');
-    }
-  });
-
   const overlay = overlayQuery.data;
   const rows = useMemo(() => {
     const normalizedRows = (overlay?.keywords ?? []).map(normalizeKeywordRow);
@@ -123,8 +109,8 @@ export function CampaignPage() {
     () => rows.find((row) => row.keywordId === selectedKeywordId) ?? null,
     [rows, selectedKeywordId]
   );
-  const isLoading = summaryQuery.isLoading || overlayQuery.isLoading;
-  const isError = summaryQuery.isError || overlayQuery.isError;
+  const isLoading = summaryQuery.isLoading || overlayQuery.isLoading || nomenclaturesQuery.isLoading;
+  const isError = summaryQuery.isError || overlayQuery.isError || nomenclaturesQuery.isError;
 
   if (!campaignIdValue) {
     return <Navigate to={appRoutes.dashboard} replace />;
@@ -172,6 +158,7 @@ export function CampaignPage() {
               onClick={() => {
                 void summaryQuery.refetch();
                 void overlayQuery.refetch();
+                void nomenclaturesQuery.refetch();
                 void periodsQuery.refetch();
               }}
               sx={{ color: '#F8FAFC', borderColor: 'rgba(248,250,252,0.4)' }}
@@ -180,9 +167,6 @@ export function CampaignPage() {
             </Button>
             <Button startIcon={<BoltIcon />} variant="contained" onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
               {generateMutation.isPending ? 'Генерируем...' : 'Обновить insights'}
-            </Button>
-            <Button startIcon={<UploadIcon />} variant="contained" onClick={() => setUploadOpen(true)}>
-              Загрузить ключевые слова
             </Button>
           </Stack>
         }
@@ -252,6 +236,15 @@ export function CampaignPage() {
             </CardContent>
           </Card>
 
+          <Card sx={{ overflow: 'hidden', borderRadius: 2 }}>
+            <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
+              <Stack spacing={2}>
+                <Typography variant="h6" fontWeight={800} sx={{ px: 2, pt: 2 }}>Номенклатуры с прямой конверсией</Typography>
+                <NomenclatureTable rows={nomenclaturesQuery.data ?? []} />
+              </Stack>
+            </CardContent>
+          </Card>
+
           <Drawer
             anchor="right"
             hideBackdrop
@@ -284,17 +277,6 @@ export function CampaignPage() {
         </>
       ) : null}
 
-      <UploadKeywordStatsDialog
-        campaignId={campaignIdValue}
-        error={uploadError}
-        isUploading={uploadMutation.isPending}
-        open={uploadOpen}
-        onClose={() => {
-          setUploadOpen(false);
-          setUploadError(null);
-        }}
-        onSubmit={(request) => uploadMutation.mutateAsync(request)}
-      />
     </Stack>
   );
 }

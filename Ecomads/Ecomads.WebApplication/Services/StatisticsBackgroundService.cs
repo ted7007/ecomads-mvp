@@ -39,7 +39,7 @@ public class StatisticsBackgroundService : BackgroundService
             var endDateUtc = DateTime.SpecifyKind(job.EndDate, DateTimeKind.Utc);
 
             var keywordStats = await dbContext.KeywordStatistics
-                .Where(ks => ks.CompaignId == job.CampaignId && ks.StartDate == startDateUtc && ks.EndDate == endDateUtc)
+                .Where(ks => ks.CampaignId == job.CampaignId && ks.StartDate == startDateUtc && ks.EndDate == endDateUtc)
                 .ToListAsync(stoppingToken);
 
             // Генерируем рекомендации после получения статистики

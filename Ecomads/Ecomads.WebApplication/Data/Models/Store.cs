@@ -41,5 +41,5 @@ public class Store
     public virtual Seller Seller { get; set; } = null!;
     
     // Навигационные свойства
-    public virtual ICollection<Compaign> Compaigns { get; set; } = new List<Compaign>();
+    public virtual ICollection<Campaign> Campaigns { get; set; } = new List<Campaign>();
 }

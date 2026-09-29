@@ -11,3 +11,5 @@ TestConsoleApp/obj/
 
 Ecomads.WebApplication/ClientApp/dist/
 Ecomads.WebApplication/wwwroot/app/
+Ecomads.WebApplication/appsettings.json
+Ecomads.WebApplication/appsettings.Development.json

@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecomads.WebApplication.Migrations
 {
     [DbContext(typeof(EcomadsDbContext))]
-    [Migration("20260608043225_initialMigration")]
-    partial class initialMigration
+    [Migration("20260715041633_InitialSchema")]
+    partial class InitialSchema
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -25,7 +25,7 @@ namespace Ecomads.WebApplication.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Compaign", b =>
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Campaign", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -49,17 +49,21 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("end_date");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("name");
-
-                    b.Property<string>("Number")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("number");
 
                     b.Property<DateTime?>("StartDate")
                         .HasColumnType("timestamp with time zone")
@@ -69,18 +73,102 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("store_id");
 
+                    b.Property<string>("WbCampaignId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("wb_campaign_id");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("StoreId");
+                    b.HasIndex("StoreId", "WbCampaignId")
+                        .IsUnique();
 
-                    b.ToTable("compaigns", (string)null);
+                    b.ToTable("campaigns", (string)null);
                 });
 
-            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.CompaignStatistics", b =>
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.CampaignNomenclatureStatistics", b =>
                 {
-                    b.Property<Guid>("CompaignId")
+                    b.Property<Guid>("CampaignId")
                         .HasColumnType("uuid")
-                        .HasColumnName("compaign_id");
+                        .HasColumnName("campaign_id");
+
+                    b.Property<Guid>("NomenclatureId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("nomenclature_id");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_date");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_date");
+
+                    b.Property<decimal?>("AveragePosition")
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("average_position");
+
+                    b.Property<int>("Cancellations")
+                        .HasColumnType("integer")
+                        .HasColumnName("cancellations");
+
+                    b.Property<int>("Carts")
+                        .HasColumnType("integer")
+                        .HasColumnName("carts");
+
+                    b.Property<int>("Clicks")
+                        .HasColumnType("integer")
+                        .HasColumnName("clicks");
+
+                    b.Property<decimal?>("Cpc")
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("cpc");
+
+                    b.Property<decimal?>("Cpm")
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("cpm");
+
+                    b.Property<decimal?>("Cpo")
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("cpo");
+
+                    b.Property<decimal?>("Cr")
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("cr");
+
+                    b.Property<decimal?>("Ctr")
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("ctr");
+
+                    b.Property<int>("Impressions")
+                        .HasColumnType("integer")
+                        .HasColumnName("impressions");
+
+                    b.Property<int>("Orders")
+                        .HasColumnType("integer")
+                        .HasColumnName("orders");
+
+                    b.Property<decimal>("Revenue")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("revenue");
+
+                    b.Property<decimal>("Spend")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("spend");
+
+                    b.HasKey("CampaignId", "NomenclatureId", "StartDate", "EndDate");
+
+                    b.HasIndex("NomenclatureId", "StartDate", "EndDate");
+
+                    b.ToTable("campaign_nomenclature_statistics", (string)null);
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.CampaignStatistics", b =>
+                {
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("timestamp with time zone")
@@ -94,6 +182,14 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("type");
 
+                    b.Property<int>("Cancellations")
+                        .HasColumnType("integer")
+                        .HasColumnName("cancellations");
+
+                    b.Property<int>("Carts")
+                        .HasColumnType("integer")
+                        .HasColumnName("carts");
+
                     b.Property<float>("Clicks")
                         .HasColumnType("real")
                         .HasColumnName("clicks");
@@ -106,6 +202,14 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("real")
                         .HasColumnName("drr");
 
+                    b.Property<int>("Impressions")
+                        .HasColumnType("integer")
+                        .HasColumnName("impressions");
+
+                    b.Property<int>("Orders")
+                        .HasColumnType("integer")
+                        .HasColumnName("orders");
+
                     b.Property<float>("Revenue")
                         .HasColumnType("real")
                         .HasColumnName("revenue");
@@ -114,9 +218,71 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("real")
                         .HasColumnName("spend");
 
-                    b.HasKey("CompaignId", "StartDate", "EndDate", "Type");
+                    b.HasKey("CampaignId", "StartDate", "EndDate", "Type");
 
-                    b.ToTable("compaign_statistics", (string)null);
+                    b.ToTable("campaign_statistics", (string)null);
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.DemoFeedback", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContinueTestingAnswer")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("continue_testing_answer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("DashboardClarityScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("dashboard_clarity_score");
+
+                    b.Property<string>("GeneralComment")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("general_comment");
+
+                    b.Property<string>("MissingForRegularUsage")
+                        .HasColumnType("text")
+                        .HasColumnName("missing_for_regular_usage");
+
+                    b.Property<string>("MostUsefulFeature")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("most_useful_feature");
+
+                    b.Property<int>("RecommendationsUsefulnessScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("recommendations_usefulness_score");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("WillingToPayAnswer")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("willing_to_pay_answer");
+
+                    b.Property<string>("WrongOrQuestionableRecommendations")
+                        .HasColumnType("text")
+                        .HasColumnName("wrong_or_questionable_recommendations");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("demo_feedbacks", (string)null);
                 });
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.KeywordStatistics", b =>
@@ -130,17 +296,33 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("avg_position");
 
+                    b.Property<int?>("Baskets")
+                        .HasColumnType("integer")
+                        .HasColumnName("baskets");
+
+                    b.Property<decimal?>("BidCpm")
+                        .HasColumnType("numeric")
+                        .HasColumnName("bid_cpm");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
                     b.Property<int?>("Clicks")
                         .HasColumnType("integer")
                         .HasColumnName("clicks");
 
-                    b.Property<Guid>("CompaignId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("compaign_id");
+                    b.Property<decimal?>("Cpc")
+                        .HasColumnType("numeric")
+                        .HasColumnName("cpc");
 
                     b.Property<decimal?>("Cpm")
                         .HasColumnType("numeric")
                         .HasColumnName("cpm");
+
+                    b.Property<decimal?>("Cpo")
+                        .HasColumnType("numeric")
+                        .HasColumnName("cpo");
 
                     b.Property<double?>("Ctr")
                         .HasColumnType("double precision")
@@ -161,6 +343,12 @@ namespace Ecomads.WebApplication.Migrations
                     b.Property<int?>("Impressions")
                         .HasColumnType("integer")
                         .HasColumnName("impressions");
+
+                    b.Property<string>("NormalizedPhrase")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("normalized_phrase");
 
                     b.Property<int?>("Orders")
                         .HasColumnType("integer")
@@ -186,9 +374,231 @@ namespace Ecomads.WebApplication.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompaignId");
+                    b.HasIndex("CampaignId", "StartDate", "EndDate", "NormalizedPhrase")
+                        .IsUnique();
 
                     b.ToTable("keyword_statistics", (string)null);
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.LlmUsageEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal?>("BothubCaps")
+                        .HasColumnType("decimal(18,6)")
+                        .HasColumnName("bothub_caps");
+
+                    b.Property<Guid?>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<int?>("CompletionTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("completion_tokens");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<decimal?>("EstimatedCostRub")
+                        .HasColumnType("decimal(18,6)")
+                        .HasColumnName("estimated_cost_rub");
+
+                    b.Property<int?>("HttpStatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("http_status_code");
+
+                    b.Property<bool>("IsSuccess")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_success");
+
+                    b.Property<Guid?>("KeywordId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("keyword_id");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("model");
+
+                    b.Property<string>("OperationName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("operation_name");
+
+                    b.Property<int?>("PromptTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("prompt_tokens");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("RequestMetadataJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("request_metadata_json");
+
+                    b.Property<string>("ResponseMetadataJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("response_metadata_json");
+
+                    b.Property<int?>("TotalTokens")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_tokens");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CampaignId");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.HasIndex("IsSuccess");
+
+                    b.HasIndex("Model");
+
+                    b.HasIndex("OperationName");
+
+                    b.HasIndex("Provider");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("llm_usage_events", (string)null);
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Nomenclature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("StoreId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("store_id");
+
+                    b.Property<string>("WbNomenclatureId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("wb_nomenclature_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StoreId", "WbNomenclatureId")
+                        .IsUnique();
+
+                    b.ToTable("nomenclatures", (string)null);
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.ProductUsageEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("EventName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("event_name");
+
+                    b.Property<string>("FeatureName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("feature_name");
+
+                    b.Property<string>("IpHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("ip_hash");
+
+                    b.Property<Guid?>("KeywordId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("keyword_id");
+
+                    b.Property<Guid?>("LlmUsageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("llm_usage_id");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("metadata_json");
+
+                    b.Property<string>("Method")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("method");
+
+                    b.Property<string>("Path")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("path");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("user_agent");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CampaignId");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.HasIndex("EventName");
+
+                    b.HasIndex("FeatureName");
+
+                    b.HasIndex("LlmUsageId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("product_usage_events", (string)null);
                 });
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Recommendation", b =>
@@ -444,9 +854,33 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("AccessType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("access_type");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DemoExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("demo_expires_at_utc");
+
+                    b.Property<DateTime?>("DemoFeedbackSubmittedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("demo_feedback_submitted_at_utc");
+
+                    b.Property<DateTime?>("DemoStartedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("demo_started_at_utc");
+
+                    b.Property<int>("DemoStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("demo_status");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -454,9 +888,19 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("character varying(255)")
                         .HasColumnName("email");
 
+                    b.Property<bool>("IsDemoUser")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_demo_user");
+
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_login_at");
+
+                    b.Property<DateTime?>("MvpAccessGrantedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("mvp_access_granted_at_utc");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -538,59 +982,109 @@ namespace Ecomads.WebApplication.Migrations
                     b.ToTable("stores", (string)null);
                 });
 
-            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Compaign", b =>
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Campaign", b =>
                 {
                     b.HasOne("Ecomads.WebApplication.Data.Models.Store", "Store")
-                        .WithMany("Compaigns")
+                        .WithMany("Campaigns")
                         .HasForeignKey("StoreId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("FK_compaigns_stores_store_id");
+                        .HasConstraintName("FK_campaigns_stores_store_id");
 
                     b.Navigation("Store");
                 });
 
-            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.CompaignStatistics", b =>
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.CampaignNomenclatureStatistics", b =>
                 {
-                    b.HasOne("Ecomads.WebApplication.Data.Models.Compaign", null)
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Campaign", "Campaign")
                         .WithMany()
-                        .HasForeignKey("CompaignId")
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Nomenclature", "Nomenclature")
+                        .WithMany()
+                        .HasForeignKey("NomenclatureId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Campaign");
+
+                    b.Navigation("Nomenclature");
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.CampaignStatistics", b =>
+                {
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Campaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.KeywordStatistics", b =>
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.DemoFeedback", b =>
                 {
-                    b.HasOne("Ecomads.WebApplication.Data.Models.Compaign", "Compaign")
-                        .WithMany()
-                        .HasForeignKey("CompaignId")
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Seller", null)
+                        .WithOne()
+                        .HasForeignKey("Ecomads.WebApplication.Data.Models.DemoFeedback", "UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("FK_keyword_statistics_compaigns_compaign_id");
-
-                    b.Navigation("Compaign");
+                        .HasConstraintName("FK_demo_feedbacks_sellers_user_id");
                 });
 
-            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Recommendation", b =>
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.KeywordStatistics", b =>
                 {
-                    b.HasOne("Ecomads.WebApplication.Data.Models.Compaign", "Campaign")
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Campaign", "Campaign")
                         .WithMany()
                         .HasForeignKey("CampaignId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("FK_recommendations_compaigns_campaign_id");
+                        .HasConstraintName("FK_keyword_statistics_campaigns_campaign_id");
+
+                    b.Navigation("Campaign");
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Nomenclature", b =>
+                {
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Store", "Store")
+                        .WithMany()
+                        .HasForeignKey("StoreId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_nomenclatures_stores_store_id");
+
+                    b.Navigation("Store");
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.ProductUsageEvent", b =>
+                {
+                    b.HasOne("Ecomads.WebApplication.Data.Models.LlmUsageEvent", null)
+                        .WithMany()
+                        .HasForeignKey("LlmUsageId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("FK_product_usage_events_llm_usage_events_llm_usage_id");
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Recommendation", b =>
+                {
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Campaign", "Campaign")
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_recommendations_campaigns_campaign_id");
 
                     b.Navigation("Campaign");
                 });
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.RecommendationInsightEntity", b =>
                 {
-                    b.HasOne("Ecomads.WebApplication.Data.Models.Compaign", null)
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Campaign", null)
                         .WithMany()
                         .HasForeignKey("CampaignId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("FK_recommendation_insights_compaigns_campaign_id");
+                        .HasConstraintName("FK_recommendation_insights_campaigns_campaign_id");
 
                     b.HasOne("Ecomads.WebApplication.Data.Models.Recommendation", "RecommendationRun")
                         .WithMany()
@@ -621,7 +1115,7 @@ namespace Ecomads.WebApplication.Migrations
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.Store", b =>
                 {
-                    b.Navigation("Compaigns");
+                    b.Navigation("Campaigns");
                 });
 #pragma warning restore 612, 618
         }

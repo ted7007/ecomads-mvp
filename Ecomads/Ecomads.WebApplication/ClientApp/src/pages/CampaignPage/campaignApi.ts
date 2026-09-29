@@ -8,6 +8,7 @@ import {
   type InsightDecisionUpdate,
   type KeywordRecommendationOverlay
 } from './campaignSchemas';
+import { nomenclatureStatisticsSchema, type NomenclatureStatistics } from './campaignSchemas';
 
 export type InsightDecision = 'accept' | 'apply' | 'postpone' | 'reject';
 
@@ -51,6 +52,14 @@ export async function getCampaignSummary(campaignId: string, filters: DashboardF
 export async function getCampaignPeriods(): Promise<LoadedPeriod[]> {
   const response = await httpClient<unknown>('/api/statistics/periods');
   return loadedPeriodsResponseSchema.parse(response);
+}
+
+export async function getNomenclatureStatistics(campaignId: string, filters: DashboardFilters = {}): Promise<NomenclatureStatistics[]> {
+  const query = new URLSearchParams();
+  if (filters.startDate) query.set('startDate', filters.startDate);
+  if (filters.endDate) query.set('endDate', filters.endDate);
+  const response = await httpClient<unknown>(`/api/statistics/nomenclatures/${campaignId}${query.size ? `?${query.toString()}` : ''}`);
+  return nomenclatureStatisticsSchema.array().parse(response);
 }
 
 export async function getKeywordOverlay(campaignId: string, filters: DashboardFilters = {}): Promise<KeywordRecommendationOverlay> {

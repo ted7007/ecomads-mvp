@@ -9,8 +9,10 @@ public class EcomadsDbContext : DbContext
 
     public DbSet<Seller> Sellers { get; set; }
     public DbSet<Store> Stores { get; set; }
-    public DbSet<Compaign> Compaigns { get; set; }
-    public DbSet<CompaignStatistics> CompaignStatistics { get; set; }
+    public DbSet<Campaign> Campaigns { get; set; }
+    public DbSet<Nomenclature> Nomenclatures { get; set; }
+    public DbSet<CampaignNomenclatureStatistics> CampaignNomenclatureStatistics { get; set; }
+    public DbSet<CampaignStatistics> CampaignStatistics { get; set; }
     public DbSet<KeywordStatistics> KeywordStatistics { get; set; }
     public DbSet<Recommendation> Recommendations { get; set; }
     public DbSet<RecommendationInsightEntity> RecommendationInsights { get; set; }
@@ -155,32 +157,76 @@ public class EcomadsDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<Compaign>(entity =>
+        modelBuilder.Entity<Campaign>(entity =>
         {
-            entity.ToTable("compaigns");
+            entity.ToTable("campaigns");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Name).IsRequired().HasMaxLength(255).HasColumnName("name");
-            entity.Property(e => e.Number).IsRequired().HasMaxLength(100).HasColumnName("number");
+            entity.Property(e => e.WbCampaignId).IsRequired().HasMaxLength(50).HasColumnName("wb_campaign_id");
+            entity.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+            entity.Property(e => e.LastSeenAt).HasColumnName("last_seen_at");
             entity.Property(e => e.Description).HasMaxLength(255).HasColumnName("description");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.StartDate).HasColumnName("start_date");
             entity.Property(e => e.EndDate).HasColumnName("end_date");
             entity.Property(e => e.Budget).HasColumnName("budget").HasColumnType("decimal(18,2)");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
-            
             entity.HasOne(e => e.Store)
-                .WithMany(s => s.Compaigns)
+                .WithMany(s => s.Campaigns)
                 .HasForeignKey(e => e.StoreId)
-                .HasConstraintName("FK_compaigns_stores_store_id")
+                .HasConstraintName("FK_campaigns_stores_store_id")
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.StoreId, e.WbCampaignId }).IsUnique();
         });
 
-        modelBuilder.Entity<CompaignStatistics>(entity =>
+        modelBuilder.Entity<Nomenclature>(entity =>
         {
-            entity.ToTable("compaign_statistics");
-            entity.HasKey(e => new { e.CompaignId, e.StartDate, e.EndDate, e.Type });
-            entity.Property(e => e.CompaignId).HasColumnName("compaign_id");
+            entity.ToTable("nomenclatures");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.WbNomenclatureId).IsRequired().HasMaxLength(50).HasColumnName("wb_nomenclature_id");
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(1000).HasColumnName("name");
+            entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.HasOne(e => e.Store)
+                .WithMany()
+                .HasForeignKey(e => e.StoreId)
+                .HasConstraintName("FK_nomenclatures_stores_store_id")
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.StoreId, e.WbNomenclatureId }).IsUnique();
+        });
+
+        modelBuilder.Entity<CampaignNomenclatureStatistics>(entity =>
+        {
+            entity.ToTable("campaign_nomenclature_statistics");
+            entity.HasKey(e => new { e.CampaignId, e.NomenclatureId, e.StartDate, e.EndDate });
+            entity.Property(e => e.CampaignId).HasColumnName("campaign_id");
+            entity.Property(e => e.NomenclatureId).HasColumnName("nomenclature_id");
+            entity.Property(e => e.StartDate).HasColumnName("start_date");
+            entity.Property(e => e.EndDate).HasColumnName("end_date");
+            entity.Property(e => e.Spend).HasColumnName("spend").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Revenue).HasColumnName("revenue").HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Impressions).HasColumnName("impressions");
+            entity.Property(e => e.Clicks).HasColumnName("clicks");
+            entity.Property(e => e.Carts).HasColumnName("carts");
+            entity.Property(e => e.Orders).HasColumnName("orders");
+            entity.Property(e => e.Cancellations).HasColumnName("cancellations");
+            entity.Property(e => e.Ctr).HasColumnName("ctr").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.Cr).HasColumnName("cr").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.Cpm).HasColumnName("cpm").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.Cpc).HasColumnName("cpc").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.Cpo).HasColumnName("cpo").HasColumnType("decimal(18,4)");
+            entity.Property(e => e.AveragePosition).HasColumnName("average_position").HasColumnType("decimal(18,4)");
+            entity.HasOne(e => e.Campaign).WithMany().HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Nomenclature).WithMany().HasForeignKey(e => e.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.NomenclatureId, e.StartDate, e.EndDate });
+        });
+
+        modelBuilder.Entity<CampaignStatistics>(entity =>
+        {
+            entity.ToTable("campaign_statistics");
+            entity.HasKey(e => new { e.CampaignId, e.StartDate, e.EndDate, e.Type });
+            entity.Property(e => e.CampaignId).HasColumnName("campaign_id");
             entity.Property(e => e.StartDate).HasColumnName("start_date");
             entity.Property(e => e.EndDate).HasColumnName("end_date");
             entity.Property(e => e.Type).HasColumnName("type");
@@ -189,7 +235,11 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.Clicks).HasColumnName("clicks");
             entity.Property(e => e.Ctr).HasColumnName("ctr");
             entity.Property(e => e.Drr).HasColumnName("drr");
-            entity.HasOne<Compaign>().WithMany().HasForeignKey(e => e.CompaignId);
+            entity.Property(e => e.Impressions).HasColumnName("impressions");
+            entity.Property(e => e.Carts).HasColumnName("carts");
+            entity.Property(e => e.Orders).HasColumnName("orders");
+            entity.Property(e => e.Cancellations).HasColumnName("cancellations");
+            entity.HasOne<Campaign>().WithMany().HasForeignKey(e => e.CampaignId);
         });
 
         modelBuilder.Entity<KeywordStatistics>(entity =>
@@ -197,10 +247,12 @@ public class EcomadsDbContext : DbContext
             entity.ToTable("keyword_statistics");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.CompaignId).HasColumnName("compaign_id");
+            entity.Property(e => e.CampaignId).HasColumnName("campaign_id");
             entity.Property(e => e.Phrase).HasColumnName("phrase").HasMaxLength(500);
+            entity.Property(e => e.NormalizedPhrase).HasColumnName("normalized_phrase").HasMaxLength(500);
             entity.Property(e => e.StartDate).HasColumnName("start_date");
             entity.Property(e => e.EndDate).HasColumnName("end_date");
+            entity.Property(e => e.BidCpm).HasColumnName("bid_cpm");
             entity.Property(e => e.Frequency).HasColumnName("frequency");
             entity.Property(e => e.Cpm).HasColumnName("cpm");
             entity.Property(e => e.AvgPosition).HasColumnName("avg_position");
@@ -208,10 +260,14 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.Clicks).HasColumnName("clicks");
             entity.Property(e => e.Ctr).HasColumnName("ctr");
             entity.Property(e => e.Spend).HasColumnName("spend");
+            entity.Property(e => e.Baskets).HasColumnName("baskets");
             entity.Property(e => e.Orders).HasColumnName("orders");
+            entity.Property(e => e.Cpc).HasColumnName("cpc");
+            entity.Property(e => e.Cpo).HasColumnName("cpo");
             entity.Property(e => e.Revenue).HasColumnName("revenue");
             entity.Property(e => e.Drr).HasColumnName("drr");
-            entity.HasOne(e => e.Compaign).WithMany().HasForeignKey(e => e.CompaignId).HasConstraintName("FK_keyword_statistics_compaigns_compaign_id");
+            entity.HasOne(e => e.Campaign).WithMany().HasForeignKey(e => e.CampaignId).HasConstraintName("FK_keyword_statistics_campaigns_campaign_id");
+            entity.HasIndex(e => new { e.CampaignId, e.StartDate, e.EndDate, e.NormalizedPhrase }).IsUnique();
         });
 
         modelBuilder.Entity<Recommendation>(entity =>
@@ -236,7 +292,7 @@ public class EcomadsDbContext : DbContext
             entity.HasOne(e => e.Campaign)
                 .WithMany()
                 .HasForeignKey(e => e.CampaignId)
-                .HasConstraintName("FK_recommendations_compaigns_campaign_id");
+                .HasConstraintName("FK_recommendations_campaigns_campaign_id");
         });
 
         modelBuilder.Entity<RecommendationInsightEntity>(entity =>
@@ -277,10 +333,10 @@ public class EcomadsDbContext : DbContext
                 .HasConstraintName("FK_recommendation_insights_recommendations_recommendation_run_id")
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne<Compaign>()
+            entity.HasOne<Campaign>()
                 .WithMany()
                 .HasForeignKey(e => e.CampaignId)
-                .HasConstraintName("FK_recommendation_insights_compaigns_campaign_id")
+                .HasConstraintName("FK_recommendation_insights_campaigns_campaign_id")
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(e => e.RecommendationRunId);

@@ -46,13 +46,13 @@ public class ProjectsController : ControllerBase
             .Select(s => s.Id)
             .ToListAsync();
         
-        var campaigns = await _context.Compaigns
+        var campaigns = await _context.Campaigns
             .Where(c => sellerStoreIds.Contains(c.StoreId))
             .Select(c => new ProjectDashboardDto(
                 c.Id,
                 c.Name,
-                _context.CompaignStatistics
-                    .Where(s => s.CompaignId == c.Id && s.StartDate >= startDateUtc && s.EndDate <= endDateUtc)
+                _context.CampaignStatistics
+                    .Where(s => s.CampaignId == c.Id && s.StartDate >= startDateUtc && s.EndDate <= endDateUtc)
                     .GroupBy(s => 1)
                     .Select(g => new ProjectKpiDto(
                         g.Sum(x => x.Spend),

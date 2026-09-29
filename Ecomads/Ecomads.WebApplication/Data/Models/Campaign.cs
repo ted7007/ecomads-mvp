@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Ecomads.WebApplication.Data.Models;
 
-public class Compaign
+public class Campaign
 {
     [Key]
     public Guid Id { get; set; }
@@ -14,8 +14,12 @@ public class Compaign
     public string Name { get; set; } = string.Empty;
 
     [Required]
-    [MaxLength(100)]
-    public string Number { get; set; } = string.Empty;
+    [MaxLength(50)]
+    public string WbCampaignId { get; set; } = string.Empty;
+
+    public bool IsActive { get; set; } = true;
+
+    public DateTime? LastSeenAt { get; set; }
     
     [MaxLength(255)]
     public string? Description { get; set; }

@@ -7,7 +7,7 @@ import { formatPercent } from '../../../shared/lib/formatPercent';
 
 export type KeywordSortField = keyof Pick<
   KeywordRecommendationRow,
-  'phrase' | 'status' | 'shortRecommendation' | 'views' | 'clicks' | 'ctr' | 'spend' | 'orders' | 'revenue' | 'drr'
+  'phrase' | 'status' | 'shortRecommendation' | 'views' | 'clicks' | 'ctr' | 'spend' | 'orders' | 'revenue' | 'drr' | 'frequency' | 'averagePosition'
 >;
 
 export type KeywordSort = {
@@ -30,6 +30,8 @@ const columns: Array<{ field: KeywordSortField; label: string; align?: 'left' | 
   { field: 'shortRecommendation', label: 'Рекомендация' },
   { field: 'views', label: 'Показы', align: 'right' },
   { field: 'clicks', label: 'Клики', align: 'right' },
+  { field: 'frequency', label: 'Частота', align: 'right' },
+  { field: 'averagePosition', label: 'Поз.', align: 'right' },
   { field: 'ctr', label: 'CTR', align: 'right' },
   { field: 'spend', label: 'Затраты', align: 'right' },
   { field: 'orders', label: 'Заказы', align: 'right' },
@@ -44,7 +46,7 @@ export function KeywordTable({ rows, selectedInsightId, selectedKeywordId, sort,
 
   return (
     <TableContainer sx={{ maxHeight: 680, overflowX: 'auto' }}>
-      <Table stickyHeader size="small" sx={{ minWidth: 1260, tableLayout: 'fixed' }}>
+      <Table stickyHeader size="small" sx={{ minWidth: 1450, tableLayout: 'fixed' }}>
         <TableHead>
           <TableRow>
             {columns.map((column) => (
@@ -125,6 +127,8 @@ export function KeywordTable({ rows, selectedInsightId, selectedKeywordId, sort,
                 </TableCell>
                 <TableCell align="right">{(row.views ?? 0).toLocaleString('ru-RU')}</TableCell>
                 <TableCell align="right">{(row.clicks ?? 0).toLocaleString('ru-RU')}</TableCell>
+                <TableCell align="right">{row.frequency?.toLocaleString('ru-RU') ?? '—'}</TableCell>
+                <TableCell align="right">{row.averagePosition?.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) ?? '—'}</TableCell>
                 <TableCell align="right">{formatPercent(row.ctr, 2)}</TableCell>
                 <TableCell align="right">{formatMoney(row.spend ?? 0)}</TableCell>
                 <TableCell align="right">{(row.orders ?? 0).toLocaleString('ru-RU')}</TableCell>

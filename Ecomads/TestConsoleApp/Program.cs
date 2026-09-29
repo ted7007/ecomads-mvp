@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -30,24 +30,24 @@ var dbContext = serviceProvider.GetRequiredService<EcomadsDbContext>();
 var campaignId = Guid.Parse("d2a3565f-656a-4b18-959f-57181d43c7a5"); 
 
 // ================= DATA FROM DB =================
-var stats = await dbContext.CompaignStatistics
-    .FirstOrDefaultAsync(s => s.CompaignId == campaignId && s.Type == (CompaignStatisticsType)0);
+var stats = await dbContext.CampaignStatistics
+    .FirstOrDefaultAsync(s => s.CampaignId == campaignId && s.Type == (CampaignStatisticsType)0);
 
 var topKeywords = await dbContext.KeywordStatistics
-    .Where(k => k.CompaignId == campaignId)
+    .Where(k => k.CampaignId == campaignId)
     .OrderByDescending(k => k.Revenue)
     .Take(5)
     .ToListAsync();
 
 var worstKeywords = await dbContext.KeywordStatistics
-    .Where(k => k.CompaignId == campaignId && k.Orders == 0 && k.Spend > 0)
+    .Where(k => k.CampaignId == campaignId && k.Orders == 0 && k.Spend > 0)
     .OrderByDescending(k => k.Spend)
     .Take(5)
     .ToListAsync();
 
 var dto = new CampaignAnalyticsDto
 {
-    Name = (await dbContext.Compaigns.FindAsync(campaignId))?.Name ?? "Unknown",
+    Name = (await dbContext.Campaigns.FindAsync(campaignId))?.Name ?? "Unknown",
     Spend = stats?.Spend ?? 0,
     Revenue = stats?.Revenue ?? 0,
     Drr = stats?.Drr ?? 0,

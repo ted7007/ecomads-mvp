@@ -1,6 +1,6 @@
-import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material';
 import { useState } from 'react';
-import type { DashboardUploadMode, UploadStatisticsRequest } from '../dashboardApi';
+import type { UploadStatisticsRequest } from '../dashboardApi';
 
 type UploadStatisticsDialogProps = {
   open: boolean;
@@ -11,32 +11,27 @@ type UploadStatisticsDialogProps = {
 };
 
 export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSubmit }: UploadStatisticsDialogProps) {
-  const [mode, setMode] = useState<DashboardUploadMode>('general');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [keywordsFile, setKeywordsFile] = useState<File | null>(null);
+  const [campaignNamesFile, setCampaignNamesFile] = useState<File | null>(null);
+  const [wbStatisticsFiles, setWbStatisticsFiles] = useState<File[]>([]);
+  const [evirmaFiles, setEvirmaFiles] = useState<File[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const submit = async () => {
     setLocalError(null);
 
-    if (!file || !startDate || !endDate) {
-      setLocalError('Заполните период и выберите файл статистики.');
-      return;
-    }
-
-    if (mode === 'with-keywords' && !keywordsFile) {
-      setLocalError('Добавьте файл отчета по ключевым словам.');
+    if (!campaignNamesFile || wbStatisticsFiles.length === 0 || evirmaFiles.length === 0 || !startDate || !endDate) {
+      setLocalError('Заполните период и загрузите все три типа отчетов.');
       return;
     }
 
     await onSubmit({
-      file,
+      campaignNamesFile,
+      wbStatisticsFiles,
+      evirmaFiles,
       startDate,
-      endDate,
-      mode,
-      keywordsFile
+      endDate
     });
   };
 
@@ -52,8 +47,10 @@ export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSu
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <Typography color="text.secondary">
-            Общая статистика — это отчет из Wildberries. Статистика по ключевым словам — отчет из Эвирмы.
-            Если добавляете оба файла, выберите здесь тот же период, за который выгружали отчет Эвирмы.
+            Загрузите 3 отчета для анализа каждой рекламной кампании:<br />
+            1. WB продвижение → Статистика → Скачать «Расширенную статистику».<br />
+            2. WB продвижение → Статистика → «Название кампании» → Скачать «Расширенную статистику».<br />
+            3. WB продвижение → Кампании → «Название кампании» → Evirma (нужно расширение) → «Статистика РК по ключевым фразам» за 1 неделю.
           </Typography>
 
           {(localError || error) ? <Alert severity="error">{localError || error}</Alert> : null}
@@ -81,28 +78,24 @@ export function UploadStatisticsDialog({ open, isUploading, error, onClose, onSu
             InputLabelProps={{ shrink: true }}
             fullWidth
             inputProps={{ accept: '.xlsx' }}
-            label="Общая статистика из WB (.xlsx)"
+            label="WB: название кампаний (.xlsx)"
             type="file"
-            onChange={(event) => setFile((event.target as HTMLInputElement).files?.[0] ?? null)}
+            onChange={(event) => setCampaignNamesFile((event.target as HTMLInputElement).files?.[0] ?? null)}
           />
-
-          <FormControl>
-            <FormLabel>Режим загрузки</FormLabel>
-            <RadioGroup value={mode} onChange={(event) => setMode(event.target.value as DashboardUploadMode)}>
-              <FormControlLabel value="general" control={<Radio />} label="Только общая статистика из WB" />
-              <FormControlLabel value="with-keywords" control={<Radio />} label="Статистика из WB + ключевые слова из Эвирмы" />
-            </RadioGroup>
-          </FormControl>
-
           <TextField
             InputLabelProps={{ shrink: true }}
-            disabled={mode !== 'with-keywords'}
             fullWidth
-            inputProps={{ accept: '.xlsx' }}
-            helperText={mode === 'with-keywords' ? 'Период отчета из Эвирмы должен совпадать с датами выше.' : undefined}
-            label="Статистика по ключевым словам из Эвирмы (.xlsx)"
+            inputProps={{ accept: '.xlsx', multiple: true }}
+            helperText="Можно выбрать несколько файлов — по одному на кампанию."
+            label="WB: расширенная статистика кампаний (.xlsx)"
             type="file"
-            onChange={(event) => setKeywordsFile((event.target as HTMLInputElement).files?.[0] ?? null)}
+            onChange={(event) => setWbStatisticsFiles(Array.from((event.target as HTMLInputElement).files ?? []))}
+          />
+          <TextField
+            InputLabelProps={{ shrink: true }} fullWidth inputProps={{ accept: '.xlsx', multiple: true }}
+            helperText="Период должен совпадать с выбранными датами выше. Можно выбрать несколько файлов."
+            label="Evirma: статистика РК по ключевым фразам (.xlsx)" type="file"
+            onChange={(event) => setEvirmaFiles(Array.from((event.target as HTMLInputElement).files ?? []))}
           />
         </Stack>
       </DialogContent>

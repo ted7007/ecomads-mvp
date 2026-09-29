@@ -1,0 +1,11 @@
+# Local build verification output
+/artifacts/build-check*/
+
+# One-off local workbook analysis
+/.codex-budget-analysis/
+
+# Local environment files; keep documented templates versioned
+.env
+.env.*
+!.env.example
+!.env.*.example

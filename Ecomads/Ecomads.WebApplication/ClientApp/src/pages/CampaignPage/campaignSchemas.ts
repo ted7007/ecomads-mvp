@@ -100,6 +100,11 @@ export const keywordRecommendationRowSchema = z.object({
   orders: z.coerce.number().nullish(),
   revenue: nullableNumber,
   drr: nullableNumber,
+  frequency: z.coerce.number().nullish(),
+  averagePosition: nullableNumber,
+  bidCpm: nullableNumber,
+  cpc: nullableNumber,
+  cpo: nullableNumber,
   status: keywordStatusSchema,
   priorityScore: z.coerce.number().default(0),
   priorityLevel: priorityLevelSchema,
@@ -182,3 +187,9 @@ export type KeywordRecommendationOverlay = z.infer<typeof keywordRecommendationO
 export type KeywordRecommendationRow = z.infer<typeof keywordRecommendationRowSchema>;
 export type KeywordInsightDetail = z.infer<typeof keywordInsightDetailSchema>;
 export type InsightDecisionUpdate = z.infer<typeof insightDecisionUpdateSchema>;
+
+export const nomenclatureStatisticsSchema = z.object({
+  nomenclatureId: z.string(), name: z.string(), impressions: z.coerce.number(), clicks: z.coerce.number(), carts: z.coerce.number(), orders: z.coerce.number(),
+  spend: z.coerce.number(), revenue: z.coerce.number(), ctr: nullableNumber, cr: nullableNumber, cpc: nullableNumber, cpo: nullableNumber
+});
+export type NomenclatureStatistics = z.infer<typeof nomenclatureStatisticsSchema>;

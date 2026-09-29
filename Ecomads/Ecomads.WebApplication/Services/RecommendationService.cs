@@ -74,7 +74,7 @@ public class RecommendationService : IRecommendationService
 
     public async Task<Recommendation?> GenerateRecommendationAsync(Guid campaignId, string goal)
     {
-        var campaign = await _dbContext.Compaigns
+        var campaign = await _dbContext.Campaigns
             .Include(item => item.Store)
             .FirstOrDefaultAsync(item => item.Id == campaignId);
 
@@ -85,8 +85,8 @@ public class RecommendationService : IRecommendationService
 
         var sellerId = campaign.Store.SellerId;
 
-        var statistics = await _dbContext.CompaignStatistics
-            .Where(stat => stat.CompaignId == campaignId && stat.Type == CompaignStatisticsType.General)
+        var statistics = await _dbContext.CampaignStatistics
+            .Where(stat => stat.CampaignId == campaignId && stat.Type == CampaignStatisticsType.General)
             .OrderByDescending(stat => stat.EndDate)
             .ThenByDescending(stat => stat.StartDate)
             .FirstOrDefaultAsync();
@@ -253,10 +253,10 @@ public class RecommendationService : IRecommendationService
 
     private async Task<List<KeywordStatistics>> LoadKeywordStatisticsAsync(
         Guid campaignId,
-        CompaignStatistics? statistics)
+        CampaignStatistics? statistics)
     {
         var query = _dbContext.KeywordStatistics
-            .Where(keyword => keyword.CompaignId == campaignId);
+            .Where(keyword => keyword.CampaignId == campaignId);
 
         if (statistics != null)
         {

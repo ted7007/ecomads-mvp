@@ -14,7 +14,7 @@ public class Recommendation
     public Guid CampaignId { get; set; }
     
     [ForeignKey("CampaignId")]
-    public virtual Compaign Campaign { get; set; }
+    public virtual Campaign Campaign { get; set; }
     
     [Required]
     public DateTime CreatedAt { get; set; }

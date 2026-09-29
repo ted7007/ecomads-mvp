@@ -28,36 +28,36 @@ public sealed class KeywordRecommendationOverlayTests
             Name = "Overlay Store",
             SellerId = seller.Id
         };
-        var campaign = new Compaign
+        var campaign = new Campaign
         {
             Id = Guid.NewGuid(),
             Name = "Overlay Campaign",
-            Number = "SKU-OVERLAY",
+            WbCampaignId = "SKU-OVERLAY",
             StoreId = store.Id
         };
 
         dbContext.Sellers.Add(seller);
         dbContext.Stores.Add(store);
-        dbContext.Compaigns.Add(campaign);
-        dbContext.CompaignStatistics.AddRange(
-            new CompaignStatistics
+        dbContext.Campaigns.Add(campaign);
+        dbContext.CampaignStatistics.AddRange(
+            new CampaignStatistics
             {
-                CompaignId = campaign.Id,
+                CampaignId = campaign.Id,
                 StartDate = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
                 EndDate = new DateTime(2026, 6, 7, 0, 0, 0, DateTimeKind.Utc),
-                Type = CompaignStatisticsType.General,
+                Type = CampaignStatisticsType.General,
                 Spend = 100,
                 Revenue = 500,
                 Clicks = 20,
                 Ctr = 5,
                 Drr = 20
             },
-            new CompaignStatistics
+            new CampaignStatistics
             {
-                CompaignId = campaign.Id,
+                CampaignId = campaign.Id,
                 StartDate = new DateTime(2026, 6, 8, 0, 0, 0, DateTimeKind.Utc),
                 EndDate = new DateTime(2026, 6, 14, 0, 0, 0, DateTimeKind.Utc),
-                Type = CompaignStatisticsType.General,
+                Type = CampaignStatisticsType.General,
                 Spend = 50,
                 Revenue = 100,
                 Clicks = 10,
@@ -67,10 +67,11 @@ public sealed class KeywordRecommendationOverlayTests
         dbContext.KeywordStatistics.Add(new KeywordStatistics
         {
             Id = Guid.NewGuid(),
-            CompaignId = campaign.Id,
+            CampaignId = campaign.Id,
             StartDate = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
             EndDate = new DateTime(2026, 6, 7, 0, 0, 0, DateTimeKind.Utc),
             Phrase = "summer keyword",
+            NormalizedPhrase = "summer keyword",
             Impressions = 1000,
             Clicks = 50,
             Spend = 30,

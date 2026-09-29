@@ -3,7 +3,7 @@ namespace Ecomads.WebApplication.Models;
 public class KeywordStatDto
 {
     public string Phrase { get; set; } = null!;
-    public Guid CompaignId { get; set; }
+    public Guid CampaignId { get; set; }
     public DateTime Datetime { get; set; }
     public int? Frequency { get; set; }
     public decimal? Cpm { get; set; }

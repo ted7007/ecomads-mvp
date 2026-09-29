@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: ecomads-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  web:
+    image: ${ECOMADS_IMAGE}
+    pull_policy: never
+    container_name: ecomads-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=db;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      JwtSettings__SecretKey: ${JWT_SECRET}
+      JwtSettings__Issuer: ecomads_api
+      JwtSettings__Audience: ecomads_clients
+      JwtSettings__ExpiryMinutes: 1440
+      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      OpenAI__BaseUrl: ${OPENAI_BASE_URL:-https://openai.bothub.chat/v1/chat/completions}
+      OpenAI__Model: ${OPENAI_MODEL:-gpt-4o-mini}
+    expose:
+      - "8080"
+    volumes:
+      - dataprotection_keys:/root/.aspnet/DataProtection-Keys
+    networks:
+      - public
+      - backend
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ecomads-caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - public
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  public:
+  backend:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  dataprotection_keys:

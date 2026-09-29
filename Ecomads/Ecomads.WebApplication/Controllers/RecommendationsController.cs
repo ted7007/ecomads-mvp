@@ -533,7 +533,7 @@ namespace Ecomads.WebApplication.Controllers
 
             var nextStats = await _context.KeywordStatistics
                 .Where(keyword =>
-                    keyword.CompaignId == insight.CampaignId
+                    keyword.CampaignId == insight.CampaignId
                     && keyword.Phrase == insight.EntityName
                     && keyword.StartDate > insight.PeriodTo)
                 .OrderBy(keyword => keyword.StartDate)
@@ -612,7 +612,7 @@ namespace Ecomads.WebApplication.Controllers
             Guid sellerId,
             CancellationToken cancellationToken = default)
         {
-            return await _context.Compaigns
+            return await _context.Campaigns
                 .Where(campaign => campaign.Store.SellerId == sellerId)
                 .Select(campaign => campaign.Id)
                 .ToListAsync(cancellationToken);
@@ -623,7 +623,7 @@ namespace Ecomads.WebApplication.Controllers
             Guid campaignId,
             CancellationToken cancellationToken = default)
         {
-            return await _context.Compaigns
+            return await _context.Campaigns
                 .AnyAsync(
                     campaign => campaign.Id == campaignId
                         && campaign.Store.SellerId == sellerId,

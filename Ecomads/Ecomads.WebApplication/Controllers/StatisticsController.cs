@@ -20,19 +20,53 @@ public class StatisticsController : ControllerBase
 {
     private readonly EcomadsDbContext _context;
     private readonly IStatisticsQueue _queue;
+    private readonly IStatisticsImportService _importService;
     private readonly IProductAnalyticsService _analyticsService;
     private readonly ILogger<StatisticsController> _logger;
 
     public StatisticsController(
         EcomadsDbContext context,
         IStatisticsQueue queue,
+        IStatisticsImportService importService,
         IProductAnalyticsService analyticsService,
         ILogger<StatisticsController> logger)
     {
         _context = context;
         _queue = queue;
+        _importService = importService;
         _analyticsService = analyticsService;
         _logger = logger;
+    }
+
+    [HttpPost("import")]
+    [Authorize]
+    public async Task<IActionResult> ImportStatistics(
+        [FromForm] IFormFile campaignNamesFile,
+        [FromForm] List<IFormFile> wbStatisticsFiles,
+        [FromForm] List<IFormFile> evirmaFiles,
+        [FromForm] DateOnly startDate,
+        [FromForm] DateOnly endDate,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userId, out var sellerId))
+            return Unauthorized(new { message = "Недействительный токен" });
+
+        try
+        {
+            var result = await _importService.ImportAsync(
+                sellerId, campaignNamesFile, wbStatisticsFiles, evirmaFiles, startDate, endDate, cancellationToken);
+            return Ok(result);
+        }
+        catch (StatisticsImportValidationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Не удалось импортировать статистику пользователя {SellerId}", sellerId);
+            return BadRequest(new { message = "Не удалось прочитать один из отчетов. Проверьте, что выбраны корректные выгрузки WB и Эвирмы." });
+        }
     }
     
     [HttpPost("upload")]
@@ -98,7 +132,7 @@ public class StatisticsController : ControllerBase
             .FirstOrDefault(h => h.Contains("конверс", StringComparison.OrdinalIgnoreCase));
         var conversionTypeIndex = conversionTypeHeader != null ? headerIndexByName[conversionTypeHeader] : (int?)null;
 
-        var statsToAdd = new List<CompaignStatistics>();
+        var statsToAdd = new List<CampaignStatistics>();
         var processedRows = 0;
         var campaignIds = new HashSet<Guid>();
 
@@ -138,20 +172,20 @@ public class StatisticsController : ControllerBase
 
             var drr = revenue > 0 ? (double)(spend / revenue * 100) : 0;
 
-            var campaign = await _context.Compaigns
-                .FirstOrDefaultAsync(c => c.Number == number && c.StoreId == store.Id);
+            var campaign = await _context.Campaigns
+                .FirstOrDefaultAsync(c => c.WbCampaignId == number && c.StoreId == store.Id);
 
             if (campaign == null)
             {
-                campaign = new Compaign
+                campaign = new Campaign
                 {
                     Id = Guid.NewGuid(),
                     Name = name,
-                    Number = number,
+                    WbCampaignId = number,
                     StoreId = store.Id
                 };
 
-                _context.Compaigns.Add(campaign);
+                _context.Campaigns.Add(campaign);
             }
             else
             {
@@ -161,9 +195,9 @@ public class StatisticsController : ControllerBase
             processedRows++;
             campaignIds.Add(campaign.Id);
 
-            var existingStat = await _context.CompaignStatistics
+            var existingStat = await _context.CampaignStatistics
                 .FirstOrDefaultAsync(s =>
-                    s.CompaignId == campaign.Id &&
+                    s.CampaignId == campaign.Id &&
                     s.StartDate == startDateUtc &&
                     s.EndDate == endDateUtc);
 
@@ -177,9 +211,9 @@ public class StatisticsController : ControllerBase
             }
             else
             {
-                statsToAdd.Add(new CompaignStatistics
+                statsToAdd.Add(new CampaignStatistics
                 {
-                    CompaignId = campaign.Id,
+                    CampaignId = campaign.Id,
                     StartDate = startDateUtc,
                     EndDate = endDateUtc,
 
@@ -194,7 +228,7 @@ public class StatisticsController : ControllerBase
 
         if (statsToAdd.Count > 0)
         {
-            _context.CompaignStatistics.AddRange(statsToAdd);
+            _context.CampaignStatistics.AddRange(statsToAdd);
         }
 
         await _context.SaveChangesAsync();
@@ -257,14 +291,14 @@ public class StatisticsController : ControllerBase
         var startDateUtc = UtcDate.FromDateOnly(startDate);
         var endDateUtc = UtcDate.FromDateOnly(endDate);
 
-        var campaignIds = await _context.CompaignStatistics
+        var campaignIds = await _context.CampaignStatistics
             .Where(s => s.StartDate == startDateUtc && s.EndDate == endDateUtc)
-            .Join(_context.Compaigns,
-                stat => stat.CompaignId,
+            .Join(_context.Campaigns,
+                stat => stat.CampaignId,
                 campaign => campaign.Id,
-                (stat, campaign) => new { stat.CompaignId, campaign.StoreId })
+                (stat, campaign) => new { stat.CampaignId, campaign.StoreId })
             .Where(x => x.StoreId == store.Id)
-            .Select(x => x.CompaignId)
+            .Select(x => x.CampaignId)
             .Distinct()
             .ToListAsync();
 
@@ -296,13 +330,13 @@ public class StatisticsController : ControllerBase
         if (store == null)
             return Unauthorized(new { message = "Store not found for current user" });
 
-        var hasAccessToCampaign = await _context.Compaigns
+        var hasAccessToCampaign = await _context.Campaigns
             .AnyAsync(c => c.Id == campaignId && c.StoreId == store.Id);
         if (!hasAccessToCampaign)
             return NotFound("Campaign not found for current user.");
 
         var query = _context.KeywordStatistics
-            .Where(s => s.CompaignId == campaignId);
+            .Where(s => s.CampaignId == campaignId);
 
         if (startDate.HasValue)
         {
@@ -337,6 +371,33 @@ public class StatisticsController : ControllerBase
         return Ok(stats);
     }
 
+    [HttpGet("nomenclatures/{campaignId}")]
+    [Authorize]
+    public async Task<IActionResult> GetNomenclatureStatistics(Guid campaignId, [FromQuery] DateOnly? startDate, [FromQuery] DateOnly? endDate)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userId, out var sellerId)) return Unauthorized(new { message = "Недействительный токен" });
+        var store = await _context.Stores.SingleOrDefaultAsync(x => x.SellerId == sellerId);
+        if (store == null || !await _context.Campaigns.AnyAsync(x => x.Id == campaignId && x.StoreId == store.Id)) return NotFound(new { message = "Кампания не найдена" });
+
+        var query = _context.CampaignNomenclatureStatistics.Where(x => x.CampaignId == campaignId);
+        if (startDate.HasValue) query = query.Where(x => x.StartDate >= UtcDate.FromDateOnly(startDate.Value));
+        if (endDate.HasValue) query = query.Where(x => x.EndDate <= UtcDate.FromDateOnly(endDate.Value));
+        var rows = await query.Include(x => x.Nomenclature).ToListAsync();
+        var result = rows.GroupBy(x => new { x.Nomenclature.WbNomenclatureId, x.Nomenclature.Name })
+            .Select(group =>
+            {
+                var impressions = group.Sum(x => x.Impressions);
+                var clicks = group.Sum(x => x.Clicks);
+                var carts = group.Sum(x => x.Carts);
+                var orders = group.Sum(x => x.Orders);
+                var spend = group.Sum(x => x.Spend);
+                var revenue = group.Sum(x => x.Revenue);
+                return new NomenclatureStatisticsDto { NomenclatureId = group.Key.WbNomenclatureId, Name = group.Key.Name, Impressions = impressions, Clicks = clicks, Carts = carts, Orders = orders, Spend = spend, Revenue = revenue, Ctr = impressions > 0 ? clicks * 100m / impressions : null, Cr = clicks > 0 ? orders * 100m / clicks : null, Cpc = clicks > 0 ? spend / clicks : null, Cpo = orders > 0 ? spend / orders : null };
+            }).OrderByDescending(x => x.Spend).ToList();
+        return Ok(result);
+    }
+
     [HttpGet("periods")]
     [Authorize]
     public async Task<IActionResult> GetLoadedPeriods()
@@ -349,9 +410,9 @@ public class StatisticsController : ControllerBase
         if (store == null)
             return Unauthorized(new { message = "Store not found for current user" });
 
-        var periods = await _context.CompaignStatistics
-            .Join(_context.Compaigns,
-                stat => stat.CompaignId,
+        var periods = await _context.CampaignStatistics
+            .Join(_context.Campaigns,
+                stat => stat.CampaignId,
                 campaign => campaign.Id,
                 (stat, campaign) => new { stat.StartDate, stat.EndDate, campaign.StoreId })
             .Where(x => x.StoreId == store.Id)
@@ -379,7 +440,7 @@ public class StatisticsController : ControllerBase
         if (store == null)
             return Unauthorized(new { message = "Store not found for current user" });
 
-        var campaign = await _context.Compaigns
+        var campaign = await _context.Campaigns
             .FirstOrDefaultAsync(c => c.Id == campaignId && c.StoreId == store.Id);
         if (campaign == null)
             return BadRequest($"Campaign with ID {campaignId} does not exist for current user.");
@@ -435,7 +496,7 @@ public class StatisticsController : ControllerBase
         int idxRevenue = GetColumn(headerIndex, "Выручка");
 
         var existingStats = await _context.KeywordStatistics
-            .Where(s => s.CompaignId == campaignId &&
+            .Where(s => s.CampaignId == campaignId &&
                         s.StartDate == startDateUtc &&
                         s.EndDate == endDateUtc)
             .ToListAsync();
@@ -491,10 +552,11 @@ public class StatisticsController : ControllerBase
                 statsToAdd.Add(new KeywordStatistics
                 {
                     Id = Guid.NewGuid(),
-                    CompaignId = campaignId,
+                    CampaignId = campaignId,
                     StartDate = startDateUtc,
                     EndDate = endDateUtc,
                     Phrase = phrase,
+                    NormalizedPhrase = phrase.Trim().ToLowerInvariant(),
                     Frequency = freq ?? 0,
                     Cpm = (decimal?)(cpm ?? 0),
                     AvgPosition = (double?)(avgPos ?? 0),

@@ -46,7 +46,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         DateOnly? endDate,
         CancellationToken cancellationToken = default)
     {
-        var campaignExists = await _dbContext.Compaigns
+        var campaignExists = await _dbContext.Campaigns
             .AnyAsync(campaign => campaign.Id == campaignId, cancellationToken);
 
         if (!campaignExists)
@@ -107,7 +107,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         CancellationToken cancellationToken)
     {
         var query = _dbContext.KeywordStatistics
-            .Where(keyword => keyword.CompaignId == campaignId);
+            .Where(keyword => keyword.CampaignId == campaignId);
 
         if (startDate.HasValue)
         {
@@ -124,14 +124,14 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         return await query.ToListAsync(cancellationToken);
     }
 
-    private async Task<CompaignStatistics?> LoadCampaignStatsAsync(
+    private async Task<CampaignStatistics?> LoadCampaignStatsAsync(
         Guid campaignId,
         DateOnly? startDate,
         DateOnly? endDate,
         CancellationToken cancellationToken)
     {
-        var query = _dbContext.CompaignStatistics
-            .Where(stat => stat.CompaignId == campaignId && stat.Type == CompaignStatisticsType.General);
+        var query = _dbContext.CampaignStatistics
+            .Where(stat => stat.CampaignId == campaignId && stat.Type == CampaignStatisticsType.General);
 
         if (startDate.HasValue)
         {
@@ -155,8 +155,8 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
         Guid campaignId,
         CancellationToken cancellationToken)
     {
-        var stats = await _dbContext.CompaignStatistics
-            .Where(stat => stat.CompaignId == campaignId && stat.Type == CompaignStatisticsType.General)
+        var stats = await _dbContext.CampaignStatistics
+            .Where(stat => stat.CampaignId == campaignId && stat.Type == CampaignStatisticsType.General)
             .ToListAsync(cancellationToken);
 
         if (stats.Count == 0)
@@ -289,6 +289,11 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
             Orders = keyword.Orders,
             Revenue = keyword.Revenue,
             Drr = GetDisplayDrr(keyword),
+            Frequency = keyword.Frequency,
+            AveragePosition = keyword.AvgPosition,
+            BidCpm = keyword.BidCpm,
+            Cpc = keyword.Cpc,
+            Cpo = keyword.Cpo,
             Status = status,
             PriorityScore = mainInsight?.PriorityScore ?? 0,
             PriorityLevel = GetDisplayPriorityLevel(
@@ -427,7 +432,7 @@ public sealed class KeywordRecommendationOverlayService : IKeywordRecommendation
     }
 
     private static KeywordRecommendationSummaryDto BuildSummary(
-        CompaignStatistics? campaignStats,
+        CampaignStatistics? campaignStats,
         IReadOnlyCollection<KeywordStatistics> keywordStats)
     {
         var orders = keywordStats.Sum(keyword => keyword.Orders ?? 0);

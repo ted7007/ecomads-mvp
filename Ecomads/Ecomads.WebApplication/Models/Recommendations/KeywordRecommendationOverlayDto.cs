@@ -29,6 +29,11 @@ public sealed class KeywordKpiDto
     public int? Orders { get; init; }
     public decimal? Revenue { get; init; }
     public decimal? Drr { get; init; }
+    public int? Frequency { get; init; }
+    public double? AveragePosition { get; init; }
+    public decimal? BidCpm { get; init; }
+    public decimal? Cpc { get; init; }
+    public decimal? Cpo { get; init; }
 }
 
 public sealed class RecommendationOverlaySummaryDto
@@ -59,6 +64,11 @@ public sealed class KeywordRecommendationRowDto
     public int? Orders { get; init; }
     public decimal? Revenue { get; init; }
     public decimal? Drr { get; init; }
+    public int? Frequency { get; init; }
+    public double? AveragePosition { get; init; }
+    public decimal? BidCpm { get; init; }
+    public decimal? Cpc { get; init; }
+    public decimal? Cpo { get; init; }
     public KeywordRecommendationStatus Status { get; init; } = KeywordRecommendationStatus.Neutral;
     public double PriorityScore { get; init; }
     public PriorityLevel PriorityLevel { get; init; } = PriorityLevel.Low;

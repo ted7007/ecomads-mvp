@@ -7,14 +7,12 @@ export type DashboardFilters = {
   endDate?: string;
 };
 
-export type DashboardUploadMode = 'general' | 'with-keywords';
-
 export type UploadStatisticsRequest = {
-  file: File;
+  campaignNamesFile: File;
+  wbStatisticsFiles: File[];
+  evirmaFiles: File[];
   startDate: string;
   endDate: string;
-  mode: DashboardUploadMode;
-  keywordsFile?: File | null;
 };
 
 export async function getCampaigns(filters: DashboardFilters = {}): Promise<ProjectDashboard[]> {
@@ -42,22 +40,12 @@ export async function getLoadedPeriods(): Promise<LoadedPeriod[]> {
 
 export async function uploadDashboardStatistics(request: UploadStatisticsRequest): Promise<void> {
   const formData = new FormData();
-  formData.append('file', request.file);
+  formData.append('campaignNamesFile', request.campaignNamesFile);
+  request.wbStatisticsFiles.forEach((file) => formData.append('wbStatisticsFiles', file));
+  request.evirmaFiles.forEach((file) => formData.append('evirmaFiles', file));
   formData.append('startDate', request.startDate);
   formData.append('endDate', request.endDate);
-
-  let endpoint = '/api/statistics/upload';
-
-  if (request.mode === 'with-keywords') {
-    if (!request.keywordsFile) {
-      throw new Error('Добавьте файл отчета по ключевым словам.');
-    }
-
-    formData.append('keywordsFile', request.keywordsFile);
-    endpoint = '/api/statistics/upload-with-keywords';
-  }
-
-  await sendRequest(endpoint, {
+  await sendRequest('/api/statistics/import', {
     method: 'POST',
     body: formData
   });

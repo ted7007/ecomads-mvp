@@ -42,11 +42,11 @@ public sealed class ProjectsEndpointE2ETests
             Name = "E2E Store",
             SellerId = seller.Id
         };
-        var campaign = new Compaign
+        var campaign = new Campaign
         {
             Id = Guid.NewGuid(),
             Name = "June Campaign",
-            Number = "SKU-001",
+            WbCampaignId = "SKU-001",
             StoreId = store.Id
         };
 
@@ -54,13 +54,13 @@ public sealed class ProjectsEndpointE2ETests
         {
             dbContext.Sellers.Add(seller);
             dbContext.Stores.Add(store);
-            dbContext.Compaigns.Add(campaign);
-            dbContext.CompaignStatistics.Add(new CompaignStatistics
+            dbContext.Campaigns.Add(campaign);
+            dbContext.CampaignStatistics.Add(new CampaignStatistics
             {
-                CompaignId = campaign.Id,
+                CampaignId = campaign.Id,
                 StartDate = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
                 EndDate = new DateTime(2026, 6, 7, 0, 0, 0, DateTimeKind.Utc),
-                Type = CompaignStatisticsType.General,
+                Type = CampaignStatisticsType.General,
                 Spend = 100,
                 Revenue = 500,
                 Clicks = 20,

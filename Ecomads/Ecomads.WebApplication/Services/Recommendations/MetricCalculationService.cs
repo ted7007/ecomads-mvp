@@ -7,7 +7,7 @@ public interface IRecommendationMetricCalculationService
 {
     CalculatedKeywordMetrics CalculateKeywordMetrics(KeywordStatistics statistics);
     CalculatedCampaignMetrics CalculateCampaignMetrics(
-        CompaignStatistics statistics,
+        CampaignStatistics statistics,
         IReadOnlyCollection<CalculatedKeywordMetrics>? keywordMetrics = null);
 }
 
@@ -27,7 +27,7 @@ public sealed class MetricCalculationService : IRecommendationMetricCalculationS
         return new CalculatedKeywordMetrics
         {
             KeywordStatisticId = statistics.Id,
-            CampaignId = statistics.CompaignId,
+            CampaignId = statistics.CampaignId,
             Phrase = statistics.Phrase ?? string.Empty,
             StartDate = statistics.StartDate,
             EndDate = statistics.EndDate,
@@ -53,7 +53,7 @@ public sealed class MetricCalculationService : IRecommendationMetricCalculationS
     }
 
     public CalculatedCampaignMetrics CalculateCampaignMetrics(
-        CompaignStatistics statistics,
+        CampaignStatistics statistics,
         IReadOnlyCollection<CalculatedKeywordMetrics>? keywordMetrics = null)
     {
         ArgumentNullException.ThrowIfNull(statistics);
@@ -68,7 +68,7 @@ public sealed class MetricCalculationService : IRecommendationMetricCalculationS
 
         return new CalculatedCampaignMetrics
         {
-            CampaignId = statistics.CompaignId,
+            CampaignId = statistics.CampaignId,
             StartDate = statistics.StartDate,
             EndDate = statistics.EndDate,
             PeriodDays = periodDays,

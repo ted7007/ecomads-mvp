@@ -82,7 +82,7 @@ public class ProductAnalyticsController : ControllerBase
 
     private async Task<bool> SellerOwnsCampaignAsync(Guid sellerId, Guid campaignId)
     {
-        return await _dbContext.Compaigns.AnyAsync(campaign =>
+        return await _dbContext.Campaigns.AnyAsync(campaign =>
             campaign.Id == campaignId &&
             campaign.Store.SellerId == sellerId);
     }
@@ -91,7 +91,7 @@ public class ProductAnalyticsController : ControllerBase
     {
         return await _dbContext.KeywordStatistics.AnyAsync(keyword =>
             keyword.Id == keywordId &&
-            keyword.CompaignId == campaignId);
+            keyword.CampaignId == campaignId);
     }
 }
 
