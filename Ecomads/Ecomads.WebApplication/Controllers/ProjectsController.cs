@@ -26,8 +26,15 @@ public class ProjectsController : ControllerBase
             return Unauthorized(new { message = "Недействительный токен" });
         }
         
-        var startDateUtc = UtcDate.FromNullableDateOnly(startDate, DateTime.MinValue);
-        var endDateUtc = UtcDate.FromNullableDateOnly(endDate, DateTime.MaxValue);
+        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
+        var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
+        var end = endDate ?? yesterday;
+        var start = startDate ?? end.AddDays(-29);
+        if (start > end || end > yesterday || end.DayNumber - start.DayNumber > 365)
+            return BadRequest(new { message = "Выберите завершённый период не длиннее 366 дней." });
+        var expectedDays = end.DayNumber - start.DayNumber + 1;
+        var startDateUtc = UtcDate.FromNullableDateOnly(start, DateTime.MinValue);
+        var endDateUtc = UtcDate.FromNullableDateOnly(end, DateTime.MaxValue);
 
         var sellerStoreIds = await _context.Stores
             .Where(s => s.SellerId == sellerId)
@@ -54,9 +61,11 @@ public class ProjectsController : ControllerBase
                         g.Sum(x => x.Impressions),
                         g.Sum(x => x.Impressions) > 0
                             ? g.Sum(x => x.Clicks) * 100 / g.Sum(x => x.Impressions)
-                            : 0
+                            : 0,
+                        g.Count(),
+                        expectedDays
                     ))
-                    .FirstOrDefault() ?? new ProjectKpiDto(0, 0, 0, 0, 0, 0, 0)
+                    .FirstOrDefault() ?? new ProjectKpiDto(0, 0, 0, 0, 0, 0, 0, 0, expectedDays)
             ))
             .ToListAsync();
 

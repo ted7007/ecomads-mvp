@@ -10,7 +10,7 @@ import type { DashboardFilters } from './dashboardApi';
 import { getCampaigns, getLoadedPeriods } from './dashboardApi';
 import { CampaignsTable } from './components/CampaignsTable';
 import { DashboardKpiGrid } from './components/DashboardKpiGrid';
-import { PeriodFilter } from './components/PeriodFilter';
+import { PeriodFilter, defaultPeriod } from './components/PeriodFilter';
 import { ErrorState } from '../../shared/ui/ErrorState';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
@@ -18,8 +18,8 @@ import { PageHeader } from '../../shared/ui/PageHeader';
 export function DashboardPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<DashboardFilters>({});
-  const [draftFilters, setDraftFilters] = useState<DashboardFilters>({});
+  const [filters, setFilters] = useState<DashboardFilters>(defaultPeriod);
+  const [draftFilters, setDraftFilters] = useState<DashboardFilters>(defaultPeriod);
 
   const campaignsQuery = useQuery({
     queryKey: queryKeys.projects.list(filters),
@@ -84,15 +84,18 @@ export function DashboardPage() {
 
       {!campaignsQuery.isLoading && !campaignsQuery.isError ? (
         <>
+          {campaigns.some((campaign) => campaign.kpi.coverageDays < campaign.kpi.expectedDays) ?
+            <Alert severity="warning">За выбранный период загружены не все дни по некоторым кампаниям. Нулевые значения и отсутствие отклонений пока не означают, что реклама работала без проблем.</Alert> : null}
           <DashboardKpiGrid campaigns={campaigns} />
 
           <Card>
             <CardContent>
               <Stack spacing={1}>
                 <Typography variant="h6" fontWeight={800}>Требуют внимания</Typography>
-                {overTarget.length > 0 ? <Typography color="warning.main">
+                {campaigns.length === 0 ? <Typography color="text.secondary">Кампаний за выбранный период пока нет. Подключите WB и загрузите данные.</Typography> : overTarget.length > 0 ? <Typography color="warning.main">
                   ДРР рекламы выше заданной цели у {overTarget.length} {overTarget.length === 1 ? 'кампании' : 'кампаний'} за выбранный период.
-                </Typography> : <Typography color="text.secondary">
+                </Typography> : campaigns.some((campaign) => campaign.kpi.coverageDays < campaign.kpi.expectedDays) ?
+                  <Typography color="text.secondary">Данных за период пока недостаточно для уверенного вывода.</Typography> : <Typography color="text.secondary">
                   Кампаний с рекламным ДРР выше цели за выбранный период нет. Для кампаний без выручки ДРР не рассчитывается.
                 </Typography>}
               </Stack>

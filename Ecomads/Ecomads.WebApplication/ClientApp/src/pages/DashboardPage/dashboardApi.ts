@@ -9,7 +9,6 @@ export type DashboardFilters = {
 
 export async function getCampaigns(filters: DashboardFilters = {}): Promise<ProjectDashboard[]> {
   const query = new URLSearchParams();
-  query.set('source', 'dashboard');
 
   if (filters.startDate) {
     query.set('startDate', filters.startDate);

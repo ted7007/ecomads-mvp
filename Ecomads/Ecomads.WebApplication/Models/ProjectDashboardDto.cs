@@ -7,7 +7,9 @@ public record ProjectKpiDto(
     decimal Drr,
     int Clicks,
     int Impressions,
-    decimal Ctr
+    decimal Ctr,
+    int CoverageDays,
+    int ExpectedDays
 );
 
 public record ProjectDashboardDto(

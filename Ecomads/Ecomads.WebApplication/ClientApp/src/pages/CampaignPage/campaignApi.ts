@@ -20,6 +20,13 @@ const wbClustersSchema = z.object({ isWbConnected: z.boolean(), rows: z.array(wb
   storeNormVersion: z.number().int(), campaignNormVersion: z.number().int() });
 export type WbClusterRow = z.infer<typeof wbClusterRowSchema>;
 
+const spendTrendSchema = z.object({
+  endDate: z.string(), status: z.enum(['insufficient', 'no_baseline', 'increase', 'decrease', 'normal']),
+  loadedDays: z.number().int(), yesterdaySpend: z.number().nullable(),
+  baselineDailySpend: z.number().nullable(), changePercent: z.number().nullable(),
+  thresholdPercent: z.number(), storeNormVersion: z.number().int(), campaignNormVersion: z.number().int()
+});
+
 function queryString(filters: DashboardFilters): string {
   const query = new URLSearchParams();
   if (filters.startDate) query.set('startDate', filters.startDate);
@@ -44,4 +51,10 @@ export async function getNomenclatureStatistics(campaignId: string, filters: Das
 export async function getWbClusters(campaignId: string, filters: DashboardFilters = {}) {
   return wbClustersSchema.parse(await httpClient<unknown>(
     `/api/wb/campaigns/${encodeURIComponent(campaignId)}/clusters${queryString(filters)}`));
+}
+
+export async function getWbSpendTrend(campaignId: string, endDate?: string) {
+  const query = endDate ? `?endDate=${encodeURIComponent(endDate)}` : '';
+  return spendTrendSchema.parse(await httpClient<unknown>(
+    `/api/wb/campaigns/${encodeURIComponent(campaignId)}/spend-trend${query}`));
 }

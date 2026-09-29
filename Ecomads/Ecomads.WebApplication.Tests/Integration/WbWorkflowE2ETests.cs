@@ -156,8 +156,6 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = connection,
-                ["OpenAI:ApiKey"] = "test-api-key",
-                ["OpenAI:BaseUrl"] = "https://example.test"
             }));
             builder.ConfigureTestServices(services =>
             {

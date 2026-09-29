@@ -8,9 +8,11 @@ import { queryKeys } from '../../shared/api/queryKeys';
 import { ErrorState } from '../../shared/ui/ErrorState';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
-import { PeriodFilter } from '../DashboardPage/components/PeriodFilter';
+import { formatMoney } from '../../shared/lib/formatMoney';
+import { formatPercent } from '../../shared/lib/formatPercent';
+import { PeriodFilter, defaultPeriod } from '../DashboardPage/components/PeriodFilter';
 import type { DashboardFilters } from '../DashboardPage/dashboardApi';
-import { getCampaignPeriods, getCampaignSummary, getNomenclatureStatistics, getWbClusters } from './campaignApi';
+import { getCampaignPeriods, getCampaignSummary, getNomenclatureStatistics, getWbClusters, getWbSpendTrend } from './campaignApi';
 import { CampaignKpiGrid } from './components/CampaignKpiGrid';
 import { NomenclatureTable } from './components/NomenclatureTable';
 import { WbClusterTable } from './components/WbClusterTable';
@@ -19,8 +21,8 @@ export function CampaignPage() {
   const { campaignId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialFilters = (): DashboardFilters => ({
-    startDate: searchParams.get('startDate') ?? undefined,
-    endDate: searchParams.get('endDate') ?? undefined
+    startDate: searchParams.get('startDate') ?? defaultPeriod().startDate,
+    endDate: searchParams.get('endDate') ?? defaultPeriod().endDate
   });
   const [filters, setFilters] = useState<DashboardFilters>(initialFilters);
   const [draftFilters, setDraftFilters] = useState<DashboardFilters>(initialFilters);
@@ -31,6 +33,8 @@ export function CampaignPage() {
     queryFn: () => getWbClusters(id, filters), enabled: Boolean(id) });
   const articles = useQuery({ queryKey: ['campaign-nomenclatures', id, filters],
     queryFn: () => getNomenclatureStatistics(id, filters), enabled: Boolean(id) });
+  const trend = useQuery({ queryKey: ['wb-spend-trend', id, filters.endDate],
+    queryFn: () => getWbSpendTrend(id, filters.endDate), enabled: Boolean(id) });
   const periods = useQuery({ queryKey: queryKeys.statistics.periods, queryFn: getCampaignPeriods });
 
   if (!id) return <Navigate to={appRoutes.dashboard} replace />;
@@ -39,7 +43,7 @@ export function CampaignPage() {
 
   return <Stack spacing={3}>
     <PageHeader title={summary.data?.name ?? 'Кампания'} actions={<Button startIcon={<RefreshIcon />}
-      variant="outlined" onClick={() => { void summary.refetch(); void clusters.refetch(); void articles.refetch(); }}>
+      variant="outlined" onClick={() => { void summary.refetch(); void clusters.refetch(); void articles.refetch(); void trend.refetch(); }}>
       Обновить экран
     </Button>} />
     <Card><CardContent><PeriodFilter draftFilters={draftFilters} periods={periods.data ?? []}
@@ -56,7 +60,27 @@ export function CampaignPage() {
       description={error instanceof Error ? error.message : 'Проверьте соединение.'}
       onRetry={() => { void summary.refetch(); void clusters.refetch(); void articles.refetch(); }} /> : null}
     {!loading && !error ? <>
+      {summary.data && summary.data.kpi.coverageDays < summary.data.kpi.expectedDays ?
+        <Alert severity="warning">Загружено {summary.data.kpi.coverageDays} из {summary.data.kpi.expectedDays} дней. Оценки по этому периоду предварительные.</Alert> : null}
+      {summary.data && summary.data.kpi.coverageDays === summary.data.kpi.expectedDays &&
+        summary.data.kpi.revenue > 0 && summary.data.kpi.drr > summary.data.targetDrr ?
+        <Alert severity="warning">Рекламный ДРР {formatPercent(summary.data.kpi.drr, 1)} выше цели {formatPercent(summary.data.targetDrr, 1)} за выбранный период.</Alert> : null}
       <CampaignKpiGrid campaign={summary.data ?? null} />
+      <Card><CardContent>
+        <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>Динамика расхода</Typography>
+        {trend.isError ? <Alert severity="error">Не удалось загрузить сравнение расходов.</Alert> : null}
+        {trend.data?.status === 'insufficient' ? <Typography color="text.secondary">
+          Для сравнения нужны восемь завершённых дней подряд: выбранный день и семь предыдущих. Сейчас есть {trend.data.loadedDays}.
+        </Typography> : null}
+        {trend.data?.status === 'no_baseline' ? <Typography color="text.secondary">
+          За предыдущие семь дней расход был нулевым; процентное отклонение не рассчитывается.
+        </Typography> : null}
+        {trend.data && !['insufficient', 'no_baseline'].includes(trend.data.status) ? <Typography color={
+          trend.data.status === 'increase' ? 'warning.main' : 'text.primary'}>
+          {formatMoney(trend.data.yesterdaySpend ?? 0)} за {trend.data.endDate} против среднего {formatMoney(trend.data.baselineDailySpend ?? 0)} за семь предыдущих дней
+          {' '}({formatPercent(trend.data.changePercent ?? 0, 1)}). Порог отклонения: {formatPercent(trend.data.thresholdPercent, 0)}.
+        </Typography> : null}
+      </CardContent></Card>
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Товары в кампании</Typography>
         <NomenclatureTable rows={articles.data ?? []} />

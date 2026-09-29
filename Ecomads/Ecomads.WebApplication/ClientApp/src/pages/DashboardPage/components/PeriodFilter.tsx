@@ -41,7 +41,7 @@ export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: 
             onDraftChange({ startDate, endDate });
           }}
         >
-          <MenuItem value="">Свой период / все данные</MenuItem>
+          <MenuItem value="">Свой период</MenuItem>
           {presets.map((period) => <MenuItem key={period.label} value={`${period.startDate}|${period.endDate}`}>
             {period.label}
           </MenuItem>)}
@@ -75,11 +75,16 @@ export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: 
         value={draftFilters.endDate ?? ''}
         onChange={(event) => onDraftChange({ ...draftFilters, endDate: event.target.value })}
       />
-      <Button variant="contained" onClick={onApply}>
+      <Button variant="contained" disabled={Boolean(draftFilters.startDate) !== Boolean(draftFilters.endDate)} onClick={onApply}>
         Применить период
       </Button>
     </Stack>
   );
+}
+
+export function defaultPeriod(): DashboardFilters {
+  const endDate = moscowYesterday();
+  return { startDate: addDays(endDate, -29), endDate };
 }
 
 function moscowYesterday(): string {

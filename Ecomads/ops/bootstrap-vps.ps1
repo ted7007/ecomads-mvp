@@ -9,8 +9,7 @@ $files = @(
     "Caddyfile",
     "bootstrap-vps.sh",
     "deploy-vps.sh",
-    "rollback-vps.sh",
-    "set-openai-key-vps.py"
+    "rollback-vps.sh"
 )
 
 try {

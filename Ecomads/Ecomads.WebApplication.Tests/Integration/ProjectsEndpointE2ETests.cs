@@ -82,6 +82,8 @@ public sealed class ProjectsEndpointE2ETests
         Assert.Equal(campaign.Id, project.GetProperty("id").GetGuid());
         Assert.Equal(campaign.Name, project.GetProperty("name").GetString());
         Assert.Equal(100, project.GetProperty("kpi").GetProperty("spend").GetDouble());
+        Assert.Equal(1, project.GetProperty("kpi").GetProperty("coverageDays").GetInt32());
+        Assert.Equal(7, project.GetProperty("kpi").GetProperty("expectedDays").GetInt32());
     }
 
     private sealed class ProjectsEndpointFactory : WebApplicationFactory<Program>
@@ -101,9 +103,6 @@ public sealed class ProjectsEndpointE2ETests
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DefaultConnection"] = _connectionString,
-                    ["OpenAI:ApiKey"] = "test-api-key",
-                    ["OpenAI:BaseUrl"] = "https://example.test",
-                    ["OpenAI:Model"] = "test-model"
                 });
             });
 

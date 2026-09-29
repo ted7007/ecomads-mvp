@@ -34,6 +34,8 @@ export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashb
             <TableRow hover key={campaign.id}>
               <TableCell>
                 <Typography fontWeight={600}>{campaign.name}</Typography>
+                {campaign.kpi.coverageDays < campaign.kpi.expectedDays ?
+                  <Typography variant="caption" color="warning.main">Данные: {campaign.kpi.coverageDays}/{campaign.kpi.expectedDays} дней</Typography> : null}
               </TableCell>
               <TableCell align="right">{formatMoney(campaign.kpi.spend)}</TableCell>
               <TableCell align="right">{campaign.kpi.revenue > 0 ? formatPercent(campaign.kpi.drr, 1) : '—'}</TableCell>
