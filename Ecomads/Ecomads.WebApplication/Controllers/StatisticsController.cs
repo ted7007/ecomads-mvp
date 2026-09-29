@@ -1,660 +1,70 @@
+using System.Security.Claims;
 using Ecomads.WebApplication.Data;
-using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Models;
-using Ecomads.WebApplication.Services;
-using Ecomads.WebApplication.Services.Analytics;
-using Ecomads.WebApplication.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Globalization;
-using System.Security.Claims;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Spreadsheet;
 
 namespace Ecomads.WebApplication.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/statistics")]
-public class StatisticsController : ControllerBase
+public sealed class StatisticsController(EcomadsDbContext db) : ControllerBase
 {
-    private readonly EcomadsDbContext _context;
-    private readonly IStatisticsQueue _queue;
-    private readonly IStatisticsImportService _importService;
-    private readonly IProductAnalyticsService _analyticsService;
-    private readonly ILogger<StatisticsController> _logger;
-
-    public StatisticsController(
-        EcomadsDbContext context,
-        IStatisticsQueue queue,
-        IStatisticsImportService importService,
-        IProductAnalyticsService analyticsService,
-        ILogger<StatisticsController> logger)
+    [HttpGet("periods")]
+    public async Task<IActionResult> GetLoadedPeriods(CancellationToken cancellationToken)
     {
-        _context = context;
-        _queue = queue;
-        _importService = importService;
-        _analyticsService = analyticsService;
-        _logger = logger;
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        var dates = await (from stat in db.CampaignStatistics.AsNoTracking()
+            join campaign in db.Campaigns.AsNoTracking() on stat.CampaignId equals campaign.Id
+            where campaign.Store.SellerId == sellerId
+            select stat.Date)
+            .Distinct().OrderByDescending(x => x)
+            .Take(90).ToListAsync(cancellationToken);
+        return Ok(dates.Select(date => new { startDate = date, endDate = date }));
     }
 
-    [HttpPost("import")]
-    [Authorize]
-    public async Task<IActionResult> ImportStatistics(
-        [FromForm] IFormFile campaignNamesFile,
-        [FromForm] List<IFormFile> wbStatisticsFiles,
-        [FromForm] List<IFormFile> evirmaFiles,
-        [FromForm] DateOnly startDate,
-        [FromForm] DateOnly endDate,
-        CancellationToken cancellationToken)
+    [HttpGet("nomenclatures/{campaignId:guid}")]
+    public async Task<IActionResult> GetNomenclatures(Guid campaignId, [FromQuery] DateOnly? startDate,
+        [FromQuery] DateOnly? endDate, CancellationToken cancellationToken)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!Guid.TryParse(userId, out var sellerId))
-            return Unauthorized(new { message = "Недействительный токен" });
-
-        try
-        {
-            var result = await _importService.ImportAsync(
-                sellerId, campaignNamesFile, wbStatisticsFiles, evirmaFiles, startDate, endDate, cancellationToken);
-            return Ok(result);
-        }
-        catch (StatisticsImportValidationException exception)
-        {
-            return BadRequest(new { message = exception.Message });
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Не удалось импортировать статистику пользователя {SellerId}", sellerId);
-            return BadRequest(new { message = "Не удалось прочитать один из отчетов. Проверьте, что выбраны корректные выгрузки WB и Эвирмы." });
-        }
-    }
-    
-    [HttpPost("upload")]
-    [Authorize]
-    public async Task<IActionResult> UploadStatistics([FromForm] IFormFile file,
-        [FromForm] DateOnly startDate, [FromForm] DateOnly endDate)
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
-        {
-            return Unauthorized(new { message = "Недействительный токен" });
-        }
-        
-        var store = _context.Stores.First(s => s.SellerId == sellerId);
-        
-        if (file == null || file.Length == 0) return BadRequest("File is empty.");
-
-        var startDateUtc = UtcDate.FromDateOnly(startDate);
-        var endDateUtc = UtcDate.FromDateOnly(endDate);
-
-        using var stream = new MemoryStream();
-        await file.CopyToAsync(stream);
-
-        using var doc = SpreadsheetDocument.Open(stream, false);
-        var wbPart = doc.WorkbookPart!;
-        var sstPart = wbPart.SharedStringTablePart;
-        var wsPart = wbPart.Workbook.Sheets!.Elements<Sheet>().FirstOrDefault() != null
-            ? (WorksheetPart)wbPart.GetPartById(wbPart.Workbook.Sheets!.Elements<Sheet>().First().Id!)
-            : null;
-
-        if (wsPart == null) return BadRequest("Sheet not found.");
-
-        var sheetData = wsPart.Worksheet.GetFirstChild<SheetData>();
-        if (sheetData == null) return BadRequest("Sheet has no data.");
-
-        var rows = new List<Dictionary<int, string?>>();
-        foreach (var row in sheetData.Elements<Row>())
-        {
-            var dict = new Dictionary<int, string?>();
-            foreach (var cell in row.Elements<Cell>())
-            {
-                int colIdx = GetColumnIndex(cell.CellReference?.Value);
-                dict[colIdx] = GetCellValue(cell, sstPart);
-            }
-
-            if (dict.Count > 0) rows.Add(dict);
-        }
-
-        var headerRow = rows[0];
-        var headerIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var kvp in headerRow)
-        {
-            var header = kvp.Value?.Trim();
-            if (!string.IsNullOrEmpty(header)) headerIndexByName[header] = kvp.Key;
-        }
-
-        int idxSpend = headerIndexByName["Затраты, RUB"];
-        int idxRevenue = headerIndexByName["Заказов на сумму, RUB"];
-        int idxClicks = headerIndexByName["Клики"];
-        int idxCtr = headerIndexByName["CTR(%)"];
-        var conversionTypeHeader = headerIndexByName.Keys
-            .FirstOrDefault(h => h.Contains("конверс", StringComparison.OrdinalIgnoreCase));
-        var conversionTypeIndex = conversionTypeHeader != null ? headerIndexByName[conversionTypeHeader] : (int?)null;
-
-        var statsToAdd = new List<CampaignStatistics>();
-        var processedRows = 0;
-        var campaignIds = new HashSet<Guid>();
-
-        foreach (var row in rows.Skip(1))
-        {
-            if (!row.TryGetValue(headerIndexByName["Название"], out var name) ||
-                string.IsNullOrWhiteSpace(name))
-                continue;
-
-            if (name.Contains("Всего", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var number = headerIndexByName.ContainsKey("Номенклатура")
-                ? Get(row, headerIndexByName["Номенклатура"])
-                : name;
-
-            if (string.IsNullOrWhiteSpace(number))
-                continue;
-            
-            if (conversionTypeIndex.HasValue)
-            {
-                var conversionType = Get(row, conversionTypeIndex.Value);
-                if (!string.IsNullOrWhiteSpace(conversionType) &&
-                    conversionType.Contains("мультикарточка", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-            }
-
-            var spend = ParseDecimal(Get(row, idxSpend));
-            var revenue = ParseDecimal(Get(row, idxRevenue));
-            var clicks = ParseLong(Get(row, idxClicks));
-            var ctr = ParseDouble(Get(row, idxCtr));
-
-            if (spend == 0 && revenue == 0 && clicks == 0)
-                continue;
-
-            var drr = revenue > 0 ? (double)(spend / revenue * 100) : 0;
-
-            var campaign = await _context.Campaigns
-                .FirstOrDefaultAsync(c => c.WbCampaignId == number && c.StoreId == store.Id);
-
-            if (campaign == null)
-            {
-                campaign = new Campaign
-                {
-                    Id = Guid.NewGuid(),
-                    Name = name,
-                    WbCampaignId = number,
-                    StoreId = store.Id
-                };
-
-                _context.Campaigns.Add(campaign);
-            }
-            else
-            {
-                campaign.Name = name;
-            }
-
-            processedRows++;
-            campaignIds.Add(campaign.Id);
-
-            var existingStat = await _context.CampaignStatistics
-                .FirstOrDefaultAsync(s =>
-                    s.CampaignId == campaign.Id &&
-                    s.StartDate == startDateUtc &&
-                    s.EndDate == endDateUtc);
-
-            if (existingStat != null)
-            {
-                existingStat.Spend = (float)spend;
-                existingStat.Revenue = (float)revenue;
-                existingStat.Clicks = (float)clicks;
-                existingStat.Ctr = (float)ctr;
-                existingStat.Drr = (float)drr;
-            }
-            else
-            {
-                statsToAdd.Add(new CampaignStatistics
-                {
-                    CampaignId = campaign.Id,
-                    StartDate = startDateUtc,
-                    EndDate = endDateUtc,
-
-                    Spend = (float)spend,
-                    Revenue = (float)revenue,
-                    Clicks = (float)clicks,
-                    Ctr = (float)ctr,
-                    Drr = (float)drr
-                });
-            }
-        }
-
-        if (statsToAdd.Count > 0)
-        {
-            _context.CampaignStatistics.AddRange(statsToAdd);
-        }
-
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "Campaign statistics uploaded by user {UserId}. RowsCount: {RowsCount}, CampaignsCount: {CampaignsCount}, FileSizeBytes: {FileSizeBytes}, StartDate: {StartDate}, EndDate: {EndDate}",
-            sellerId,
-            processedRows,
-            campaignIds.Count,
-            file.Length,
-            startDateUtc,
-            endDateUtc);
-
-        await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
-        {
-            UserId = sellerId,
-            EventName = ProductEvents.StatisticsUploaded,
-            FeatureName = ProductFeatures.StatisticsUpload,
-            Metadata = new
-            {
-                reportType = "campaign_statistics",
-                rowsCount = processedRows,
-                fileSizeBytes = file.Length,
-                campaignsCount = campaignIds.Count,
-                startDate = startDateUtc,
-                endDate = endDateUtc
-            }
-        }.WithRequestContext(HttpContext));
-
-        return Ok();
-    }
-
-    [HttpPost("upload-with-keywords")]
-    [Authorize]
-    public async Task<IActionResult> UploadStatisticsWithKeywords(
-        [FromForm] IFormFile file,
-        [FromForm] IFormFile keywordsFile,
-        [FromForm] DateOnly startDate,
-        [FromForm] DateOnly endDate)
-    {
-        if (file == null || file.Length == 0)
-            return BadRequest("General statistics file is empty.");
-
-        if (keywordsFile == null || keywordsFile.Length == 0)
-            return BadRequest("Keywords file is empty.");
-
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
-            return Unauthorized(new { message = "Invalid token" });
-
-        var store = await _context.Stores
-            .FirstOrDefaultAsync(s => s.SellerId == sellerId);
-        if (store == null)
-            return BadRequest("Store not found for current user.");
-
-        var generalUploadResult = await UploadStatistics(file, startDate, endDate);
-        if (generalUploadResult is not OkResult)
-            return generalUploadResult;
-
-        var startDateUtc = UtcDate.FromDateOnly(startDate);
-        var endDateUtc = UtcDate.FromDateOnly(endDate);
-
-        var campaignIds = await _context.CampaignStatistics
-            .Where(s => s.StartDate == startDateUtc && s.EndDate == endDateUtc)
-            .Join(_context.Campaigns,
-                stat => stat.CampaignId,
-                campaign => campaign.Id,
-                (stat, campaign) => new { stat.CampaignId, campaign.StoreId })
-            .Where(x => x.StoreId == store.Id)
-            .Select(x => x.CampaignId)
-            .Distinct()
-            .ToListAsync();
-
-        if (campaignIds.Count != 1)
-        {
-            return BadRequest("По выбранному периоду найдено не одна номенклатура. Для автопривязки отчета по ключевым словам должна быть ровно одна.");
-        }
-
-        var campaignId = campaignIds[0];
-        var keywordsUploadResult = await UploadKeywordStats(keywordsFile, startDate, endDate, campaignId);
-        if (keywordsUploadResult is not OkResult)
-            return keywordsUploadResult;
-
-        return Ok();
-    }
-
-    [HttpGet("keywords/{campaignId}")]
-    [Authorize]
-    public async Task<IActionResult> GetKeywordStatistics(
-        Guid campaignId,
-        [FromQuery] DateOnly? startDate,
-        [FromQuery] DateOnly? endDate)
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
-            return Unauthorized(new { message = "Invalid token" });
-
-        var store = await _context.Stores.FirstOrDefaultAsync(s => s.SellerId == sellerId);
-        if (store == null)
-            return Unauthorized(new { message = "Store not found for current user" });
-
-        var hasAccessToCampaign = await _context.Campaigns
-            .AnyAsync(c => c.Id == campaignId && c.StoreId == store.Id);
-        if (!hasAccessToCampaign)
-            return NotFound("Campaign not found for current user.");
-
-        var query = _context.KeywordStatistics
-            .Where(s => s.CampaignId == campaignId);
-
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        if (!await db.Campaigns.AnyAsync(x => x.Id == campaignId && x.Store.SellerId == sellerId, cancellationToken))
+            return NotFound();
+        var query = db.CampaignNomenclatureStatistics.AsNoTracking().Where(x => x.CampaignId == campaignId);
         if (startDate.HasValue)
         {
-            var startDateUtc = UtcDate.FromDateOnly(startDate.Value);
-            query = query.Where(s => s.StartDate >= startDateUtc);
+            var from = DateTime.SpecifyKind(startDate.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+            query = query.Where(x => x.Date >= from);
         }
-        
         if (endDate.HasValue)
         {
-            var endDateUtc = UtcDate.FromDateOnly(endDate.Value);
-            query = query.Where(s => s.EndDate <= endDateUtc);
+            var to = DateTime.SpecifyKind(endDate.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+            query = query.Where(x => x.Date <= to);
         }
-
-        var stats = await query
-            .GroupBy(s => s.Phrase)
-            .Select(g => new KeywordStatDto
-            {
-                Phrase = g.Key,
-                Frequency = g.Sum(s => s.Frequency),
-                Cpm = g.Average(s => s.Cpm),
-                AvgPosition = g.Average(s => s.AvgPosition),
-                Impressions = g.Sum(s => s.Impressions),
-                Clicks = g.Sum(s => s.Clicks),
-                Ctr = g.Average(s => s.Ctr),
-                Spend = g.Sum(s => s.Spend),
-                Orders = g.Sum(s => s.Orders),
-                Revenue = g.Sum(s => s.Revenue),
-                Drr = g.Average(s => s.Drr)
-            })
-            .ToListAsync();
-
-        return Ok(stats);
-    }
-
-    [HttpGet("nomenclatures/{campaignId}")]
-    [Authorize]
-    public async Task<IActionResult> GetNomenclatureStatistics(Guid campaignId, [FromQuery] DateOnly? startDate, [FromQuery] DateOnly? endDate)
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!Guid.TryParse(userId, out var sellerId)) return Unauthorized(new { message = "Недействительный токен" });
-        var store = await _context.Stores.SingleOrDefaultAsync(x => x.SellerId == sellerId);
-        if (store == null || !await _context.Campaigns.AnyAsync(x => x.Id == campaignId && x.StoreId == store.Id)) return NotFound(new { message = "Кампания не найдена" });
-
-        var query = _context.CampaignNomenclatureStatistics.Where(x => x.CampaignId == campaignId);
-        if (startDate.HasValue) query = query.Where(x => x.StartDate >= UtcDate.FromDateOnly(startDate.Value));
-        if (endDate.HasValue) query = query.Where(x => x.EndDate <= UtcDate.FromDateOnly(endDate.Value));
-        var rows = await query.Include(x => x.Nomenclature).ToListAsync();
-        var result = rows.GroupBy(x => new { x.Nomenclature.WbNomenclatureId, x.Nomenclature.Name })
+        var raw = await query.Include(x => x.Nomenclature).ToListAsync(cancellationToken);
+        var rows = raw.GroupBy(x => new { x.Nomenclature.WbNomenclatureId, x.Nomenclature.Name })
             .Select(group =>
             {
-                var impressions = group.Sum(x => x.Impressions);
+                var views = group.Sum(x => x.Impressions);
                 var clicks = group.Sum(x => x.Clicks);
-                var carts = group.Sum(x => x.Carts);
                 var orders = group.Sum(x => x.Orders);
                 var spend = group.Sum(x => x.Spend);
-                var revenue = group.Sum(x => x.Revenue);
-                return new NomenclatureStatisticsDto { NomenclatureId = group.Key.WbNomenclatureId, Name = group.Key.Name, Impressions = impressions, Clicks = clicks, Carts = carts, Orders = orders, Spend = spend, Revenue = revenue, Ctr = impressions > 0 ? clicks * 100m / impressions : null, Cr = clicks > 0 ? orders * 100m / clicks : null, Cpc = clicks > 0 ? spend / clicks : null, Cpo = orders > 0 ? spend / orders : null };
-            }).OrderByDescending(x => x.Spend).ToList();
-        return Ok(result);
-    }
-
-    [HttpGet("periods")]
-    [Authorize]
-    public async Task<IActionResult> GetLoadedPeriods()
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
-            return Unauthorized(new { message = "Invalid token" });
-
-        var store = await _context.Stores.FirstOrDefaultAsync(s => s.SellerId == sellerId);
-        if (store == null)
-            return Unauthorized(new { message = "Store not found for current user" });
-
-        var periods = await _context.CampaignStatistics
-            .Join(_context.Campaigns,
-                stat => stat.CampaignId,
-                campaign => campaign.Id,
-                (stat, campaign) => new { stat.StartDate, stat.EndDate, campaign.StoreId })
-            .Where(x => x.StoreId == store.Id)
-            .Select(x => new { x.StartDate, x.EndDate })
-            .Distinct()
-            .OrderByDescending(x => x.StartDate)
-            .ToListAsync();
-
-        return Ok(periods);
-    }
-
-    [HttpPost("upload-keywords")]
-    [Authorize]
-    public async Task<IActionResult> UploadKeywordStats([FromForm] IFormFile file,
-        [FromForm] DateOnly startDate, [FromForm] DateOnly endDate, [FromForm] Guid campaignId)
-    {
-        if (file == null || file.Length == 0)
-            return BadRequest("File is empty");
-
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var sellerId))
-            return Unauthorized(new { message = "Invalid token" });
-
-        var store = await _context.Stores.FirstOrDefaultAsync(s => s.SellerId == sellerId);
-        if (store == null)
-            return Unauthorized(new { message = "Store not found for current user" });
-
-        var campaign = await _context.Campaigns
-            .FirstOrDefaultAsync(c => c.Id == campaignId && c.StoreId == store.Id);
-        if (campaign == null)
-            return BadRequest($"Campaign with ID {campaignId} does not exist for current user.");
-
-        var startDateUtc = UtcDate.FromDateOnly(startDate);
-        var endDateUtc = UtcDate.FromDateOnly(endDate);
-
-        using var stream = file.OpenReadStream();
-        using var doc = SpreadsheetDocument.Open(stream, false);
-
-        var wbPart = doc.WorkbookPart!;
-        var sstPart = wbPart.SharedStringTablePart;
-
-        var sheet = wbPart.Workbook.Sheets!.Elements<Sheet>().First();
-        var wsPart = (WorksheetPart)wbPart.GetPartById(sheet.Id!);
-
-        var sheetData = wsPart.Worksheet.GetFirstChild<SheetData>();
-        if (sheetData == null)
-            return BadRequest("Sheet has no data");
-
-        var rows = new List<Dictionary<int, string?>>();
-
-        foreach (var row in sheetData.Elements<Row>())
-        {
-            var dict = new Dictionary<int, string?>();
-            foreach (var cell in row.Elements<Cell>())
-            {
-                int colIdx = GetColumnIndex(cell.CellReference?.Value);
-                dict[colIdx] = GetCellValue(cell, sstPart);
-            }
-
-            if (dict.Count > 0)
-                rows.Add(dict);
-        }
-
-        // 🔥 Заголовки
-        var headerRow = rows.First(r =>
-            r.Values.Any(v => v != null && v.Contains("Показы")));
-        var headerIndex = headerRow
-            .Where(x => !string.IsNullOrWhiteSpace(x.Value))
-            .ToDictionary(x => x.Value!.Trim(), x => x.Key, StringComparer.OrdinalIgnoreCase);
-
-        // 🔥 Индексы колонок
-        int idxPhrase = GetColumn(headerIndex, "Фраз", "Кластер", "Запрос");
-        int idxFreq = GetColumn(headerIndex, "Частота");
-        int idxCpm = GetColumn(headerIndex, "CPM");
-        int idxAvgPos = GetColumn(headerIndex, "позиция");
-        int idxImpr = GetColumn(headerIndex, "Показы");
-        int idxClicks = GetColumn(headerIndex, "Клики");
-        int idxCtr = GetColumn(headerIndex, "CTR");
-        int idxSpend = GetColumn(headerIndex, "Затраты");
-        int idxOrders = GetColumn(headerIndex, "Заказы");
-        int idxRevenue = GetColumn(headerIndex, "Выручка");
-
-        var existingStats = await _context.KeywordStatistics
-            .Where(s => s.CampaignId == campaignId &&
-                        s.StartDate == startDateUtc &&
-                        s.EndDate == endDateUtc)
-            .ToListAsync();
-
-        var statsToAdd = new List<KeywordStatistics>();
-        var processedRows = 0;
-
-        var keywordRows = rows.Skip(2).SkipLast(1);
-
-        foreach (var row in keywordRows)
-        {
-            var phrase = Get(row, idxPhrase);
-
-            if (string.IsNullOrWhiteSpace(phrase))
-                continue;
-
-            var freq = ParseInt(Get(row, idxFreq));
-            var cpm = ParseDecimal(Get(row, idxCpm));
-            var avgPos = ParseDouble(Get(row, idxAvgPos));
-            var impressions = ParseInt(Get(row, idxImpr));
-            var clicks = ParseInt(Get(row, idxClicks));
-            var ctr = ParseDouble(Get(row, idxCtr));
-            var spend = ParseDecimal(Get(row, idxSpend));
-            var orders = ParseInt(Get(row, idxOrders));
-            var revenue = ParseDecimal(Get(row, idxRevenue));
-
-            if (impressions == 0 && clicks == 0 && spend == 0)
-                continue;
-
-            var drr = revenue > 0 ? (double)(spend / revenue * 100) : 0;
-            processedRows++;
-
-            var existingStat = existingStats.FirstOrDefault(s => s.Phrase == phrase);
-
-            if (existingStat != null)
-            {
-                // ✅ MERGE (перезапись)
-                existingStat.StartDate = startDateUtc;
-                existingStat.EndDate = endDateUtc;
-                existingStat.Frequency = freq ?? 0;
-                existingStat.Cpm = (decimal?)(cpm ?? 0);
-                existingStat.AvgPosition = (double?)(avgPos ?? 0);
-                existingStat.Impressions = impressions ?? 0;
-                existingStat.Clicks = clicks ?? 0;
-                existingStat.Ctr = (double?)(ctr ?? 0);
-                existingStat.Spend = (decimal?)(spend ?? 0);
-                existingStat.Orders = orders ?? 0;
-                existingStat.Revenue = (decimal?)(revenue ?? 0);
-                existingStat.Drr = (double?)drr;
-            }
-            else
-            {
-                statsToAdd.Add(new KeywordStatistics
+                return new NomenclatureStatisticsDto
                 {
-                    Id = Guid.NewGuid(),
-                    CampaignId = campaignId,
-                    StartDate = startDateUtc,
-                    EndDate = endDateUtc,
-                    Phrase = phrase,
-                    NormalizedPhrase = phrase.Trim().ToLowerInvariant(),
-                    Frequency = freq ?? 0,
-                    Cpm = (decimal?)(cpm ?? 0),
-                    AvgPosition = (double?)(avgPos ?? 0),
-                    Impressions = impressions ?? 0,
-                    Clicks = clicks ?? 0,
-                    Ctr = (double?)(ctr ?? 0),
-                    Spend = (decimal?)(spend ?? 0),
-                    Orders = orders ?? 0,
-                    Revenue = (decimal?)(revenue ?? 0),
-                    Drr = (double?)drr
-                });
-            }
-        }
-
-        if (statsToAdd.Count > 0)
-        {
-            _context.KeywordStatistics.AddRange(statsToAdd);
-        }
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "Keyword statistics uploaded by user {UserId}. CampaignId: {CampaignId}, RowsCount: {RowsCount}, FileSizeBytes: {FileSizeBytes}, StartDate: {StartDate}, EndDate: {EndDate}",
-            sellerId,
-            campaignId,
-            processedRows,
-            file.Length,
-            startDateUtc,
-            endDateUtc);
-
-        await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
-        {
-            UserId = sellerId,
-            EventName = ProductEvents.StatisticsUploaded,
-            FeatureName = ProductFeatures.StatisticsUpload,
-            CampaignId = campaignId,
-            Metadata = new
-            {
-                reportType = "keyword_statistics",
-                rowsCount = processedRows,
-                fileSizeBytes = file.Length,
-                campaignId,
-                startDate = startDateUtc,
-                endDate = endDateUtc
-            }
-        }.WithRequestContext(HttpContext));
-        
-        _queue.Enqueue(new StatisticsJob(campaignId, startDateUtc, endDateUtc));
-        return Ok();
+                    NomenclatureId = group.Key.WbNomenclatureId, Name = group.Key.Name,
+                    Impressions = views, Clicks = clicks, Carts = group.Sum(x => x.Carts),
+                    Orders = orders, Spend = spend, Revenue = group.Sum(x => x.Revenue),
+                    Ctr = views > 0 ? clicks * 100m / views : null,
+                    Cr = clicks > 0 ? orders * 100m / clicks : null,
+                    Cpc = clicks > 0 ? spend / clicks : null,
+                    Cpo = orders > 0 ? spend / orders : null
+                };
+            }).OrderByDescending(x => x.Spend).ToList();
+        return Ok(rows);
     }
 
-
-    int GetColumn(Dictionary<string, int> headerIndex, params string[] possibleNames)
-    {
-        foreach (var name in possibleNames)
-        {
-            var key = headerIndex.Keys
-                .FirstOrDefault(k => k.Contains(name, StringComparison.OrdinalIgnoreCase));
-
-            if (key != null)
-                return headerIndex[key];
-        }
-
-        throw new Exception($"Column not found: {string.Join(", ", possibleNames)}");
-    }
-
-    private static string? GetCellValue(Cell cell, SharedStringTablePart? sstPart)
-    {
-        var val = cell.CellValue?.InnerText;
-        if (cell.DataType?.Value == CellValues.SharedString && sstPart != null && int.TryParse(val, out int idx))
-            return sstPart.SharedStringTable?.ElementAtOrDefault(idx)?.InnerText;
-        return val;
-    }
-
-    private static int GetColumnIndex(string? cellRef)
-    {
-        if (string.IsNullOrEmpty(cellRef)) return 0;
-        int i = 0;
-        while (i < cellRef.Length && char.IsLetter(cellRef[i])) i++;
-        int col = 0;
-        foreach (char c in cellRef.Substring(0, i).ToUpperInvariant()) col = col * 26 + (c - 'A' + 1);
-        return col - 1;
-    }
-
-    private static string? Get(Dictionary<int, string?> row, int idx) => row.TryGetValue(idx, out var v) ? v : null;
-
-    private static decimal? ParseDecimal(string? s) =>
-        decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : null;
-
-    private static long? ParseLong(string? s) =>
-        long.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : null;
-
-    private static double? ParseDouble(string? s) =>
-        double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : null;
-    
-    static int? ParseInt(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        value = value.Replace(" ", "");
-        return int.TryParse(value, out var v) ? v : null;
-    }
+    private bool TrySellerId(out Guid sellerId) =>
+        Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out sellerId);
 }

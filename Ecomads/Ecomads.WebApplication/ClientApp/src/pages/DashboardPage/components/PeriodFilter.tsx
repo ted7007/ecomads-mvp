@@ -12,6 +12,14 @@ type PeriodFilterProps = {
 
 export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: PeriodFilterProps) {
   const selectedPeriod = draftFilters.startDate && draftFilters.endDate ? `${draftFilters.startDate}|${draftFilters.endDate}` : '';
+  const yesterday = moscowYesterday();
+  const presets = [
+    { label: 'Вчера', startDate: yesterday, endDate: yesterday },
+    { label: 'Последние 7 дней', startDate: addDays(yesterday, -6), endDate: yesterday },
+    { label: 'Последние 30 дней', startDate: addDays(yesterday, -29), endDate: yesterday }
+  ];
+  const knownPeriod = presets.some((period) => `${period.startDate}|${period.endDate}` === selectedPeriod) ||
+    periods.some((period) => `${formatDateForInput(period.startDate)}|${formatDateForInput(period.endDate)}` === selectedPeriod);
 
   return (
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'end' }}>
@@ -20,7 +28,7 @@ export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: 
         <Select
           labelId="dashboard-period-label"
           label="Загруженный период"
-          value={selectedPeriod}
+          value={knownPeriod ? selectedPeriod : ''}
           onChange={(event) => {
             const value = event.target.value;
 
@@ -33,7 +41,10 @@ export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: 
             onDraftChange({ startDate, endDate });
           }}
         >
-          <MenuItem value="">Все периоды</MenuItem>
+          <MenuItem value="">Свой период / все данные</MenuItem>
+          {presets.map((period) => <MenuItem key={period.label} value={`${period.startDate}|${period.endDate}`}>
+            {period.label}
+          </MenuItem>)}
           {periods.map((period) => {
             const startDate = formatDateForInput(period.startDate);
             const endDate = formatDateForInput(period.endDate);
@@ -69,5 +80,19 @@ export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: 
       </Button>
     </Stack>
   );
+}
+
+function moscowYesterday(): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date());
+  const date = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return addDays(`${date.year}-${date.month}-${date.day}`, -1);
+}
+
+function addDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 

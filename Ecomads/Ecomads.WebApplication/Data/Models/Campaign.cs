@@ -18,21 +18,11 @@ public class Campaign
     public string WbCampaignId { get; set; } = string.Empty;
 
     public bool IsActive { get; set; } = true;
+    public int? WbStatus { get; set; }
 
     public DateTime? LastSeenAt { get; set; }
     
-    [MaxLength(255)]
-    public string? Description { get; set; }
-    
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    
-    public DateTime? StartDate { get; set; }
-    
-    public DateTime? EndDate { get; set; }
-    
-    // Бюджет кампании
-    [Column(TypeName = "decimal(18,2)")]
-    public decimal? Budget { get; set; }
     
     // Связь с магазином
     [Required]

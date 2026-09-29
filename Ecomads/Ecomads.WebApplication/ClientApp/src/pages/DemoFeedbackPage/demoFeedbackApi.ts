@@ -6,21 +6,21 @@ export const featureDescriptions = {
     name: 'Обзор рекламы',
     description: 'Общая картина по рекламе: расходы, заказы, ДРР и ключевые показатели.'
   },
-  statistics_upload: {
-    name: 'Импорт статистики',
-    description: 'Загрузка отчетов для анализа кампаний и ключевых запросов.'
+  wb_connection: {
+    name: 'Кабинет WB',
+    description: 'Подключение кабинета и ручное обновление данных через WB API.'
   },
-  keyword_recommendations: {
-    name: 'Рекомендации по запросам',
-    description: 'Список запросов, по которым стоит изменить ставку, отключить продвижение или собрать больше данных.'
+  clusters: {
+    name: 'Поисковые кластеры',
+    description: 'Расходы, клики и заказы по кластерам WB.'
   },
-  keyword_details: {
-    name: 'Разбор запроса',
-    description: 'Подробное объяснение по конкретному запросу: показатели, причина рекомендации и предлагаемое действие.'
+  norms: {
+    name: 'Нормы',
+    description: 'Целевой ДРР и пороги анализа кампаний.'
   },
-  expected_effect: {
-    name: 'Прогноз эффекта',
-    description: 'Оценка возможного влияния рекомендаций на расходы, заказы, выручку и ДРР.'
+  telegram: {
+    name: 'Telegram',
+    description: 'Привязка чата и ручная сводка.'
   },
   feedback_form: {
     name: 'Обратная связь',
@@ -30,19 +30,18 @@ export const featureDescriptions = {
 
 export const primaryTaskOptions = [
   { value: 'reduce_drr', label: 'Снизить ДРР / расходы на рекламу' },
-  { value: 'find_ineffective_keywords', label: 'Найти неэффективные ключевые запросы' },
-  { value: 'find_scale_queries', label: 'Понять, какие запросы стоит усилить' },
-  { value: 'estimate_expected_effect', label: 'Оценить ожидаемый эффект от изменений' },
+  { value: 'find_waste', label: 'Найти неэффективные расходы' },
+  { value: 'configure_norms', label: 'Настроить цели и нормы' },
   { value: 'understand_campaign_stats', label: 'Быстро разобраться в статистике по кампании' },
   { value: 'other', label: 'Другое' }
 ] as const;
 
 export const usedSectionOptions = [
-  { value: 'statistics_upload', label: 'Загрузка рекламной статистики' },
+  { value: 'dashboard', label: 'Сводка' },
   { value: 'campaign_summary', label: 'Сводка по кампании' },
-  { value: 'keyword_recommendations', label: 'Рекомендации по ключевым запросам' },
-  { value: 'expected_effect', label: 'Прогноз ожидаемого эффекта' },
-  { value: 'keyword_details', label: 'Разбор конкретного ключевого запроса' }
+  { value: 'clusters', label: 'Поисковые кластеры' },
+  { value: 'norms', label: 'Нормы' },
+  { value: 'telegram', label: 'Telegram' }
 ] as const;
 
 export const mostUsefulFeatureOptions = [
@@ -51,22 +50,21 @@ export const mostUsefulFeatureOptions = [
 ] as const;
 
 export const missingForDecisionOptions = [
-  { value: 'more_recommendation_explanations', label: 'Больше объяснений по рекомендациям' },
-  { value: 'more_keyword_data', label: 'Больше данных по ключевым запросам' },
-  { value: 'money_effect_forecast', label: 'Прогноз эффекта в деньгах' },
-  { value: 'before_after_comparison', label: 'Сравнение до/после' },
+  { value: 'clearer_metrics', label: 'Более понятные показатели' },
+  { value: 'longer_history', label: 'Более длинная история' },
+  { value: 'recommendations', label: 'Конкретные рекомендации' },
+  { value: 'telegram_updates', label: 'Больше возможностей Telegram' },
   { value: 'wb_action_instruction', label: 'Понятная инструкция, что сделать в кабинете WB' },
-  { value: 'easier_report_upload', label: 'Более удобная загрузка отчетов' },
   { value: 'nothing_missing', label: 'Ничего, всё было достаточно понятно' },
   { value: 'other', label: 'Другое' }
 ] as const;
 
 export const clarityScoreOptions = [
-  { value: 1, label: '1 — совсем непонятно, что делать' },
-  { value: 2, label: '2 — частично понятно, но не доверяю' },
-  { value: 3, label: '3 — понятно, но нужны пояснения' },
-  { value: 4, label: '4 — понятно, можно применять' },
-  { value: 5, label: '5 — очень понятно, готов применить' }
+  { value: 1, label: '1 — совсем непонятно' },
+  { value: 2, label: '2 — скорее непонятно' },
+  { value: 3, label: '3 — частично понятно' },
+  { value: 4, label: '4 — в целом понятно' },
+  { value: 5, label: '5 — всё понятно' }
 ] as const;
 
 export const continueUsingOptions = [
@@ -102,7 +100,7 @@ export const demoFeedbackFormSchema = z.object({
     required_error: 'Выберите самую полезную функцию',
     invalid_type_error: 'Выберите самую полезную функцию'
   }),
-  recommendationsClarityScore: z.coerce.number().min(1, 'Выберите оценку от 1 до 5').max(5, 'Выберите оценку от 1 до 5'),
+  clarityScore: z.coerce.number().min(1, 'Выберите оценку от 1 до 5').max(5, 'Выберите оценку от 1 до 5'),
   missingForDecision: z.array(z.enum(missingForDecisionValues)).min(1, 'Выберите хотя бы один вариант'),
   generalComment: z.string().trim().min(50, 'Комментарий должен быть не короче 50 символов'),
   continueUsingAnswer: z.enum(continueUsingValues, {

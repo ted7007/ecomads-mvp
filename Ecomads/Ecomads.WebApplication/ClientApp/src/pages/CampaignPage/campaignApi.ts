@@ -1,137 +1,47 @@
-import { httpClient, sendRequest } from '../../shared/api/httpClient';
+import { z } from 'zod';
+import { httpClient } from '../../shared/api/httpClient';
 import { loadedPeriodsResponseSchema, projectsResponseSchema } from '../../shared/api/apiSchemas';
-import type { LoadedPeriod, ProjectDashboard } from '../../shared/api/apiTypes';
 import type { DashboardFilters } from '../DashboardPage/dashboardApi';
-import {
-  insightDecisionUpdateSchema,
-  keywordRecommendationOverlaySchema,
-  type InsightDecisionUpdate,
-  type KeywordRecommendationOverlay
-} from './campaignSchemas';
-import { nomenclatureStatisticsSchema, type NomenclatureStatistics } from './campaignSchemas';
 
-export type InsightDecision = 'accept' | 'apply' | 'postpone' | 'reject';
+const nomenclatureSchema = z.object({
+  nomenclatureId: z.string(), name: z.string(), impressions: z.number(), clicks: z.number(),
+  carts: z.number(), orders: z.number(), spend: z.number(), revenue: z.number(),
+  ctr: z.number().nullable(), cr: z.number().nullable(), cpc: z.number().nullable(), cpo: z.number().nullable()
+});
+export type NomenclatureStatistics = z.infer<typeof nomenclatureSchema>;
 
-export type UploadKeywordStatsRequest = {
-  file: File;
-  startDate: string;
-  endDate: string;
-  campaignId: string;
-};
+const wbClusterRowSchema = z.object({
+  nomenclatureId: z.string(), nomenclatureName: z.string(), clusterName: z.string(),
+  spend: z.number(), views: z.number().int().nullable(), clicks: z.number().int().nullable(),
+  carts: z.number().int().nullable(), orders: z.number().int().nullable(), cpc: z.number().nullable(),
+  assessment: z.string()
+});
+const wbClustersSchema = z.object({ isWbConnected: z.boolean(), rows: z.array(wbClusterRowSchema),
+  storeNormVersion: z.number().int(), campaignNormVersion: z.number().int() });
+export type WbClusterRow = z.infer<typeof wbClusterRowSchema>;
 
-export type TrackKeywordRecommendationOpenedRequest = {
-  campaignId: string;
-  keywordId: string;
-  insightId?: string | null;
-  recommendationStatus?: string | null;
-  actionType?: string | null;
-  priorityScore?: number | null;
-  source?: 'deterministic' | 'llm';
-};
-
-export async function getCampaignSummary(campaignId: string, filters: DashboardFilters = {}): Promise<ProjectDashboard | null> {
-  const query = new URLSearchParams();
-  query.set('source', 'campaign-summary');
-
-  if (filters.startDate) {
-    query.set('startDate', filters.startDate);
-  }
-
-  if (filters.endDate) {
-    query.set('endDate', filters.endDate);
-  }
-
-  const suffix = query.toString() ? `?${query.toString()}` : '';
-  const response = await httpClient<unknown>(`/api/projects${suffix}`);
-  const campaigns = projectsResponseSchema.parse(response);
-  const normalizedCampaignId = campaignId.toLowerCase();
-
-  return campaigns.find((campaign) => campaign.id.toLowerCase() === normalizedCampaignId) ?? null;
-}
-
-export async function getCampaignPeriods(): Promise<LoadedPeriod[]> {
-  const response = await httpClient<unknown>('/api/statistics/periods');
-  return loadedPeriodsResponseSchema.parse(response);
-}
-
-export async function getNomenclatureStatistics(campaignId: string, filters: DashboardFilters = {}): Promise<NomenclatureStatistics[]> {
+function queryString(filters: DashboardFilters): string {
   const query = new URLSearchParams();
   if (filters.startDate) query.set('startDate', filters.startDate);
   if (filters.endDate) query.set('endDate', filters.endDate);
-  const response = await httpClient<unknown>(`/api/statistics/nomenclatures/${campaignId}${query.size ? `?${query.toString()}` : ''}`);
-  return nomenclatureStatisticsSchema.array().parse(response);
+  return query.size ? `?${query.toString()}` : '';
 }
 
-export async function getKeywordOverlay(campaignId: string, filters: DashboardFilters = {}): Promise<KeywordRecommendationOverlay> {
-  const query = new URLSearchParams();
-
-  if (filters.startDate) {
-    query.set('startDate', filters.startDate);
-  }
-
-  if (filters.endDate) {
-    query.set('endDate', filters.endDate);
-  }
-
-  const suffix = query.toString() ? `?${query.toString()}` : '';
-  const response = await httpClient<unknown>(`/api/recommendations/campaign/${campaignId}/keyword-overlay${suffix}`);
-
-  return keywordRecommendationOverlaySchema.parse(response);
+export async function getCampaignSummary(campaignId: string, filters: DashboardFilters = {}) {
+  const campaigns = projectsResponseSchema.parse(await httpClient<unknown>(`/api/projects${queryString(filters)}`));
+  return campaigns.find((campaign) => campaign.id.toLowerCase() === campaignId.toLowerCase()) ?? null;
 }
 
-export async function generateCampaignRecommendation(campaignId: string): Promise<void> {
-  await httpClient<unknown>('/api/recommendations/generate', {
-    method: 'POST',
-    body: {
-      campaignId,
-      goal: 'рост прибыли'
-    }
-  });
+export async function getCampaignPeriods() {
+  return loadedPeriodsResponseSchema.parse(await httpClient<unknown>('/api/statistics/periods'));
 }
 
-export async function updateInsightDecision(insightId: string, decision: InsightDecision): Promise<InsightDecisionUpdate> {
-  const response = await httpClient<unknown>(`/api/recommendations/insights/${encodeURIComponent(insightId)}/${decision}`, {
-    method: 'POST'
-  });
-
-  return insightDecisionUpdateSchema.parse(response);
+export async function getNomenclatureStatistics(campaignId: string, filters: DashboardFilters = {}) {
+  return nomenclatureSchema.array().parse(await httpClient<unknown>(
+    `/api/statistics/nomenclatures/${encodeURIComponent(campaignId)}${queryString(filters)}`));
 }
 
-export async function updateInsightComment(insightId: string, userComment: string): Promise<InsightDecisionUpdate> {
-  const response = await httpClient<unknown>(`/api/recommendations/insights/${encodeURIComponent(insightId)}/comment`, {
-    method: 'PUT',
-    body: { userComment }
-  });
-
-  return insightDecisionUpdateSchema.parse(response);
-}
-
-export async function uploadKeywordStats(request: UploadKeywordStatsRequest): Promise<void> {
-  const formData = new FormData();
-  formData.append('file', request.file);
-  formData.append('startDate', request.startDate);
-  formData.append('endDate', request.endDate);
-  formData.append('campaignId', request.campaignId);
-
-  await sendRequest('/api/statistics/upload-keywords', {
-    method: 'POST',
-    body: formData
-  });
-}
-
-export async function trackKeywordRecommendationOpened(request: TrackKeywordRecommendationOpenedRequest): Promise<void> {
-  await httpClient<unknown>('/api/product-analytics/events', {
-    method: 'POST',
-    body: {
-      eventName: 'keyword_recommendation_opened',
-      featureName: 'keyword_recommendations',
-      campaignId: request.campaignId,
-      keywordId: request.keywordId,
-      insightId: request.insightId,
-      recommendationStatus: request.recommendationStatus,
-      actionType: request.actionType,
-      priorityScore: request.priorityScore,
-      source: request.source
-    }
-  });
+export async function getWbClusters(campaignId: string, filters: DashboardFilters = {}) {
+  return wbClustersSchema.parse(await httpClient<unknown>(
+    `/api/wb/campaigns/${encodeURIComponent(campaignId)}/clusters${queryString(filters)}`));
 }

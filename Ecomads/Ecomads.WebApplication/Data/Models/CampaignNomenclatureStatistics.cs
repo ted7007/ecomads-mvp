@@ -8,8 +8,7 @@ public class CampaignNomenclatureStatistics
     public Guid NomenclatureId { get; set; }
     public Nomenclature Nomenclature { get; set; } = null!;
 
-    public DateTime StartDate { get; set; }
-    public DateTime EndDate { get; set; }
+    public DateTime Date { get; set; }
 
     public decimal Spend { get; set; }
     public decimal Revenue { get; set; }

@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Ecomads.WebApplication.Controllers;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Services;
-using Ecomads.WebApplication.Services.Analytics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -110,13 +109,8 @@ public class UserAccessAndFeedbackTests
         Assert.NotNull(updatedSeller.MvpAccessGrantedAtUtc);
 
         var feedback = await dbContext.DemoFeedbacks.SingleAsync(item => item.UserId == seller.Id);
-        Assert.Equal("keyword_recommendations", feedback.MostUsefulFeature);
-        Assert.Contains("statistics_upload", feedback.WrongOrQuestionableRecommendations);
-        Assert.Contains("reduce_drr", feedback.MissingForRegularUsage);
-
-        Assert.True(await dbContext.ProductUsageEvents.AnyAsync(item =>
-            item.UserId == seller.Id &&
-            item.EventName == ProductEvents.DemoFeedbackSubmitted));
+        Assert.Contains("\"mostUsefulFeature\":\"clusters\"", feedback.AnswersJson);
+        Assert.Contains("\"clarityScore\":4", feedback.AnswersJson);
     }
 
     private static IUserAccessService CreateUserAccessService(Ecomads.WebApplication.Data.EcomadsDbContext dbContext)
@@ -129,11 +123,9 @@ public class UserAccessAndFeedbackTests
         Guid userId)
     {
         var userAccessService = CreateUserAccessService(dbContext);
-        var analyticsService = new ProductAnalyticsService(dbContext, NullLogger<ProductAnalyticsService>.Instance);
         var controller = new DemoFeedbackController(
             dbContext,
             userAccessService,
-            analyticsService,
             NullLogger<DemoFeedbackController>.Instance);
 
         controller.ControllerContext = new ControllerContext
@@ -164,10 +156,10 @@ public class UserAccessAndFeedbackTests
         return new DemoFeedbackSubmitRequest
         {
             PrimaryTask = "reduce_drr",
-            UsedSections = ["statistics_upload", "keyword_recommendations"],
-            MostUsefulFeature = "keyword_recommendations",
-            RecommendationsClarityScore = 4,
-            MissingForDecision = ["more_recommendation_explanations", "money_effect_forecast"],
+            UsedSections = ["dashboard", "clusters"],
+            MostUsefulFeature = "clusters",
+            ClarityScore = 4,
+            MissingForDecision = ["clearer_metrics", "recommendations"],
             GeneralComment = generalComment ??
                 "Подробный комментарий для теста demo feedback: обзор понятен, рекомендации полезны, но нужны уточнения.",
             ContinueUsingAnswer = "maybe_after_improvements",

@@ -9,7 +9,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
-for required in compose.production.yml Caddyfile deploy-vps.sh rollback-vps.sh set-openai-key-vps.py; do
+for required in compose.production.yml Caddyfile deploy-vps.sh rollback-vps.sh; do
   test -f "$SOURCE_DIR/$required" || { echo "Missing $SOURCE_DIR/$required" >&2; exit 1; }
 done
 
@@ -34,7 +34,6 @@ fi
 install -m 0755 "$SOURCE_DIR/bootstrap-vps.sh" "$ROOT/bootstrap-vps.sh"
 install -m 0755 "$SOURCE_DIR/deploy-vps.sh" "$ROOT/deploy-vps.sh"
 install -m 0755 "$SOURCE_DIR/rollback-vps.sh" "$ROOT/rollback-vps.sh"
-install -m 0700 "$SOURCE_DIR/set-openai-key-vps.py" "$ROOT/set-openai-key-vps.py"
 
 if [[ ! -f "$ROOT/.env" ]]; then
   umask 077
@@ -46,9 +45,8 @@ POSTGRES_DB=ecomads_db
 POSTGRES_USER=ecomads_user
 POSTGRES_PASSWORD=$db_password
 JWT_SECRET=$jwt_secret
-OPENAI_API_KEY=
-OPENAI_BASE_URL=https://openai.bothub.chat/v1/chat/completions
-OPENAI_MODEL=gpt-4o-mini
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_BOT_USERNAME=
 CADDY_EMAIL=
 EOF
 fi

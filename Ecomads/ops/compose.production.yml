@@ -34,9 +34,8 @@ services:
       JwtSettings__Issuer: ecomads_api
       JwtSettings__Audience: ecomads_clients
       JwtSettings__ExpiryMinutes: 1440
-      OpenAI__ApiKey: ${OPENAI_API_KEY:-}
-      OpenAI__BaseUrl: ${OPENAI_BASE_URL:-https://openai.bothub.chat/v1/chat/completions}
-      OpenAI__Model: ${OPENAI_MODEL:-gpt-4o-mini}
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
+      Telegram__BotUsername: ${TELEGRAM_BOT_USERNAME:-}
     expose:
       - "8080"
     volumes:

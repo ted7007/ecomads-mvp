@@ -5,17 +5,14 @@ using Ecomads.WebApplication.Auth;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Middleware;
 using Ecomads.WebApplication.Services;
-using Ecomads.WebApplication.Services.Analytics;
-using Ecomads.WebApplication.Services.Recommendations;
+using Ecomads.WebApplication.Services.Wb;
+using Ecomads.WebApplication.Services.Telegram;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.Configure<RecommendationEngineOptions>(
-    builder.Configuration.GetSection("RecommendationEngine"));
 
 // Настройки JWT
 var jwtSettingsSection = builder.Configuration.GetSection("JwtSettings");
@@ -55,9 +52,18 @@ builder.Services.AddAuthentication(options =>
 // Добавляем сервис авторизации
 builder.Services.AddScoped<IJwtAuthService, JwtAuthService>();
 builder.Services.AddScoped<IUserAccessService, UserAccessService>();
-builder.Services.AddScoped<IProductAnalyticsService, ProductAnalyticsService>();
-builder.Services.AddScoped<IStatisticsImportService, StatisticsImportService>();
-builder.Services.AddScoped<ILlmUsageTrackingService, LlmUsageTrackingService>();
+builder.Services.AddDataProtection();
+builder.Services.AddSingleton<IWbTokenService, WbTokenService>();
+builder.Services.AddScoped<WbFullStatsImporter>();
+builder.Services.AddScoped<WbNormQueryImporter>();
+builder.Services.AddHostedService<WbSyncWorker>();
+builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();
+builder.Services.AddHostedService<TelegramUpdatesWorker>();
+builder.Services.AddHttpClient<IWbPromotionClient, WbPromotionClient>(client =>
+{
+    client.BaseAddress = new Uri("https://advert-api.wildberries.ru");
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
 
 // Add services to the container.
 builder.Services.AddDbContext<EcomadsDbContext>(options =>
@@ -66,28 +72,6 @@ builder.Services.AddDbContext<EcomadsDbContext>(options =>
         o.EnableRetryOnFailure(5);
     }));
 
-// Добавляем HttpClient и настраиваем HttpClientFactory
-builder.Services.AddHttpClient("OpenAIClient", client =>
-{
-    // Базовая настройка HttpClient
-    client.Timeout = TimeSpan.FromSeconds(60);
-});
-
-builder.Services.AddSingleton<IStatisticsQueue, StatisticsQueue>();
-builder.Services.AddSingleton<IRecommendationGoalMapper, RecommendationGoalMapper>();
-builder.Services.AddSingleton<IRecommendationMetricCalculationService, MetricCalculationService>();
-builder.Services.AddSingleton<IInsightGenerationService, InsightGenerationService>();
-builder.Services.AddSingleton<IRecommendationPolicyService, RecommendationPolicyService>();
-builder.Services.AddSingleton<IPriorityScoringService, PriorityScoringService>();
-builder.Services.AddSingleton<IInsightSelectionService, InsightSelectionService>();
-builder.Services.AddSingleton<IRecommendationPromptBuilder, RecommendationPromptBuilder>();
-builder.Services.AddSingleton<IRecommendationInsightEntityMapper, RecommendationInsightEntityMapper>();
-builder.Services.AddScoped<ILlmRecommendationTextService, LlmRecommendationTextService>();
-builder.Services.AddScoped<IKeywordRecommendationOverlayService, KeywordRecommendationOverlayService>();
-builder.Services.AddScoped<IInsightDecisionService, InsightDecisionService>();
-// Изменяем регистрацию RecommendationService на Scoped
-builder.Services.AddScoped<IRecommendationService, RecommendationService>();
-builder.Services.AddHostedService<StatisticsBackgroundService>();
 builder.Services.AddControllers();
 builder.Services.AddHealthChecks();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>

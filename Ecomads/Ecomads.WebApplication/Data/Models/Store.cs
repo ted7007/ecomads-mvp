@@ -26,8 +26,12 @@ public class Store
     public string? ExternalId { get; set; }
     
     // API ключ для интеграции с маркетплейсом
-    [MaxLength(500)]
     public string? ApiKey { get; set; }
+
+    [MaxLength(4)]
+    public string? TokenLastFour { get; set; }
+
+    public DateTime? TokenExpiresAtUtc { get; set; }
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     

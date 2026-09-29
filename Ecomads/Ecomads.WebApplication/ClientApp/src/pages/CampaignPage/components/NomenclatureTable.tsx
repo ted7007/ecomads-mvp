@@ -1,11 +1,11 @@
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
-import type { NomenclatureStatistics } from '../campaignSchemas';
+import type { NomenclatureStatistics } from '../campaignApi';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
 import { EmptyState } from '../../../shared/ui/EmptyState';
 
 export function NomenclatureTable({ rows }: { rows: NomenclatureStatistics[] }) {
-  if (!rows.length) return <EmptyState title="Нет номенклатур с прямой конверсией за выбранный период" />;
+  if (!rows.length) return <EmptyState title="Нет данных по товарам за выбранный период" />;
   return <TableContainer sx={{ overflowX: 'auto' }}><Table size="small" sx={{ minWidth: 1050 }}><TableHead><TableRow>
     {['Номенклатура', 'Показы', 'Клики', 'Корзины', 'Заказы', 'CTR', 'CR', 'Затраты', 'Выручка', 'CPC', 'CPO'].map((label) => <TableCell key={label} align={label === 'Номенклатура' ? 'left' : 'right'} sx={{ fontWeight: 800 }}>{label}</TableCell>)}
   </TableRow></TableHead><TableBody>{rows.map((row) => <TableRow key={row.nomenclatureId}>

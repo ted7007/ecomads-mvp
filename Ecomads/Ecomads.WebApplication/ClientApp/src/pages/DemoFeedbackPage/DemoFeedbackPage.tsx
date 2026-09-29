@@ -150,9 +150,9 @@ export function DemoFeedbackPage() {
                 />
 
                 <RadioField
-                  error={errors.recommendationsClarityScore?.message}
-                  label="Насколько рекомендации были понятны и применимы?"
-                  name="recommendationsClarityScore"
+                  error={errors.clarityScore?.message}
+                  label="Насколько понятны данные и показатели?"
+                  name="clarityScore"
                   options={clarityScoreOptions}
                   registerField={register}
                 />

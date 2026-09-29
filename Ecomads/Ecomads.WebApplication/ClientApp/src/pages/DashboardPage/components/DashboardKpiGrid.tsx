@@ -13,7 +13,8 @@ type DashboardTotals = {
   orderedAmount: number;
   spend: number;
   clicks: number;
-  drr: number;
+  impressions: number;
+  drr: number | null;
   ctr: number;
 };
 
@@ -30,7 +31,7 @@ export function DashboardKpiGrid({ campaigns }: { campaigns: ProjectDashboard[] 
     { icon: <AttachMoneyIcon fontSize="small" />, label: 'Заказано на сумму', value: formatMoney(totals.orderedAmount) },
     { icon: <ShoppingBagIcon fontSize="small" />, label: 'Расход', value: formatMoney(totals.spend) },
     { icon: <MouseIcon fontSize="small" />, label: 'Клики', value: totals.clicks.toLocaleString('ru-RU') },
-    { icon: <TargetIcon fontSize="small" />, label: 'ДРР', value: formatPercent(totals.drr, 1) },
+    { icon: <TargetIcon fontSize="small" />, label: 'ДРР рекламы', value: totals.drr === null ? '—' : formatPercent(totals.drr, 1) },
     { icon: <TrendingUpIcon fontSize="small" />, label: 'CTR', value: formatPercent(totals.ctr, 2) }
   ];
 
@@ -70,21 +71,20 @@ function calculateTotals(campaigns: ProjectDashboard[]): DashboardTotals {
       acc.revenue += item.kpi.revenue || 0;
       acc.orderedAmount += item.kpi.orderedAmount || 0;
       acc.clicks += item.kpi.clicks || 0;
+      acc.impressions += item.kpi.impressions || 0;
       return acc;
     },
-    { spend: 0, revenue: 0, orderedAmount: 0, clicks: 0 }
+    { spend: 0, revenue: 0, orderedAmount: 0, clicks: 0, impressions: 0 }
   );
 
-  const drr = totals.revenue > 0 ? (totals.spend / totals.revenue) * 100 : 0;
-  const ctr =
-    totals.clicks > 0
-      ? campaigns.reduce((sum, item) => sum + ((item.kpi.ctr || 0) * (item.kpi.clicks || 0)), 0) / totals.clicks
-      : 0;
+  const drr = totals.revenue > 0 ? (totals.spend / totals.revenue) * 100 : null;
+  const ctr = totals.impressions > 0 ? totals.clicks * 100 / totals.impressions : 0;
 
   return {
     orderedAmount: totals.orderedAmount,
     spend: totals.spend,
     clicks: totals.clicks,
+    impressions: totals.impressions,
     drr,
     ctr
   };

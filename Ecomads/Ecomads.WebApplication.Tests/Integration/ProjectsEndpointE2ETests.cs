@@ -58,9 +58,7 @@ public sealed class ProjectsEndpointE2ETests
             dbContext.CampaignStatistics.Add(new CampaignStatistics
             {
                 CampaignId = campaign.Id,
-                StartDate = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
-                EndDate = new DateTime(2026, 6, 7, 0, 0, 0, DateTimeKind.Utc),
-                Type = CampaignStatisticsType.General,
+                Date = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
                 Spend = 100,
                 Revenue = 500,
                 Clicks = 20,

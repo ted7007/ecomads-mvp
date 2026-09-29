@@ -11,11 +11,11 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} sx={{ mb: 3 }}>
       <Stack spacing={0.5}>
-        <Typography component="h1" variant="h4" fontWeight={800} color="#F8FAFC">
+        <Typography component="h1" variant="h4" fontWeight={800} color="text.primary">
           {title}
         </Typography>
         {description ? (
-          <Typography color="#CBD5E1">
+          <Typography color="text.secondary">
             {description}
           </Typography>
         ) : null}

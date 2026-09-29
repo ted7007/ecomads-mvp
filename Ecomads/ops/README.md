@@ -4,6 +4,11 @@ The production stack runs Caddy, the ASP.NET/React application, and PostgreSQL.
 PostgreSQL is available only inside the private Docker network. Secrets stay in
 `/opt/ecomads/.env` on the VPS and are not uploaded by deployments.
 
+**WB schema cutover:** this release needs a separate empty PostgreSQL database.
+Do not run the standard deployment over the existing Excel-era database. The
+deployment script rejects an existing non-WB schema; use an isolated acceptance
+stack first and choose the production database deliberately after validation.
+
 ## First deployment
 
 From PowerShell in the repository root:
@@ -47,11 +52,6 @@ ssh my-vps "docker compose --env-file /opt/ecomads/.env -f /opt/ecomads/compose.
 ssh my-vps "docker compose --env-file /opt/ecomads/.env -f /opt/ecomads/compose.production.yml -p ecomads logs --tail=200 web caddy db"
 ```
 
-To enable or replace the LLM API key, use the hidden-input helper:
-
-```powershell
-.\ops\set-openai-key.ps1
-```
-
-The key is sent over SSH through standard input, stored only in the protected
-`/opt/ecomads/.env`, and never committed or placed in command-line arguments.
+For Telegram, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_BOT_USERNAME` in the
+protected `/opt/ecomads/.env`. Without them, WB pages work and bot polling stays
+idle; chat linking and message delivery remain unavailable.

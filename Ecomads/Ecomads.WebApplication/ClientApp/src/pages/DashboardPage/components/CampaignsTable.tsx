@@ -1,13 +1,14 @@
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import { IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Chip, IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { appRoutes } from '../../../app/routes';
 import type { ProjectDashboard } from '../../../shared/api/apiTypes';
 import { EmptyState } from '../../../shared/ui/EmptyState';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
+import type { DashboardFilters } from '../dashboardApi';
 
-export function CampaignsTable({ campaigns }: { campaigns: ProjectDashboard[] }) {
+export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashboard[]; filters: DashboardFilters }) {
   const navigate = useNavigate();
 
   if (campaigns.length === 0) {
@@ -21,7 +22,8 @@ export function CampaignsTable({ campaigns }: { campaigns: ProjectDashboard[] })
           <TableRow>
             <TableCell>Название</TableCell>
             <TableCell align="right">Расход</TableCell>
-            <TableCell align="right">ДРР</TableCell>
+            <TableCell align="right">ДРР рекламы</TableCell>
+            <TableCell align="right">Цель ДРР</TableCell>
             <TableCell align="right">Клики</TableCell>
             <TableCell align="right">CTR</TableCell>
             <TableCell align="center">Действие</TableCell>
@@ -34,11 +36,19 @@ export function CampaignsTable({ campaigns }: { campaigns: ProjectDashboard[] })
                 <Typography fontWeight={600}>{campaign.name}</Typography>
               </TableCell>
               <TableCell align="right">{formatMoney(campaign.kpi.spend)}</TableCell>
-              <TableCell align="right">{formatPercent(campaign.kpi.drr, 1)}</TableCell>
+              <TableCell align="right">{campaign.kpi.revenue > 0 ? formatPercent(campaign.kpi.drr, 1) : '—'}</TableCell>
+              <TableCell align="right">{campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr
+                ? <Chip color="warning" size="small" variant="outlined" label={formatPercent(campaign.targetDrr, 1)} />
+                : formatPercent(campaign.targetDrr, 1)}</TableCell>
               <TableCell align="right">{campaign.kpi.clicks.toLocaleString('ru-RU')}</TableCell>
               <TableCell align="right">{formatPercent(campaign.kpi.ctr, 2)}</TableCell>
               <TableCell align="center">
-                <IconButton aria-label={`Открыть кампанию ${campaign.name}`} onClick={() => navigate(appRoutes.campaignPath(campaign.id))}>
+                <IconButton aria-label={`Открыть кампанию ${campaign.name}`} onClick={() => {
+                  const search = new URLSearchParams();
+                  if (filters.startDate) search.set('startDate', filters.startDate);
+                  if (filters.endDate) search.set('endDate', filters.endDate);
+                  navigate({ pathname: appRoutes.campaignPath(campaign.id), search: search.toString() });
+                }}>
                   <VisibilityIcon />
                 </IconButton>
               </TableCell>

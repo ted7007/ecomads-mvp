@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Models;
-using Ecomads.WebApplication.Services.Analytics;
 using Ecomads.WebApplication.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
@@ -15,21 +14,10 @@ namespace Ecomads.WebApplication.Controllers;
 public class ProjectsController : ControllerBase
 {
     private readonly EcomadsDbContext _context;
-    private readonly IProductAnalyticsService _analyticsService;
-    private readonly ILogger<ProjectsController> _logger;
-
-    public ProjectsController(
-        EcomadsDbContext context,
-        IProductAnalyticsService analyticsService,
-        ILogger<ProjectsController> logger)
-    {
-        _context = context;
-        _analyticsService = analyticsService;
-        _logger = logger;
-    }
+    public ProjectsController(EcomadsDbContext context) => _context = context;
 
     [HttpGet]
-    public async Task<IActionResult> GetProjects([FromQuery] DateOnly? startDate, [FromQuery] DateOnly? endDate, [FromQuery] string? source)
+    public async Task<IActionResult> GetProjects([FromQuery] DateOnly? startDate, [FromQuery] DateOnly? endDate)
     {
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         
@@ -47,12 +35,15 @@ public class ProjectsController : ControllerBase
             .ToListAsync();
         
         var campaigns = await _context.Campaigns
-            .Where(c => sellerStoreIds.Contains(c.StoreId))
+            .Where(c => sellerStoreIds.Contains(c.StoreId) &&
+                (c.IsActive || c.WbStatus == 11 || _context.CampaignStatistics.Any(s =>
+                    s.CampaignId == c.Id && s.Date >= startDateUtc && s.Date <= endDateUtc)))
             .Select(c => new ProjectDashboardDto(
                 c.Id,
-                c.Name,
+                _context.WbCampaignNorms.Where(n => n.CampaignId == c.Id)
+                    .Select(n => n.CustomName).FirstOrDefault() ?? c.Name,
                 _context.CampaignStatistics
-                    .Where(s => s.CampaignId == c.Id && s.StartDate >= startDateUtc && s.EndDate <= endDateUtc)
+                    .Where(s => s.CampaignId == c.Id && s.Date >= startDateUtc && s.Date <= endDateUtc)
                     .GroupBy(s => 1)
                     .Select(g => new ProjectKpiDto(
                         g.Sum(x => x.Spend),
@@ -60,35 +51,33 @@ public class ProjectsController : ControllerBase
                         g.Sum(x => x.Revenue),
                         g.Sum(x => x.Revenue) > 0 ? (g.Sum(x => x.Spend) / g.Sum(x => x.Revenue)) * 100 : 0,
                         (int)g.Sum(x => x.Clicks),
-                        g.Sum(x => x.Clicks) > 0
-                            ? g.Sum(x => x.Ctr * x.Clicks) / g.Sum(x => x.Clicks)
+                        g.Sum(x => x.Impressions),
+                        g.Sum(x => x.Impressions) > 0
+                            ? g.Sum(x => x.Clicks) * 100 / g.Sum(x => x.Impressions)
                             : 0
                     ))
-                    .FirstOrDefault() ?? new ProjectKpiDto(0, 0, 0, 0, 0, 0)
+                    .FirstOrDefault() ?? new ProjectKpiDto(0, 0, 0, 0, 0, 0, 0)
             ))
             .ToListAsync();
 
-        if (string.Equals(source, "dashboard", StringComparison.OrdinalIgnoreCase))
+        if (campaigns.Count > 0)
         {
-            await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
-            {
-                UserId = sellerId,
-                EventName = ProductEvents.DashboardViewed,
-                FeatureName = ProductFeatures.Dashboard,
-                Metadata = new
+            var campaignIds = campaigns.Select(x => x.Id).ToArray();
+            var targets = await _context.Campaigns.AsNoTracking()
+                .Where(x => campaignIds.Contains(x.Id))
+                .Select(x => new
                 {
-                    startDate = startDateUtc,
-                    endDate = endDateUtc,
-                    campaignsCount = campaigns.Count
-                }
-            }.WithRequestContext(HttpContext));
-
-            _logger.LogInformation(
-                "Dashboard opened by user {UserId}. CampaignsCount: {CampaignsCount}, StartDate: {StartDate}, EndDate: {EndDate}",
-                sellerId,
-                campaigns.Count,
-                startDateUtc,
-                endDateUtc);
+                    x.Id,
+                    CampaignTarget = _context.WbCampaignNorms.Where(n => n.CampaignId == x.Id)
+                        .Select(n => n.TargetDrr).FirstOrDefault(),
+                    StoreTarget = _context.WbStoreNorms.Where(n => n.StoreId == x.StoreId)
+                        .Select(n => (decimal?)n.TargetDrr).FirstOrDefault()
+                })
+                .ToDictionaryAsync(x => x.Id);
+            campaigns = campaigns.Select(x => x with
+            {
+                TargetDrr = targets[x.Id].CampaignTarget ?? targets[x.Id].StoreTarget ?? 30m
+            }).ToList();
         }
 
         return Ok(campaigns);

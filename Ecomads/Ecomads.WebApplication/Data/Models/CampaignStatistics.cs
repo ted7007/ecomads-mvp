@@ -5,17 +5,13 @@ public class CampaignStatistics
 {
     public Guid CampaignId { get; set; }
     
-    public DateTime StartDate { get; set; }
-    
-    public DateTime EndDate { get; set; }
+    public DateTime Date { get; set; }
 
-    public CampaignStatisticsType Type { get; set; } = CampaignStatisticsType.General;
-    
-    public float Revenue { get; set; }
-    public float Spend { get; set; }
-    public float Clicks { get; set; }
-    public float Ctr { get; set; }
-    public float Drr { get; set; }
+    public decimal Revenue { get; set; }
+    public decimal Spend { get; set; }
+    public int Clicks { get; set; }
+    public decimal Ctr { get; set; }
+    public decimal Drr { get; set; }
 
     public int Impressions { get; set; }
     public int Carts { get; set; }

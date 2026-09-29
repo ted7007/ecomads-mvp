@@ -1,16 +1,20 @@
 namespace Ecomads.WebApplication.Models;
 
 public record ProjectKpiDto(
-    double Spend,
-    double Revenue,
-    double OrderedAmount,
-    double Drr,
+    decimal Spend,
+    decimal Revenue,
+    decimal OrderedAmount,
+    decimal Drr,
     int Clicks,
-    double Ctr
+    int Impressions,
+    decimal Ctr
 );
 
 public record ProjectDashboardDto(
     Guid Id,
     string Name,
     ProjectKpiDto Kpi
-);
+)
+{
+    public decimal TargetDrr { get; init; } = 30m;
+}

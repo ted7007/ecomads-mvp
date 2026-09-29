@@ -6,7 +6,6 @@ using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Models;
 using Ecomads.WebApplication.Services;
-using Ecomads.WebApplication.Services.Analytics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -23,40 +22,38 @@ public class DemoFeedbackController : ControllerBase
     private static readonly HashSet<string> PrimaryTaskOptions = new(StringComparer.Ordinal)
     {
         "reduce_drr",
-        "find_ineffective_keywords",
-        "find_scale_queries",
-        "estimate_expected_effect",
+        "find_waste",
+        "configure_norms",
         "understand_campaign_stats",
         "other"
     };
 
     private static readonly HashSet<string> FeatureOptions = new(StringComparer.Ordinal)
     {
-        "statistics_upload",
+        "dashboard",
         "campaign_summary",
-        "keyword_recommendations",
-        "expected_effect",
-        "keyword_details"
+        "clusters",
+        "norms",
+        "telegram"
     };
 
     private static readonly HashSet<string> MostUsefulFeatureOptions = new(StringComparer.Ordinal)
     {
-        "statistics_upload",
+        "dashboard",
         "campaign_summary",
-        "keyword_recommendations",
-        "expected_effect",
-        "keyword_details",
+        "clusters",
+        "norms",
+        "telegram",
         "nothing_useful"
     };
 
     private static readonly HashSet<string> MissingForDecisionOptions = new(StringComparer.Ordinal)
     {
-        "more_recommendation_explanations",
-        "more_keyword_data",
-        "money_effect_forecast",
-        "before_after_comparison",
+        "clearer_metrics",
+        "longer_history",
+        "recommendations",
+        "telegram_updates",
         "wb_action_instruction",
-        "easier_report_upload",
         "nothing_missing",
         "other"
     };
@@ -70,18 +67,15 @@ public class DemoFeedbackController : ControllerBase
 
     private readonly EcomadsDbContext _dbContext;
     private readonly IUserAccessService _userAccessService;
-    private readonly IProductAnalyticsService _analyticsService;
     private readonly ILogger<DemoFeedbackController> _logger;
 
     public DemoFeedbackController(
         EcomadsDbContext dbContext,
         IUserAccessService userAccessService,
-        IProductAnalyticsService analyticsService,
         ILogger<DemoFeedbackController> logger)
     {
         _dbContext = dbContext;
         _userAccessService = userAccessService;
-        _analyticsService = analyticsService;
         _logger = logger;
     }
 
@@ -115,18 +109,6 @@ public class DemoFeedbackController : ControllerBase
             "Demo feedback page opened by user {UserId}. HasSubmitted: {HasSubmitted}",
             userId.Value,
             feedback != null);
-
-        await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
-        {
-            UserId = userId.Value,
-            EventName = ProductEvents.DemoFeedbackViewed,
-            FeatureName = ProductFeatures.DemoFeedback,
-            Metadata = new
-            {
-                hasSubmitted = feedback != null,
-                canSubmit = seller.IsDemoUser && accessState.ShouldRequireDemoFeedback && feedback == null
-            }
-        }.WithRequestContext(HttpContext));
 
         return Ok(new
         {
@@ -183,21 +165,16 @@ public class DemoFeedbackController : ControllerBase
             Id = Guid.NewGuid(),
             UserId = userId.Value,
             GeneralComment = request.GeneralComment!.Trim(),
-            DashboardClarityScore = request.RecommendationsClarityScore,
-            RecommendationsUsefulnessScore = request.RecommendationsClarityScore,
-            WrongOrQuestionableRecommendations = SerializeFeedbackPart(new
-            {
-                usedSections = request.UsedSections,
-                missingForDecision = request.MissingForDecision
-            }),
-            MostUsefulFeature = request.MostUsefulFeature!.Trim(),
-            MissingForRegularUsage = SerializeFeedbackPart(new
+            AnswersJson = SerializeFeedbackPart(new
             {
                 primaryTask = request.PrimaryTask,
+                usedSections = request.UsedSections,
+                mostUsefulFeature = request.MostUsefulFeature,
+                clarityScore = request.ClarityScore,
+                missingForDecision = request.MissingForDecision,
+                continueUsingAnswer = request.ContinueUsingAnswer,
                 improvementPriority = NormalizeOptionalText(request.ImprovementPriority)
             }),
-            ContinueTestingAnswer = request.ContinueUsingAnswer!.Trim(),
-            WillingToPayAnswer = "not_asked",
             CreatedAtUtc = DateTime.UtcNow
         };
 
@@ -215,21 +192,6 @@ public class DemoFeedbackController : ControllerBase
         _logger.LogInformation(
             "Demo user {UserId} submitted feedback and received MVP access",
             userId.Value);
-
-        await _analyticsService.TrackAsync(new ProductUsageEventCreateDto
-        {
-            UserId = userId.Value,
-            EventName = ProductEvents.DemoFeedbackSubmitted,
-            FeatureName = ProductFeatures.DemoFeedback,
-            Metadata = new
-            {
-                feedbackId = feedback.Id,
-                accessGranted = true,
-                primaryTask = request.PrimaryTask,
-                mostUsefulFeature = request.MostUsefulFeature,
-                continueUsingAnswer = request.ContinueUsingAnswer
-            }
-        }.WithRequestContext(HttpContext));
 
         return Ok(new
         {
@@ -257,9 +219,9 @@ public class DemoFeedbackController : ControllerBase
             ModelState.AddModelError(nameof(request.UsedSections), "Выберите хотя бы один раздел, который вы успели использовать.");
         }
 
-        if (request.RecommendationsClarityScore is < 1 or > 5)
+        if (request.ClarityScore is < 1 or > 5)
         {
-            ModelState.AddModelError(nameof(request.RecommendationsClarityScore), "Оцените понятность рекомендаций от 1 до 5.");
+            ModelState.AddModelError(nameof(request.ClarityScore), "Оцените понятность данных от 1 до 5.");
         }
 
         if (string.IsNullOrWhiteSpace(request.MostUsefulFeature) ||
@@ -319,7 +281,7 @@ public class DemoFeedbackSubmitRequest
     public string? MostUsefulFeature { get; set; }
 
     [Range(1, 5)]
-    public int RecommendationsClarityScore { get; set; }
+    public int ClarityScore { get; set; }
 
     [Required]
     public List<string> MissingForDecision { get; set; } = new();

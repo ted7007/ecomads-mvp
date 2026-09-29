@@ -21,7 +21,7 @@ export function CampaignKpiGrid({ campaign }: { campaign: ProjectDashboard | nul
     { icon: <AttachMoneyIcon fontSize="small" />, label: 'Заказано на сумму', value: formatMoney(kpi?.orderedAmount ?? 0) },
     { icon: <ShoppingBagIcon fontSize="small" />, label: 'Расход', value: formatMoney(kpi?.spend ?? 0) },
     { icon: <MouseIcon fontSize="small" />, label: 'Клики', value: (kpi?.clicks ?? 0).toLocaleString('ru-RU') },
-    { icon: <TargetIcon fontSize="small" />, label: 'ДРР', value: formatPercent(kpi?.drr ?? 0, 1) },
+    { icon: <TargetIcon fontSize="small" />, label: 'ДРР рекламы', value: kpi && kpi.revenue > 0 ? formatPercent(kpi.drr, 1) : '—' },
     { icon: <TrendingUpIcon fontSize="small" />, label: 'CTR', value: formatPercent(kpi?.ctr ?? 0, 2) }
   ];
 

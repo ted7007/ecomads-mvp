@@ -48,6 +48,29 @@ set -a
 source "$ENV_FILE"
 set +a
 
+# The WB release has one fresh initial migration. Never apply it over the
+# removed Excel schema; keep that database for an explicit separate reset.
+if docker inspect ecomads-db >/dev/null 2>&1 && [[ "$(docker inspect ecomads-db --format '{{.State.Running}}')" == "true" ]]; then
+  public_tables="$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" ecomads-db \
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc \
+    "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
+  if [[ "$public_tables" -gt 0 ]]; then
+    history_table="$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" ecomads-db \
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc \
+      "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = '__EFMigrationsHistory'")"
+    current_schema=0
+    if [[ "$history_table" -gt 0 ]]; then
+      current_schema="$(docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" ecomads-db \
+        psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc \
+        "SELECT count(*) FROM public.\"__EFMigrationsHistory\" WHERE \"MigrationId\" LIKE '%_InitialWbSchema'")"
+    fi
+    if [[ "$current_schema" -eq 0 ]]; then
+      echo "Existing database has a non-WB schema. Deploy to a separate empty database; production was not changed." >&2
+      exit 1
+    fi
+  fi
+fi
+
 if docker inspect ecomads-db >/dev/null 2>&1 && [[ "$(docker inspect ecomads-db --format '{{.State.Running}}')" == "true" ]]; then
   backup="$ROOT/backups/ecomads-$(date -u +%Y%m%dT%H%M%SZ)-before-$VERSION.dump"
   echo "Creating database backup $backup"

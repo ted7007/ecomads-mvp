@@ -1,28 +1,25 @@
 import RefreshIcon from '@mui/icons-material/Refresh';
-import UploadIcon from '@mui/icons-material/Upload';
+import StorefrontIcon from '@mui/icons-material/Storefront';
 import { Alert, Button, Card, CardContent, Stack, Typography } from '@mui/material';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { appRoutes } from '../../app/routes';
 import { queryKeys } from '../../shared/api/queryKeys';
-import type { DashboardFilters, UploadStatisticsRequest } from './dashboardApi';
-import { getCampaigns, getLoadedPeriods, uploadDashboardStatistics } from './dashboardApi';
+import type { DashboardFilters } from './dashboardApi';
+import { getCampaigns, getLoadedPeriods } from './dashboardApi';
 import { CampaignsTable } from './components/CampaignsTable';
 import { DashboardKpiGrid } from './components/DashboardKpiGrid';
 import { PeriodFilter } from './components/PeriodFilter';
-import { UploadStatisticsDialog } from './components/UploadStatisticsDialog';
 import { ErrorState } from '../../shared/ui/ErrorState';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
 
 export function DashboardPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<DashboardFilters>({});
   const [draftFilters, setDraftFilters] = useState<DashboardFilters>({});
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  const queryClient = useQueryClient();
 
   const campaignsQuery = useQuery({
     queryKey: queryKeys.projects.list(filters),
@@ -34,51 +31,34 @@ export function DashboardPage() {
     queryFn: getLoadedPeriods
   });
 
-  const uploadMutation = useMutation({
-    mutationFn: (request: UploadStatisticsRequest) => uploadDashboardStatistics(request),
-    onSuccess: async () => {
-      setUploadOpen(false);
-      setUploadError(null);
-      setUploadSuccess(true);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['projects'] }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.statistics.periods })
-      ]);
-    },
-    onError: (error) => {
-      setUploadError(error instanceof Error ? error.message : 'Ошибка загрузки статистики');
-    }
-  });
-
   const campaigns = campaignsQuery.data ?? [];
+  const overTarget = campaigns.filter((campaign) => campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr);
   const demoFeedbackSuccess = (location.state as { demoFeedbackSuccess?: string } | null)?.demoFeedbackSuccess;
 
   return (
     <Stack spacing={3}>
       <PageHeader
-        title="Обзор рекламы"
+        title="Сводка"
         actions={
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Button
-              color="inherit"
+              color="primary"
               startIcon={<RefreshIcon />}
               variant="outlined"
               onClick={() => {
                 void campaignsQuery.refetch();
                 void periodsQuery.refetch();
               }}
-              sx={{ color: '#F8FAFC', borderColor: 'rgba(248,250,252,0.4)' }}
             >
               Обновить
             </Button>
-            <Button startIcon={<UploadIcon />} variant="contained" onClick={() => setUploadOpen(true)}>
-              Загрузить новую статистику
+            <Button startIcon={<StorefrontIcon />} variant="contained" onClick={() => navigate(appRoutes.wbStores)}>
+              Кабинеты WB и сбор данных
             </Button>
           </Stack>
         }
       />
 
-      {uploadSuccess ? <Alert severity="success">Данные успешно загружены.</Alert> : null}
       {demoFeedbackSuccess ? <Alert severity="success">{demoFeedbackSuccess}</Alert> : null}
 
       <Card>
@@ -108,27 +88,30 @@ export function DashboardPage() {
 
           <Card>
             <CardContent>
+              <Stack spacing={1}>
+                <Typography variant="h6" fontWeight={800}>Требуют внимания</Typography>
+                {overTarget.length > 0 ? <Typography color="warning.main">
+                  ДРР рекламы выше заданной цели у {overTarget.length} {overTarget.length === 1 ? 'кампании' : 'кампаний'} за выбранный период.
+                </Typography> : <Typography color="text.secondary">
+                  Кампаний с рекламным ДРР выше цели за выбранный период нет. Для кампаний без выручки ДРР не рассчитывается.
+                </Typography>}
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
               <Stack spacing={2}>
                 <Typography variant="h6" fontWeight={800}>
                   Рекламные кампании
                 </Typography>
-                <CampaignsTable campaigns={campaigns} />
+                <CampaignsTable campaigns={campaigns} filters={filters} />
               </Stack>
             </CardContent>
           </Card>
         </>
       ) : null}
 
-      <UploadStatisticsDialog
-        error={uploadError}
-        isUploading={uploadMutation.isPending}
-        open={uploadOpen}
-        onClose={() => {
-          setUploadOpen(false);
-          setUploadError(null);
-        }}
-        onSubmit={(request) => uploadMutation.mutateAsync(request)}
-      />
     </Stack>
   );
 }

@@ -1,8 +1,8 @@
-import BarChartIcon from '@mui/icons-material/BarChart';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import LayersIcon from '@mui/icons-material/Layers';
 import LogoutIcon from '@mui/icons-material/Logout';
 import TelegramIcon from '@mui/icons-material/Telegram';
+import StorefrontIcon from '@mui/icons-material/Storefront';
+import TuneIcon from '@mui/icons-material/Tune';
 import { Alert, Box, Chip, List, ListItemButton, ListItemIcon, ListItemText, Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -14,12 +14,12 @@ import type { CurrentUser } from '../auth/authTypes';
 import { clearAuth, setCurrentUser } from '../auth/tokenStorage';
 
 const navItems = [
-  { label: 'Обзор рекламы', to: appRoutes.dashboard, icon: <DashboardIcon fontSize="small" /> },
-  { label: 'Кампания', to: appRoutes.campaignPath('placeholder'), icon: <LayersIcon fontSize="small" />, disabled: true },
-  { label: 'Прогноз эффекта', to: appRoutes.report, icon: <BarChartIcon fontSize="small" /> }
+  { label: 'Сводка', to: appRoutes.dashboard, icon: <DashboardIcon fontSize="small" /> },
+  { label: 'Кабинеты WB', to: appRoutes.wbStores, icon: <StorefrontIcon fontSize="small" /> },
+  { label: 'Нормы', to: appRoutes.norms, icon: <TuneIcon fontSize="small" /> }
 ];
 
-export function Sidebar() {
+export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const navigate = useNavigate();
   const currentUserQuery = useQuery({
     queryKey: queryKeys.auth.me,
@@ -36,6 +36,7 @@ export function Sidebar() {
 
   const logout = () => {
     clearAuth();
+    onNavigate?.();
     navigate(appRoutes.login, { replace: true });
   };
 
@@ -43,30 +44,31 @@ export function Sidebar() {
     <Box
       component="aside"
       sx={{
-        display: { xs: 'none', md: 'flex' },
+        display: mobile ? 'flex' : { xs: 'none', md: 'flex' },
         flexDirection: 'column',
         width: 260,
-        height: '100vh',
+        height: mobile ? '100%' : '100vh',
         flexShrink: 0,
         overflow: 'hidden',
         p: 3,
-        bgcolor: '#1E293B',
-        color: '#E5E7EB',
-        borderRight: '1px solid rgba(255,255,255,0.08)'
+        bgcolor: 'rgba(255,255,255,0.72)',
+        backdropFilter: 'blur(22px)',
+        color: 'text.primary',
+        borderRight: '1px solid rgba(255,255,255,0.85)'
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 4 }}>
         <Typography variant="h6" fontWeight={800}>
           EcomAds
         </Typography>
-        <Chip label="MVP" size="small" sx={{ bgcolor: '#F97316', color: '#FFFFFF', fontWeight: 700 }} />
+        <Chip label="MVP" size="small" sx={{ bgcolor: '#E8F2FF', color: '#0068D9', fontWeight: 700 }} />
       </Box>
 
       {demoState ? (
         <Stack spacing={1.25} sx={{ mb: 3 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Chip label="Demo" size="small" sx={{ bgcolor: '#38BDF8', color: '#082F49', fontWeight: 800 }} />
-            <Typography color="#E0F2FE" variant="body2">
+            <Chip label="Demo" size="small" sx={{ bgcolor: '#E8F2FF', color: '#0068D9', fontWeight: 800 }} />
+            <Typography color="text.secondary" variant="body2">
               {demoState.timeLeftText}
             </Typography>
           </Box>
@@ -83,21 +85,18 @@ export function Sidebar() {
           <ListItemButton
             key={item.label}
             component={NavLink}
-            disabled={item.disabled}
+            onClick={onNavigate}
             to={item.to}
             sx={{
               mb: 1,
               borderRadius: 3,
-              color: '#CBD5E1',
+              color: 'text.secondary',
               '&.active': {
-                bgcolor: 'primary.main',
-                color: '#FFFFFF',
-                '& .MuiListItemIcon-root': { color: '#FFFFFF' }
+                bgcolor: 'rgba(0,122,255,0.1)',
+                color: 'primary.dark',
+                '& .MuiListItemIcon-root': { color: 'primary.main' }
               },
-              '&.Mui-disabled': {
-                color: '#94A3B8',
-                opacity: 0.6
-              }
+              '&:hover': { bgcolor: 'rgba(0,122,255,0.07)' },
             }}
           >
             <ListItemIcon sx={{ color: 'inherit', minWidth: 36 }}>{item.icon}</ListItemIcon>
@@ -111,7 +110,7 @@ export function Sidebar() {
         href="https://t.me/ecomads_mvp01"
         rel="noopener noreferrer"
         target="_blank"
-        sx={{ flexShrink: 0, mb: 1, borderRadius: 3, color: '#CBD5E1' }}
+        sx={{ flexShrink: 0, mb: 1, borderRadius: 3, color: 'text.secondary' }}
       >
         <ListItemIcon sx={{ color: 'inherit', minWidth: 36 }}>
           <TelegramIcon fontSize="small" />
@@ -119,7 +118,7 @@ export function Sidebar() {
         <ListItemText primary="Группа в Telegram" />
       </ListItemButton>
 
-      <ListItemButton onClick={logout} sx={{ flexShrink: 0, mt: 2, borderRadius: 3, color: '#CBD5E1' }}>
+      <ListItemButton onClick={logout} sx={{ flexShrink: 0, mt: 2, borderRadius: 3, color: 'text.secondary' }}>
         <ListItemIcon sx={{ color: 'inherit', minWidth: 36 }}>
           <LogoutIcon fontSize="small" />
         </ListItemIcon>
