@@ -18,10 +18,9 @@ From PowerShell in the repository root:
 .\ops\deploy.ps1
 ```
 
-Open `https://ecomads.ru`. The direct IP address serves HTTP for operational
-health checks; enter account credentials and WB tokens only through the HTTPS
-domain. On 2026-09-30, the domain resolved to `31.76.53.166` and HTTPS passed
-certificate verification.
+Open `https://ecomads.ru`. The direct IP address redirects to the HTTPS domain.
+On 2026-09-30, the domain resolved to `31.76.53.166` and HTTPS passed certificate
+verification. Deployment and rollback health checks use HTTPS locally.
 
 ## Later deployments
 
@@ -41,10 +40,13 @@ Show application and proxy logs after deployment:
 .\ops\rollback.ps1
 ```
 
-Rollback switches to the previously healthy image. Deployments create a custom
+Rollback switches to the previously healthy image when both images use the WB
+schema. The Excel-era image cannot run against the new database; its rollback
+pointer was removed during the 2026-09-30 cutover. Deployments create a custom
 format PostgreSQL dump in `/opt/ecomads/backups` before replacing an existing
 application version. The deployment keeps the five newest source releases and
-the ten newest database backups.
+the ten newest database backups. The one-time Excel-era dump is
+`/opt/ecomads/backups/ecomads-old-schema-20260929T231538Z.dump`.
 
 ## Operations
 

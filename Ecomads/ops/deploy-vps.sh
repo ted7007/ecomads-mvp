@@ -87,7 +87,7 @@ docker exec ecomads-caddy caddy reload --config /etc/caddy/Caddyfile --adapter c
 healthy=0
 for _ in $(seq 1 60); do
   if curl --fail --silent --show-error --max-time 3 \
-      -H 'Host: 31.76.53.166' http://127.0.0.1/health >/dev/null; then
+      --resolve ecomads.ru:443:127.0.0.1 https://ecomads.ru/health >/dev/null; then
     healthy=1
     break
   fi
@@ -126,7 +126,8 @@ for release in "${expired_releases[@]}"; do
 done
 
 mapfile -t expired_backups < <(
-  find "$ROOT/backups" -mindepth 1 -maxdepth 1 -type f -name 'ecomads-*.dump' -printf '%f\n' | sort -r | tail -n +11
+  find "$ROOT/backups" -mindepth 1 -maxdepth 1 -type f -name 'ecomads-*.dump' \
+    ! -name 'ecomads-old-schema-*.dump' -printf '%f\n' | sort -r | tail -n +11
 )
 for backup in "${expired_backups[@]}"; do
   [[ "$backup" =~ ^ecomads-[A-Za-z0-9._-]+\.dump$ ]] || continue
@@ -135,4 +136,4 @@ done
 
 compose ps
 echo "Deployment completed: $new_image"
-echo "Direct URL: http://31.76.53.166"
+echo "URL: https://ecomads.ru"

@@ -1,7 +1,5 @@
-# Temporary direct-IP access while DNS is not configured.
 http://31.76.53.166 {
-    encode zstd gzip
-    reverse_proxy web:8080
+    redir https://ecomads.ru{uri} permanent
 }
 
 # Caddy obtains and renews certificates after these names resolve to the VPS.

@@ -51,4 +51,4 @@ finally {
 }
 
 Write-Host "Deployment completed: $version"
-Write-Host "Direct URL: http://31.76.53.166"
+Write-Host "URL: https://ecomads.ru"

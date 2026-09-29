@@ -26,7 +26,7 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -p ecomads up -d --remo
 
 for _ in $(seq 1 60); do
   if curl --fail --silent --show-error --max-time 3 \
-      -H 'Host: 31.76.53.166' http://127.0.0.1/health >/dev/null; then
+      --resolve ecomads.ru:443:127.0.0.1 https://ecomads.ru/health >/dev/null; then
     printf '%s\n' "$previous_image" > "$CURRENT_FILE"
     printf '%s\n' "$current_image" > "$PREVIOUS_FILE"
     echo "Rollback completed: $previous_image"
