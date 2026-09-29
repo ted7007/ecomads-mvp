@@ -32,6 +32,9 @@ export function DashboardPage() {
   });
 
   const campaigns = campaignsQuery.data ?? [];
+  const campaignsWithData = campaigns.filter((campaign) => campaign.kpi.coverageDays > 0).length;
+  const hasIncompleteDays = campaigns.some((campaign) =>
+    campaign.kpi.coverageDays > 0 && campaign.kpi.coverageDays < campaign.kpi.expectedDays);
   const overTarget = campaigns.filter((campaign) => campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr);
   const demoFeedbackSuccess = (location.state as { demoFeedbackSuccess?: string } | null)?.demoFeedbackSuccess;
 
@@ -84,8 +87,9 @@ export function DashboardPage() {
 
       {!campaignsQuery.isLoading && !campaignsQuery.isError ? (
         <>
-          {campaigns.some((campaign) => campaign.kpi.coverageDays < campaign.kpi.expectedDays) ?
-            <Alert severity="warning">За выбранный период загружены не все дни по некоторым кампаниям. Нулевые значения и отсутствие отклонений пока не означают, что реклама работала без проблем.</Alert> : null}
+          {campaigns.length > 0 && campaignsWithData < campaigns.length ?
+            <Alert severity="warning">Статистика за период есть по {campaignsWithData} из {campaigns.length} кампаний. Сводные показатели относятся только к загруженным кампаниям, а не ко всему кабинету.{hasIncompleteDays ? ' У некоторых кампаний загружены не все дни.' : ''}</Alert> :
+            hasIncompleteDays ? <Alert severity="warning">У некоторых кампаний загружены не все дни. Сводные показатели за период неполные.</Alert> : null}
           <DashboardKpiGrid campaigns={campaigns} />
 
           <Card>

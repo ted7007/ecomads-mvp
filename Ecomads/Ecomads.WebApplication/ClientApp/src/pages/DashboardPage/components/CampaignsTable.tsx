@@ -15,6 +15,10 @@ export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashb
     return <EmptyState title="Кампаний нет" description="Загрузите статистику или измените период." />;
   }
 
+  const sortedCampaigns = [...campaigns].sort((left, right) =>
+    Number(right.kpi.coverageDays > 0) - Number(left.kpi.coverageDays > 0) ||
+    right.kpi.spend - left.kpi.spend || left.name.localeCompare(right.name, 'ru'));
+
   return (
     <TableContainer>
       <Table>
@@ -30,7 +34,7 @@ export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashb
           </TableRow>
         </TableHead>
         <TableBody>
-          {campaigns.map((campaign) => (
+          {sortedCampaigns.map((campaign) => (
             <TableRow hover key={campaign.id}>
               <TableCell>
                 <Typography fontWeight={600}>{campaign.name}</Typography>
