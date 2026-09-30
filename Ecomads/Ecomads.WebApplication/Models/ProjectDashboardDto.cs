@@ -19,4 +19,6 @@ public record ProjectDashboardDto(
 )
 {
     public decimal TargetDrr { get; init; } = 30m;
+    public string? Goal { get; init; }
+    public int? WbStatus { get; init; }
 }

@@ -1,85 +1,55 @@
-import { Button, FormControl, InputLabel, MenuItem, Select, Stack, TextField } from '@mui/material';
+import { Box, Button, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import type { LoadedPeriod } from '../../../shared/api/apiTypes';
-import { formatDateForInput } from '../../../shared/lib/formatDate';
 import type { DashboardFilters } from '../dashboardApi';
 
-type PeriodFilterProps = {
+type Props = {
   draftFilters: DashboardFilters;
   periods: LoadedPeriod[];
   onDraftChange: (filters: DashboardFilters) => void;
-  onApply: () => void;
+  onApply: (filters: DashboardFilters) => void;
 };
 
-export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: PeriodFilterProps) {
-  const selectedPeriod = draftFilters.startDate && draftFilters.endDate ? `${draftFilters.startDate}|${draftFilters.endDate}` : '';
-  const yesterday = moscowYesterday();
-  const presets = [
-    { label: 'Вчера', startDate: yesterday, endDate: yesterday },
-    { label: 'Последние 7 дней', startDate: addDays(yesterday, -6), endDate: yesterday },
-    { label: 'Последние 30 дней', startDate: addDays(yesterday, -29), endDate: yesterday }
-  ];
-  const knownPeriod = presets.some((period) => `${period.startDate}|${period.endDate}` === selectedPeriod) ||
-    periods.some((period) => `${formatDateForInput(period.startDate)}|${formatDateForInput(period.endDate)}` === selectedPeriod);
+export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: Props) {
+  const end = moscowYesterday();
+  const presets = [7, 14, 30].map((days) => ({
+    days, filters: { startDate: addDays(end, 1 - days), endDate: end }
+  }));
+  const selected = presets.find(({ filters }) => filters.startDate === draftFilters.startDate &&
+    filters.endDate === draftFilters.endDate)?.days ?? 'custom';
+  const invalid = !draftFilters.startDate || !draftFilters.endDate ||
+    draftFilters.startDate > draftFilters.endDate || draftFilters.endDate > end;
 
-  return (
-    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'end' }}>
-      <FormControl sx={{ minWidth: 220 }} size="small">
-        <InputLabel id="dashboard-period-label">Загруженный период</InputLabel>
-        <Select
-          labelId="dashboard-period-label"
-          label="Загруженный период"
-          value={knownPeriod ? selectedPeriod : ''}
-          onChange={(event) => {
-            const value = event.target.value;
-
-            if (!value) {
-              onDraftChange({ startDate: '', endDate: '' });
-              return;
-            }
-
-            const [startDate, endDate] = value.split('|');
-            onDraftChange({ startDate, endDate });
-          }}
-        >
-          <MenuItem value="">Свой период</MenuItem>
-          {presets.map((period) => <MenuItem key={period.label} value={`${period.startDate}|${period.endDate}`}>
-            {period.label}
-          </MenuItem>)}
-          {periods.map((period) => {
-            const startDate = formatDateForInput(period.startDate);
-            const endDate = formatDateForInput(period.endDate);
-            const value = `${startDate}|${endDate}`;
-
-            return (
-              <MenuItem key={value} value={value}>
-                {startDate} - {endDate}
-              </MenuItem>
-            );
-          })}
-        </Select>
-      </FormControl>
-
-      <TextField
-        InputLabelProps={{ shrink: true }}
-        label="С даты"
-        size="small"
-        type="date"
-        value={draftFilters.startDate ?? ''}
-        onChange={(event) => onDraftChange({ ...draftFilters, startDate: event.target.value })}
-      />
-      <TextField
-        InputLabelProps={{ shrink: true }}
-        label="По дату"
-        size="small"
-        type="date"
-        value={draftFilters.endDate ?? ''}
-        onChange={(event) => onDraftChange({ ...draftFilters, endDate: event.target.value })}
-      />
-      <Button variant="contained" disabled={Boolean(draftFilters.startDate) !== Boolean(draftFilters.endDate)} onClick={onApply}>
-        Применить период
-      </Button>
+  return <Stack spacing={1.5}>
+    <Stack direction={{ xs: 'column', md: 'row' }} gap={1.5} alignItems={{ md: 'center' }} justifyContent="space-between">
+      <Box>
+        <Typography variant="subtitle2" fontWeight={700}>Период статистики</Typography>
+        <Typography variant="caption" color="text.secondary">Завершённые дни по московскому времени</Typography>
+      </Box>
+      <ToggleButtonGroup exclusive size="small" value={selected} aria-label="Период статистики"
+        onChange={(_, value) => {
+          if (typeof value !== 'number') return;
+          const next = presets.find((preset) => preset.days === value)!.filters;
+          onDraftChange(next);
+          onApply(next);
+        }} sx={{ bgcolor: 'rgba(118,118,140,.10)', borderRadius: '999px', p: .4,
+          '& .MuiToggleButton-root': { border: 0, borderRadius: '999px!important', px: 2.5, textTransform: 'none' } }}>
+        {presets.map(({ days }) => <ToggleButton key={days} value={days}>{days} дней</ToggleButton>)}
+        <ToggleButton value="custom" onClick={() => document.getElementById('period-start')?.focus()}>Свой</ToggleButton>
+      </ToggleButtonGroup>
     </Stack>
-  );
+    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
+      <TextField id="period-start" label="С даты" type="date" size="small" value={draftFilters.startDate ?? ''}
+        onChange={(event) => onDraftChange({ ...draftFilters, startDate: event.target.value })}
+        InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
+      <TextField label="По дату" type="date" size="small" value={draftFilters.endDate ?? ''}
+        onChange={(event) => onDraftChange({ ...draftFilters, endDate: event.target.value })}
+        InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
+      <Button variant="contained" disabled={invalid} onClick={() => onApply(draftFilters)}>Показать</Button>
+      <Typography variant="caption" color="text.secondary" sx={{ ml: { sm: 'auto' } }}>
+        {periods.length ? `Загруженных дней: ${periods.length}` : 'Данные появятся после загрузки WB'}
+      </Typography>
+    </Stack>
+  </Stack>;
 }
 
 export function defaultPeriod(): DashboardFilters {
@@ -100,4 +70,3 @@ function addDays(isoDate: string, days: number): string {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
-

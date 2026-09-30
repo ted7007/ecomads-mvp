@@ -16,7 +16,7 @@ const wbClusterRowSchema = z.object({
   carts: z.number().int().nullable(), orders: z.number().int().nullable(), cpc: z.number().nullable(),
   assessment: z.string()
 });
-const wbClustersSchema = z.object({ isWbConnected: z.boolean(), rows: z.array(wbClusterRowSchema),
+const wbClustersSchema = z.object({ isWbConnected: z.boolean(), isPeriodComplete: z.boolean(), rows: z.array(wbClusterRowSchema),
   storeNormVersion: z.number().int(), campaignNormVersion: z.number().int() });
 export type WbClusterRow = z.infer<typeof wbClusterRowSchema>;
 

@@ -38,7 +38,7 @@ export function DashboardKpiGrid({ campaigns }: { campaigns: ProjectDashboard[] 
   return (
     <Grid container spacing={2}>
       {items.map((item) => (
-        <Grid item xs={12} sm={6} lg={2.4} key={item.label}>
+        <Grid item xs={6} sm={6} lg={2.4} key={item.label}>
           <KpiCard {...item} />
         </Grid>
       ))}
@@ -55,7 +55,7 @@ function KpiCard({ icon, label, value }: KpiCardProps) {
             {icon}
             <Typography variant="body2">{label}</Typography>
           </Stack>
-          <Typography variant="h4" fontWeight={800}>
+          <Typography variant="h4" fontWeight={800} sx={{ fontSize: { xs: 22, sm: 28 }, overflowWrap: 'anywhere' }}>
             {value}
           </Typography>
         </Stack>

@@ -20,6 +20,7 @@ public class EcomadsDbContext : DbContext
     public DbSet<WbStoreNorms> WbStoreNorms { get; set; }
     public DbSet<WbCampaignNorms> WbCampaignNorms { get; set; }
     public DbSet<WbNormRevision> WbNormRevisions { get; set; }
+    public DbSet<WbRecommendationDecision> WbRecommendationDecisions { get; set; }
     public DbSet<TelegramLinkCode> TelegramLinkCodes { get; set; }
     public DbSet<TelegramChat> TelegramChats { get; set; }
     public DbSet<TelegramDelivery> TelegramDeliveries { get; set; }
@@ -219,6 +220,21 @@ public class EcomadsDbContext : DbContext
             entity.Property(x => x.Version).HasColumnName("version");
             entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
             entity.HasOne<Campaign>().WithOne().HasForeignKey<WbCampaignNorms>(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WbRecommendationDecision>(entity =>
+        {
+            entity.ToTable("wb_recommendation_decisions");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.SellerId).HasColumnName("seller_id");
+            entity.Property(x => x.RecommendationKey).HasColumnName("recommendation_key").HasMaxLength(512);
+            entity.Property(x => x.StartDate).HasColumnName("start_date");
+            entity.Property(x => x.EndDate).HasColumnName("end_date");
+            entity.Property(x => x.Status).HasColumnName("status").HasMaxLength(32);
+            entity.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
+            entity.HasIndex(x => new { x.SellerId, x.RecommendationKey, x.StartDate, x.EndDate }).IsUnique();
+            entity.HasOne<Seller>().WithMany().HasForeignKey(x => x.SellerId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WbNormRevision>(entity =>

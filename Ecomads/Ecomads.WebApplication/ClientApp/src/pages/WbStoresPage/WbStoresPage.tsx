@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Card, CardContent, CircularProgress, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Grid, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { connectWbStore, disconnectWbStore, getWbStores, getWbSync, startWbClusterSync, startWbJamSync, startWbSync } from './wbStoresApi';
@@ -75,8 +75,11 @@ function StoreCard({ store }: { store: WbStore }) {
   return (
     <Card>
       <CardContent>
-        <Stack spacing={1}>
-          <Typography variant="h6">{store.name}</Typography>
+        <Stack spacing={1.5}>
+          <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+            <Typography variant="h6" fontWeight={800}>{store.name}</Typography>
+            <Chip label="Подключён" color="success" size="small" variant="outlined" />
+          </Stack>
           <Typography variant="body2">Токен: ••••{store.tokenLastFour} · действует до {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU')}</Typography>
           <Typography variant="body2">Кампаний: {store.campaignCount}</Typography>
           <Typography variant="body2">Данные: {store.lastSyncAt ? `обновлены ${new Date(store.lastSyncAt).toLocaleString('ru-RU')}` : 'ещё не загружены'}</Typography>
@@ -91,6 +94,8 @@ function StoreCard({ store }: { store: WbStore }) {
             {sync.data.errorCode ? ` Код ошибки: ${sync.data.errorCode}.` : ''}
           </Typography> : null}
           {error ? <Alert severity="error">{error}</Alert> : null}
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="subtitle1" fontWeight={800}>Загрузка данных</Typography>
           <Typography variant="body2" color="text.secondary">
             Статистику кампаний загрузим за последние 30 завершённых дней, кластеры и поисковые запросы Джема — за 7 дней после сбора статистики кампаний.
             Для базового токена отчёт Джема ограничен одним запросом в час; кнопка ставит сбор в очередь, если нужно подождать.
@@ -160,19 +165,21 @@ export function WbStoresPage() {
   });
 
   return (
-    <Stack spacing={3} sx={{ maxWidth: 850 }}>
+    <Stack spacing={3} sx={{ maxWidth: 1200 }}>
       <Box>
-        <Typography variant="h4" fontWeight={700}>Кабинеты WB</Typography>
-        <Typography color="text.secondary">Подключите кабинет базовым токеном только для чтения.</Typography>
+        <Typography variant="h4" fontWeight={800}>Кабинет WB и Telegram</Typography>
+        <Typography color="text.secondary">Подключение, ручной сбор и доставка сводки.</Typography>
       </Box>
 
       {stores.isError ? <Alert severity="error">Не удалось загрузить список кабинетов.</Alert> : null}
-      {stores.data?.map((store) => <StoreCard key={store.id} store={store} />)}
+      <Grid container spacing={2} alignItems="flex-start">
+      <Grid item xs={12} lg={7}><Stack spacing={2}>
+        {stores.data?.map((store) => <StoreCard key={store.id} store={store} />)}
 
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <Typography variant="h6">Telegram</Typography>
+            <Typography variant="h6" fontWeight={800}>Telegram</Typography>
             {telegram.isError ? <Alert severity="error">Не удалось загрузить привязанные чаты.</Alert> : null}
             {telegram.data && !telegram.data.botConfigured ? <Alert severity="info">Бот ещё не настроен. Привязка и отправка сводки станут доступны после добавления токена бота.</Alert> : null}
             {telegram.data?.chats.map((chat) => <Stack key={chat.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
@@ -186,12 +193,13 @@ export function WbStoresPage() {
             {link.data ? <Typography variant="caption">Ссылка действует до {new Date(link.data.expiresAtUtc).toLocaleString('ru-RU')}. После привязки обновите страницу.</Typography> : null}
           </Stack>
         </CardContent>
-      </Card>
+      </Card></Stack></Grid>
 
+      <Grid item xs={12} lg={5}><Stack spacing={2}>
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <Typography variant="h6">{stores.data?.length ? 'Добавить или заменить токен' : 'Подключить кабинет'}</Typography>
+            <Typography variant="h6" fontWeight={800}>{stores.data?.length ? 'Добавить или заменить токен' : 'Подключить кабинет'}</Typography>
             <Typography variant="body2" color="text.secondary">
               В личном кабинете WB создайте отдельный базовый токен с категорией «Продвижение» и доступом «Только чтение».
               Для общего ДРР дополнительно понадобится категория «Аналитика».
@@ -217,6 +225,13 @@ export function WbStoresPage() {
           </Stack>
         </CardContent>
       </Card>
+      <Card><CardContent><Stack spacing={1}>
+        <Typography variant="h6" fontWeight={800}>Что сейчас доступно</Typography>
+        <Typography variant="body2" color="text.secondary">Обновление запускается кнопкой и может ждать лимит WB. История заданий показана в карточке кабинета.</Typography>
+        <Typography variant="body2" color="text.secondary">Ночной запуск, уведомления о бюджете и настройка времени утренней сводки из макета пока не работают: источники бюджета и расписание ещё не подключены.</Typography>
+      </Stack></CardContent></Card>
+      </Stack></Grid>
+      </Grid>
     </Stack>
   );
 }

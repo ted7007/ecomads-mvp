@@ -17,6 +17,14 @@ const campaignSchema = z.object({ id: z.string().uuid(), name: z.string(), wbCam
 export type StoreNormValues = z.infer<typeof valuesSchema>;
 export type CampaignNormOverrides = z.infer<typeof overridesSchema>;
 export type WbCampaignListItem = z.infer<typeof campaignSchema>;
+const campaignNormListSchema = z.object({ campaignId: z.string().uuid(), wbName: z.string(),
+  name: z.string(), goal: z.string().nullable(), targetDrr: z.number(), isInherited: z.boolean() });
+export type CampaignNormListRow = z.infer<typeof campaignNormListSchema>;
+
+export async function getCampaignNormList(storeId: string): Promise<CampaignNormListRow[]> {
+  return campaignNormListSchema.array().parse(await httpClient<unknown>(
+    `/api/wb/norms/stores/${encodeURIComponent(storeId)}/campaigns`));
+}
 
 export async function getStoreNorms(storeId: string) {
   return storeNormSchema.parse(await httpClient<unknown>(`/api/wb/norms/stores/${encodeURIComponent(storeId)}`));

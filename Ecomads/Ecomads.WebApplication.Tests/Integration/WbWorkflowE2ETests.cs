@@ -110,6 +110,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         using var clusters = await client.GetAsync($"/api/wb/campaigns/{campaignId}/clusters?startDate=2026-07-01&endDate=2026-07-01");
         Assert.Equal(HttpStatusCode.OK, clusters.StatusCode);
         using var clustersJson = JsonDocument.Parse(await clusters.Content.ReadAsStringAsync());
+        Assert.False(clustersJson.RootElement.GetProperty("isPeriodComplete").GetBoolean());
         var cluster = Assert.Single(clustersJson.RootElement.GetProperty("rows").EnumerateArray());
         Assert.Equal("пример", cluster.GetProperty("clusterName").GetString());
         Assert.Equal(JsonValueKind.Null, cluster.GetProperty("views").ValueKind);
@@ -145,6 +146,40 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(10.25, campaign.GetProperty("kpi").GetProperty("spend").GetDouble(), 2);
         Assert.Equal(10, campaign.GetProperty("kpi").GetProperty("clicks").GetInt32());
         Assert.Equal(100, campaign.GetProperty("kpi").GetProperty("impressions").GetInt32());
+
+        using var daily = await client.GetAsync("/api/statistics/daily?startDate=2026-07-01&endDate=2026-07-03");
+        Assert.Equal(HttpStatusCode.OK, daily.StatusCode);
+        using var dailyJson = JsonDocument.Parse(await daily.Content.ReadAsStringAsync());
+        var days = dailyJson.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(3, days.Length);
+        Assert.Equal(10.25m, days[0].GetProperty("spend").GetDecimal());
+        Assert.Equal(1, days[0].GetProperty("loadedCampaigns").GetInt32());
+        Assert.Equal(JsonValueKind.Null, days[1].GetProperty("spend").ValueKind);
+        Assert.Equal(0, days[1].GetProperty("loadedCampaigns").GetInt32());
+
+        using var normList = await client.GetAsync($"/api/wb/norms/stores/{storeId}/campaigns");
+        Assert.Equal(HttpStatusCode.OK, normList.StatusCode);
+        using var normListJson = JsonDocument.Parse(await normList.Content.ReadAsStringAsync());
+        var normRow = Assert.Single(normListJson.RootElement.EnumerateArray());
+        Assert.Equal("Моя кампания", normRow.GetProperty("name").GetString());
+        Assert.Equal(27m, normRow.GetProperty("targetDrr").GetDecimal());
+        Assert.True(normRow.GetProperty("isInherited").GetBoolean());
+
+        using var savedDecision = await client.PutAsJsonAsync("/api/wb/recommendation-decisions", new
+        {
+            recommendationKey = $"drr:{campaignId}", startDate = "2026-07-01", endDate = "2026-07-01",
+            status = "accepted"
+        });
+        Assert.Equal(HttpStatusCode.OK, savedDecision.StatusCode);
+
+        client.DefaultRequestHeaders.Remove("X-Test-UserId");
+        client.DefaultRequestHeaders.Add("X-Test-UserId", otherSeller.Id.ToString());
+        using var hiddenDaily = await client.GetAsync($"/api/statistics/daily?startDate=2026-07-01&endDate=2026-07-01&campaignId={campaignId}");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenDaily.StatusCode);
+        using var hiddenDecisions = await client.GetAsync("/api/wb/recommendation-decisions?startDate=2026-07-01&endDate=2026-07-01");
+        Assert.Equal(HttpStatusCode.OK, hiddenDecisions.StatusCode);
+        using var hiddenDecisionJson = JsonDocument.Parse(await hiddenDecisions.Content.ReadAsStringAsync());
+        Assert.Empty(hiddenDecisionJson.RootElement.EnumerateArray());
     }
 
     private static string FakeToken(Guid sid)

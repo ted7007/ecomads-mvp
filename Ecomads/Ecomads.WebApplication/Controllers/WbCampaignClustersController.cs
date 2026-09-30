@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Ecomads.WebApplication.Data;
+using Ecomads.WebApplication.Services.Wb;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +16,7 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
     public sealed record ClusterRow(string NomenclatureId, string NomenclatureName, string ClusterName,
         decimal Spend, int? Views, int? Clicks, int? Carts, int? Orders, decimal? Cpc,
         string Assessment);
-    public sealed record ClusterResponse(bool IsWbConnected, IReadOnlyList<ClusterRow> Rows,
+    public sealed record ClusterResponse(bool IsWbConnected, bool IsPeriodComplete, IReadOnlyList<ClusterRow> Rows,
         int StoreNormVersion, int CampaignNormVersion);
 
     [HttpGet("{campaignId:guid}/clusters")]
@@ -24,10 +26,19 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var sellerId)) return Unauthorized();
         var campaign = await db.Campaigns.AsNoTracking()
             .Where(x => x.Id == campaignId && x.Store.SellerId == sellerId)
-            .Select(x => new { x.StoreId, IsWbConnected = x.Store.ApiKey != null })
+            .Select(x => new { x.StoreId, x.WbCampaignId, IsWbConnected = x.Store.ApiKey != null })
             .SingleOrDefaultAsync(cancellationToken);
         if (campaign == null) return NotFound();
-        if (!campaign.IsWbConnected) return Ok(new ClusterResponse(false, [], 0, 0));
+        if (!campaign.IsWbConnected) return Ok(new ClusterResponse(false, false, [], 0, 0));
+
+        var completedJobs = await db.WbSyncJobs.AsNoTracking()
+            .Where(x => x.StoreId == campaign.StoreId && x.Kind == "clusters" && x.Status == "completed" &&
+                (!startDate.HasValue || x.StartDate <= startDate.Value) &&
+                (!endDate.HasValue || x.EndDate >= endDate.Value))
+            .Select(x => x.PairIdsJson).ToListAsync(cancellationToken);
+        var isPeriodComplete = long.TryParse(campaign.WbCampaignId, out var wbCampaignId) &&
+            completedJobs.Any(json => (JsonSerializer.Deserialize<WbNormQueryPair[]>(json ?? "[]") ?? [])
+                .Any(pair => pair.AdvertId == wbCampaignId));
 
         var storeNorms = await db.WbStoreNorms.AsNoTracking()
             .SingleOrDefaultAsync(x => x.StoreId == campaign.StoreId, cancellationToken);
@@ -62,7 +73,7 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
             })
             .OrderByDescending(x => x.Spend)
             .ToList();
-        return Ok(new ClusterResponse(true, rows, storeNorms?.Version ?? 0, campaignNorms?.Version ?? 0));
+        return Ok(new ClusterResponse(true, isPeriodComplete, rows, storeNorms?.Version ?? 0, campaignNorms?.Version ?? 0));
     }
 
     private static string Assess(decimal spend, int? clicks, int? orders,

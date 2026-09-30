@@ -30,7 +30,7 @@ export function CampaignKpiGrid({ campaign }: { campaign: ProjectDashboard | nul
       sx={{
         display: 'grid',
         gridTemplateColumns: {
-          xs: '1fr',
+          xs: 'repeat(2, minmax(0, 1fr))',
           sm: 'repeat(2, minmax(0, 1fr))',
           lg: 'repeat(4, minmax(0, 1fr))',
           xl: 'repeat(5, minmax(0, 1fr))'
@@ -48,7 +48,7 @@ export function CampaignKpiGrid({ campaign }: { campaign: ProjectDashboard | nul
                   {item.icon}
                   <Typography variant="body2">{item.label}</Typography>
                 </Stack>
-                <Typography variant="h4" fontWeight={800} sx={{ lineHeight: 1.15 }}>
+                <Typography variant="h4" fontWeight={800} sx={{ lineHeight: 1.15, fontSize: { xs: 22, md: 28 }, overflowWrap: 'anywhere' }}>
                   {item.value}
                 </Typography>
               </Stack>

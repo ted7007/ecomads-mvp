@@ -1,5 +1,5 @@
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { Alert, Button, Card, CardContent, Stack, Typography } from '@mui/material';
+import { Alert, Breadcrumbs, Button, Card, CardContent, Chip, Link, Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
@@ -17,6 +17,10 @@ import { CampaignKpiGrid } from './components/CampaignKpiGrid';
 import { NomenclatureTable } from './components/NomenclatureTable';
 import { WbClusterTable } from './components/WbClusterTable';
 import { WbJamTable } from './components/WbJamTable';
+import { getDailySeries } from '../DashboardPage/dashboardApi';
+import { DailyChart } from '../../shared/ui/DailyChart';
+import { RecommendationList } from '../../shared/ui/RecommendationList';
+import { campaignRecommendations, clusterRecommendations } from '../../shared/lib/recommendations';
 
 export function CampaignPage() {
   const { campaignId } = useParams();
@@ -38,6 +42,8 @@ export function CampaignPage() {
     queryFn: () => getNomenclatureStatistics(id, filters), enabled: Boolean(id) });
   const trend = useQuery({ queryKey: ['wb-spend-trend', id, filters.endDate],
     queryFn: () => getWbSpendTrend(id, filters.endDate), enabled: Boolean(id) });
+  const daily = useQuery({ queryKey: ['campaign-daily', id, filters],
+    queryFn: () => getDailySeries(filters, id), enabled: Boolean(id) });
   const periods = useQuery({ queryKey: queryKeys.statistics.periods, queryFn: getCampaignPeriods });
 
   if (!id) return <Navigate to={appRoutes.dashboard} replace />;
@@ -45,13 +51,19 @@ export function CampaignPage() {
   const error = summary.error ?? clusters.error ?? articles.error;
 
   return <Stack spacing={3}>
-    <PageHeader title={summary.data?.name ?? 'Кампания'} actions={<Button startIcon={<RefreshIcon />}
-      variant="outlined" onClick={() => { void summary.refetch(); void clusters.refetch(); void jam.refetch(); void articles.refetch(); void trend.refetch(); }}>
+    <Breadcrumbs aria-label="Навигация"><Link href={appRoutes.dashboard} underline="hover">Сводка</Link>
+      <Typography color="text.secondary">Рекламные кампании</Typography><Typography>{summary.data?.name ?? 'Кампания'}</Typography></Breadcrumbs>
+    <PageHeader title={summary.data?.name ?? 'Кампания'} description={summary.data ?
+      `Цель: ${summary.data.goal || 'не задана'} · целевой ДРР рекламы ${formatPercent(summary.data.targetDrr, 1)}` : undefined}
+      actions={<Button startIcon={<RefreshIcon />}
+      variant="outlined" onClick={() => { void summary.refetch(); void clusters.refetch(); void jam.refetch(); void articles.refetch(); void trend.refetch(); void daily.refetch(); }}>
       Обновить экран
     </Button>} />
+    {summary.data?.wbStatus != null ? <Chip label={summary.data.wbStatus === 9 ? 'Активна' : summary.data.wbStatus === 11 ? 'Приостановлена' : `Статус WB: ${summary.data.wbStatus}`}
+      color={summary.data.wbStatus === 9 ? 'success' : 'default'} variant="outlined" sx={{ alignSelf: 'flex-start' }} /> : null}
     <Card><CardContent><PeriodFilter draftFilters={draftFilters} periods={periods.data ?? []}
-      onDraftChange={setDraftFilters} onApply={() => {
-        const next = { startDate: draftFilters.startDate || undefined, endDate: draftFilters.endDate || undefined };
+      onDraftChange={setDraftFilters} onApply={(selected) => {
+        const next = { startDate: selected.startDate || undefined, endDate: selected.endDate || undefined };
         setFilters(next);
         const query = new URLSearchParams();
         if (next.startDate) query.set('startDate', next.startDate);
@@ -69,6 +81,8 @@ export function CampaignPage() {
         summary.data.kpi.revenue > 0 && summary.data.kpi.drr > summary.data.targetDrr ?
         <Alert severity="warning">Рекламный ДРР {formatPercent(summary.data.kpi.drr, 1)} выше цели {formatPercent(summary.data.targetDrr, 1)} за выбранный период.</Alert> : null}
       <CampaignKpiGrid campaign={summary.data ?? null} />
+      <Card><CardContent>{daily.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
+        <DailyChart days={daily.data ?? []} title="Динамика кампании" />}</CardContent></Card>
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>Динамика расхода</Typography>
         {trend.isError ? <Alert severity="error">Не удалось загрузить сравнение расходов.</Alert> : null}
@@ -90,8 +104,20 @@ export function CampaignPage() {
       </CardContent></Card>
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
+        {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete ?
+          <Alert severity="info" sx={{ mb: 2 }}>Сбор кластеров за весь выбранный период ещё не завершён. Строки ниже могут быть неполными; рекомендации по ним пока скрыты.</Alert> : null}
         {clusters.data?.isWbConnected ? <WbClusterTable rows={clusters.data.rows} />
           : <Alert severity="info">Подключите кабинет WB для просмотра кластеров.</Alert>}
+      </CardContent></Card>
+      <Card><CardContent>
+        <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>Рекомендации</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Выводы по загруженным рекламным данным. Действия выполняются вручную в кабинете WB.
+        </Typography>
+        <RecommendationList startDate={filters.startDate} endDate={filters.endDate} items={[
+          ...campaignRecommendations(summary.data ? [summary.data] : []),
+          ...clusterRecommendations(id, clusters.data?.isPeriodComplete ? clusters.data.rows : [])
+        ]} emptyText="Подтверждённых отклонений по выбранному периоду нет. Если данные неполные, выводы пока не делаем." />
       </CardContent></Card>
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые запросы Джема</Typography>

@@ -20,6 +20,26 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
     public sealed record StoreNormResponse(Guid StoreId, StoreNormRequest Values, int Version, DateTime? UpdatedAtUtc);
     public sealed record CampaignNormResponse(Guid CampaignId, CampaignNormRequest Overrides,
         StoreNormRequest Effective, int Version, int StoreVersion, DateTime? UpdatedAtUtc);
+    public sealed record CampaignNormListRow(Guid CampaignId, string WbName, string Name, string? Goal,
+        decimal TargetDrr, bool IsInherited);
+
+    [HttpGet("stores/{storeId:guid}/campaigns")]
+    public async Task<IActionResult> ListCampaigns(Guid storeId, CancellationToken cancellationToken)
+    {
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        if (!await db.Stores.AnyAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken)) return NotFound();
+        var fallback = await db.WbStoreNorms.AsNoTracking().Where(x => x.StoreId == storeId)
+            .Select(x => (decimal?)x.TargetDrr).SingleOrDefaultAsync(cancellationToken) ?? 30m;
+        var rows = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId)
+            .OrderBy(x => x.Name)
+            .Select(x => new CampaignNormListRow(x.Id, x.Name,
+                db.WbCampaignNorms.Where(n => n.CampaignId == x.Id).Select(n => n.CustomName).FirstOrDefault() ?? x.Name,
+                db.WbCampaignNorms.Where(n => n.CampaignId == x.Id).Select(n => n.Goal).FirstOrDefault(),
+                db.WbCampaignNorms.Where(n => n.CampaignId == x.Id).Select(n => n.TargetDrr).FirstOrDefault() ?? fallback,
+                !db.WbCampaignNorms.Any(n => n.CampaignId == x.Id && n.TargetDrr != null)))
+            .ToListAsync(cancellationToken);
+        return Ok(rows);
+    }
 
     [HttpGet("stores/{storeId:guid}")]
     public async Task<IActionResult> GetStore(Guid storeId, CancellationToken cancellationToken)
