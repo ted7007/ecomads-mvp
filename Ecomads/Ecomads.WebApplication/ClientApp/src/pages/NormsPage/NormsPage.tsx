@@ -104,7 +104,8 @@ export function NormsPage() {
         labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`} />
       <Box sx={{ borderTop: '1px solid rgba(30,30,60,.1)', pt: 2 }}>
         <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>Редактировать кампанию</Typography>
-      <TextField select label="Кампания" value={campaignId} onChange={(event) => setCampaignId(event.target.value)}>
+      <TextField select label="Кампания" value={campaignId} onChange={(event) => setCampaignId(event.target.value)}
+        fullWidth sx={{ maxWidth: 520, mb: campaignId ? 2 : 0 }}>
         <MenuItem value="">Выберите кампанию</MenuItem>
         {campaigns.data?.map((campaign) => <MenuItem key={campaign.id} value={campaign.id}>
           {campaign.name} · {campaign.wbCampaignId}</MenuItem>)}

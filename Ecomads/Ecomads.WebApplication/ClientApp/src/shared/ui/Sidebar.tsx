@@ -47,7 +47,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         display: mobile ? 'flex' : { xs: 'none', md: 'flex' },
         flexDirection: 'column',
         width: 260,
-        height: mobile ? '100%' : '100vh',
+        minHeight: mobile ? '100%' : '100vh',
         flexShrink: 0,
         overflow: 'hidden',
         p: 3,

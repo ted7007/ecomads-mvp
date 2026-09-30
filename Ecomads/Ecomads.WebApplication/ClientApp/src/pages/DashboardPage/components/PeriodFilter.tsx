@@ -27,8 +27,10 @@ export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: 
       </Box>
       <ToggleButtonGroup exclusive size="small" value={selected} aria-label="Период статистики"
         onChange={(_, value) => {
-          if (typeof value !== 'number') return;
-          const next = presets.find((preset) => preset.days === value)!.filters;
+          const days = Number(value);
+          if (!Number.isFinite(days)) return;
+          const next = presets.find((preset) => preset.days === days)?.filters;
+          if (!next) return;
           onDraftChange(next);
           onApply(next);
         }} sx={{ bgcolor: 'rgba(118,118,140,.10)', borderRadius: '999px', p: .4,

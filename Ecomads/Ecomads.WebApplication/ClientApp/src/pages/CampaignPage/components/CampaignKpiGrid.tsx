@@ -32,8 +32,7 @@ export function CampaignKpiGrid({ campaign }: { campaign: ProjectDashboard | nul
         gridTemplateColumns: {
           xs: 'repeat(2, minmax(0, 1fr))',
           sm: 'repeat(2, minmax(0, 1fr))',
-          lg: 'repeat(4, minmax(0, 1fr))',
-          xl: 'repeat(5, minmax(0, 1fr))'
+          lg: 'repeat(5, minmax(0, 1fr))'
         },
         gap: 2,
         width: '100%'
