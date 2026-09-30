@@ -3,7 +3,7 @@ namespace Ecomads.WebApplication.Models;
 public record ProjectKpiDto(
     decimal Spend,
     decimal Revenue,
-    decimal OrderedAmount,
+    decimal? OrderedAmount,
     decimal Drr,
     int Clicks,
     int Impressions,

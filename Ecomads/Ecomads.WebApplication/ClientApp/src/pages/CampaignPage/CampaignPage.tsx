@@ -38,7 +38,9 @@ export function CampaignPage() {
     setFilters(next);
     setDraftFilters(next);
   }, [searchParams]);
-  const [metric, setMetric] = useState<MetricKey>('revenue');
+  const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['revenue']);
+  const toggleMetric = (metric: MetricKey) => setSelectedMetrics((current) =>
+    current.includes(metric) ? current.filter((item) => item !== metric) : [...current, metric]);
   const id = campaignId ?? '';
   const summary = useQuery({ queryKey: ['campaign-summary', id, filters],
     queryFn: () => getCampaignSummary(id, filters), enabled: Boolean(id) });
@@ -55,6 +57,8 @@ export function CampaignPage() {
   const prior = previousPeriod(filters);
   const priorDaily = useQuery({ queryKey: ['campaign-daily', id, prior],
     queryFn: () => getDailySeries(prior, id), enabled: Boolean(id) });
+  const priorSummary = useQuery({ queryKey: ['campaign-summary', id, prior],
+    queryFn: () => getCampaignSummary(id, prior), enabled: Boolean(id) });
   const periods = useQuery({ queryKey: queryKeys.statistics.periods, queryFn: getCampaignPeriods });
 
   if (!id) return <Navigate to={appRoutes.dashboard} replace />;
@@ -88,9 +92,10 @@ export function CampaignPage() {
     {!loading && !error ? <>
       {summary.data && summary.data.kpi.coverageDays < summary.data.kpi.expectedDays ?
         <Alert severity="warning">Загружено {summary.data.kpi.coverageDays} из {summary.data.kpi.expectedDays} дней. Оценки по этому периоду предварительные.</Alert> : null}
-      <CampaignKpiGrid campaign={summary.data ?? null} selectedMetric={metric} onSelect={setMetric} />
+      <CampaignKpiGrid campaign={summary.data ?? null} priorCampaign={priorSummary.data ?? null}
+        selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
       <Card><CardContent>{daily.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
-        <DailyChart days={daily.data ?? []} previousDays={priorDaily.data ?? []} title="Динамика кампании" metric={metric} onMetricChange={setMetric} />}
+        <DailyChart days={daily.data ?? []} previousDays={priorDaily.data ?? []} title="Динамика кампании" selectedMetrics={selectedMetrics} />}
         {trend.isError ? <Alert severity="error">Не удалось загрузить сравнение расходов.</Alert> : null}
         {trend.data?.status === 'no_baseline' ? <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Сравнение расхода: за предыдущие семь дней расход был нулевым, поэтому процент не рассчитывается.
@@ -109,7 +114,7 @@ export function CampaignPage() {
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
         {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete ?
           <Alert severity="info" sx={{ mb: 2 }}>Сбор кластеров за весь выбранный период ещё не завершён. Строки ниже могут быть неполными; рекомендации по ним пока скрыты.</Alert> : null}
-        {clusters.data?.isWbConnected ? <WbClusterTable rows={clusters.data.rows} />
+        {clusters.data?.isWbConnected ? <WbClusterTable rows={clusters.data.rows} jamRows={jam.data?.rows} />
           : <Alert severity="info">Подключите кабинет WB для просмотра кластеров.</Alert>}
       </CardContent></Card>
       {recommendations.length ? <Card><CardContent>

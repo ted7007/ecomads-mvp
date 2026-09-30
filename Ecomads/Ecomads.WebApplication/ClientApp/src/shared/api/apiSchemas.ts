@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const projectKpiSchema = z.object({
-  spend: z.coerce.number(), revenue: z.coerce.number(), orderedAmount: z.coerce.number(),
+  spend: z.coerce.number(), revenue: z.coerce.number(), orderedAmount: z.coerce.number().nullable(),
   drr: z.coerce.number(), clicks: z.coerce.number(), impressions: z.coerce.number(), ctr: z.coerce.number(),
   coverageDays: z.number().int(), expectedDays: z.number().int()
 });

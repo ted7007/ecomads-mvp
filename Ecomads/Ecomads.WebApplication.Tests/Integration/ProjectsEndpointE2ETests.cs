@@ -82,6 +82,8 @@ public sealed class ProjectsEndpointE2ETests
         Assert.Equal(campaign.Id, project.GetProperty("id").GetGuid());
         Assert.Equal(campaign.Name, project.GetProperty("name").GetString());
         Assert.Equal(100, project.GetProperty("kpi").GetProperty("spend").GetDouble());
+        Assert.Equal(500, project.GetProperty("kpi").GetProperty("revenue").GetDouble());
+        Assert.Equal(JsonValueKind.Null, project.GetProperty("kpi").GetProperty("orderedAmount").ValueKind);
         Assert.Equal(1, project.GetProperty("kpi").GetProperty("coverageDays").GetInt32());
         Assert.Equal(7, project.GetProperty("kpi").GetProperty("expectedDays").GetInt32());
     }

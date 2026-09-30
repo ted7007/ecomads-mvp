@@ -9,15 +9,18 @@ import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
 import type { DashboardFilters } from '../dashboardApi';
 import { PaginationBar } from '../../../shared/ui/PaginationBar';
+import { compareKpi, completeKpi } from '../../../shared/lib/kpiComparison';
 
 type SortKey = 'spend' | 'revenue' | 'drr' | 'name';
 
-export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashboard[]; filters: DashboardFilters }) {
+export function CampaignsTable({ campaigns, priorCampaigns, filters }: { campaigns: ProjectDashboard[];
+  priorCampaigns: ProjectDashboard[]; filters: DashboardFilters }) {
   const navigate = useNavigate();
   const [sort, setSort] = useState<SortKey>('spend');
   const [ascending, setAscending] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
+  const priorById = new Map(priorCampaigns.map((campaign) => [campaign.id, campaign]));
   useEffect(() => setPage(0), [campaigns, sort, ascending, rowsPerPage]);
   if (!campaigns.length) return <EmptyState title="Кампаний нет" description="Загрузите статистику или измените период." />;
 
@@ -65,25 +68,38 @@ export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashb
       </Stack>
     </Box>
     <TableContainer sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
-      <Table size="small" sx={{ minWidth: 780 }} aria-label="Рекламные кампании">
+      <Table size="small" sx={{ minWidth: 920 }} aria-label="Рекламные кампании">
         <TableHead><TableRow>
-          {[['name', 'Кампания'], ['spend', 'Расход'], ['revenue', 'Заказы с рекламы'], ['drr', 'ДРР рекламы']].map(([key, label]) =>
+          {[['name', 'Кампания']].map(([key, label]) =>
             <TableCell key={key} align={key === 'name' ? 'left' : 'right'} sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
               <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key as SortKey)}>{label}</TableSortLabel>
             </TableCell>)}
-          <TableCell align="right">CTR</TableCell><TableCell align="right">Покрытие</TableCell>
+          <TableCell>Статус</TableCell>
+          {([['spend', 'Расход'], ['revenue', 'Заказы с рекламы'], ['drr', 'ДРР рекламы']] as const).map(([key, label]) =>
+            <TableCell key={key} align="right" sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
+              <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key)}>{label}</TableSortLabel>
+            </TableCell>)}
+          <TableCell align="right">Расход к пред. пер.</TableCell><TableCell align="right">CTR</TableCell>
+          <TableCell align="right">CPC</TableCell><TableCell align="right">Покрытие</TableCell>
         </TableRow></TableHead>
-        <TableBody>{visible.map((campaign) => <TableRow key={campaign.id} hover>
+        <TableBody>{visible.map((campaign) => {
+          const prior = priorById.get(campaign.id);
+          const delta = completeKpi(campaign) && completeKpi(prior) ?
+            compareKpi(campaign.kpi.spend, prior!.kpi.spend, 'money').delta : '—';
+          return <TableRow key={campaign.id} hover>
           <TableCell><Typography component="a" href={`${appRoutes.campaignPath(campaign.id)}?startDate=${filters.startDate}&endDate=${filters.endDate}`}
-            fontWeight={700} color="text.primary" sx={{ textDecoration: 'none', '&:hover': { color: 'primary.main' } }}>{campaign.name}</Typography>
-            <Chip size="small" variant="outlined" color={campaign.wbStatus === 9 ? 'success' : 'default'} label={campaign.wbStatus === 9 ? 'Активна' : campaign.wbStatus === 11 ? 'Приостановлена' : 'Кампания WB'} sx={{ mt: .5 }} /></TableCell>
+            fontWeight={700} color="text.primary" sx={{ textDecoration: 'none', '&:hover': { color: 'primary.main' } }}>{campaign.name}</Typography></TableCell>
+          <TableCell><Chip size="small" variant="outlined" color={campaign.wbStatus === 9 ? 'success' : 'default'}
+            label={campaign.wbStatus === 9 ? 'Активна' : campaign.wbStatus === 11 ? 'Приостановлена' : 'Кампания WB'} /></TableCell>
           <TableCell align="right">{formatMoney(campaign.kpi.spend)}</TableCell>
           <TableCell align="right">{formatMoney(campaign.kpi.revenue)}</TableCell>
           <TableCell align="right">{campaign.kpi.revenue > 0 ? formatPercent(campaign.kpi.drr, 1) : '—'}
             {campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr ? <Chip size="small" color="warning" label="Выше цели" sx={{ ml: 1 }} /> : null}</TableCell>
+          <TableCell align="right">{delta}</TableCell>
           <TableCell align="right">{campaign.kpi.impressions > 0 ? formatPercent(campaign.kpi.ctr, 2) : '—'}</TableCell>
+          <TableCell align="right">{campaign.kpi.clicks > 0 ? formatMoney(campaign.kpi.spend / campaign.kpi.clicks) : '—'}</TableCell>
           <TableCell align="right">{campaign.kpi.coverageDays}/{campaign.kpi.expectedDays}</TableCell>
-        </TableRow>)}</TableBody>
+        </TableRow>;})}</TableBody>
       </Table>
     </TableContainer>
     <PaginationBar count={campaigns.length} page={page} rowsPerPage={rowsPerPage}

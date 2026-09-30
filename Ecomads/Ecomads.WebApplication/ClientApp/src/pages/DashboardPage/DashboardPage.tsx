@@ -25,7 +25,9 @@ export function DashboardPage() {
   const filters: DashboardFilters = { startDate: searchParams.get('startDate') ?? defaultPeriod().startDate,
     endDate: searchParams.get('endDate') ?? defaultPeriod().endDate };
   const [draftFilters, setDraftFilters] = useState<DashboardFilters>(filters);
-  const [metric, setMetric] = useState<MetricKey>('revenue');
+  const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['revenue']);
+  const toggleMetric = (metric: MetricKey) => setSelectedMetrics((current) =>
+    current.includes(metric) ? current.filter((item) => item !== metric) : [...current, metric]);
   useEffect(() => { setDraftFilters(filters); }, [filters.startDate, filters.endDate]);
 
   const campaignsQuery = useQuery({
@@ -38,6 +40,7 @@ export function DashboardPage() {
   const dailyQuery = useQuery({ queryKey: ['dashboard-daily', filters], queryFn: () => getDailySeries(filters) });
   const prior = previousPeriod(filters);
   const priorQuery = useQuery({ queryKey: ['dashboard-daily', prior], queryFn: () => getDailySeries(prior) });
+  const priorCampaignsQuery = useQuery({ queryKey: queryKeys.projects.list(prior), queryFn: () => getCampaigns(prior) });
 
   const campaigns = campaignsQuery.data ?? [];
   const campaignsWithData = campaigns.filter((campaign) => campaign.kpi.coverageDays > 0).length;
@@ -101,11 +104,15 @@ export function DashboardPage() {
             </Button> : null}
           </Stack>}
 
-          <DashboardKpiGrid campaigns={campaigns} selectedMetric={metric} onSelect={setMetric} />
+          <DashboardKpiGrid campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []}
+            selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: '-12px !important', px: .5 }}>
+            Все заказы кабинета и ДРР от них пока недоступны в источнике данных. Здесь показаны только рекламные заказы и рекламный ДРР.
+          </Typography>
 
           <Card><CardContent>
             {dailyQuery.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
-              <DailyChart days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []} metric={metric} onMetricChange={setMetric} />}
+              <DailyChart days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []} selectedMetrics={selectedMetrics} />}
           </CardContent></Card>
 
           <Card>
@@ -114,7 +121,7 @@ export function DashboardPage() {
                 <Typography variant="h6" fontWeight={800}>
                   Рекламные кампании
                 </Typography>
-                <CampaignsTable campaigns={campaigns} filters={filters} />
+                <CampaignsTable campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []} filters={filters} />
               </Stack>
             </CardContent>
           </Card>

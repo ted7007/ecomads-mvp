@@ -8,6 +8,7 @@ import { PaginationBar } from '../../../shared/ui/PaginationBar';
 const count = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU').format(value);
 const position = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value);
 const shortDate = (date: string) => date.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3.$2.$1');
+const jamCell = { bgcolor: '#F7F0FF', color: '#6841A1' };
 
 export function WbJamTable({ report }: { report: WbJamResponse }) {
   const [page, setPage] = useState(0);
@@ -33,18 +34,18 @@ export function WbJamTable({ report }: { report: WbJamResponse }) {
       <Table stickyHeader size="small" aria-label="Поисковые запросы Джема">
         <TableHead><TableRow>
           <TableCell>Артикул WB</TableCell><TableCell>Поисковый запрос</TableCell>
-          <TableCell align="right">Частотность</TableCell><TableCell align="right">Позиция</TableCell>
-          <TableCell align="right">Переходы</TableCell><TableCell align="right">Корзины</TableCell>
-          <TableCell align="right">Заказы</TableCell><TableCell>Рекламный кластер</TableCell>
+          <TableCell align="right" sx={jamCell}>Частотность · Джем</TableCell><TableCell align="right" sx={jamCell}>Позиция · Джем</TableCell>
+          <TableCell align="right" sx={jamCell}>Переходы · Джем</TableCell><TableCell align="right" sx={jamCell}>Корзины · Джем</TableCell>
+          <TableCell align="right" sx={jamCell}>Заказы · Джем</TableCell><TableCell>Рекламный кластер</TableCell>
         </TableRow></TableHead>
         <TableBody>{report.rows.slice(page * rowsPerPage, (page + 1) * rowsPerPage).map((row) =>
           <TableRow key={`${row.nomenclatureId}:${row.searchText}`} hover>
             <TableCell>{row.nomenclatureId}</TableCell><TableCell>{row.searchText}</TableCell>
-            <TableCell align="right">{count(row.frequency)}</TableCell>
-            <TableCell align="right">{position(row.averagePosition)}</TableCell>
-            <TableCell align="right">{count(row.openCard)}</TableCell>
-            <TableCell align="right">{count(row.addToCart)}</TableCell>
-            <TableCell align="right">{count(row.orders)}</TableCell>
+            <TableCell align="right" sx={jamCell}>{count(row.frequency)}</TableCell>
+            <TableCell align="right" sx={jamCell}>{position(row.averagePosition)}</TableCell>
+            <TableCell align="right" sx={jamCell}>{count(row.openCard)}</TableCell>
+            <TableCell align="right" sx={jamCell}>{count(row.addToCart)}</TableCell>
+            <TableCell align="right" sx={jamCell}>{count(row.orders)}</TableCell>
             <TableCell>{row.matchingLoadedAdCluster ? 'Совпадает' : '—'}</TableCell>
           </TableRow>)}</TableBody>
       </Table>
