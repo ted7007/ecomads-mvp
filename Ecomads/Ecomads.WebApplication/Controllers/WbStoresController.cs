@@ -6,6 +6,7 @@ using Ecomads.WebApplication.Services.Wb;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Ecomads.WebApplication.Controllers;
 
@@ -162,8 +163,12 @@ public sealed class WbStoresController(
         foreach (var job in activeJobs)
         {
             job.Status = "failed";
+            job.Stage = "failed";
             job.ErrorCode = "token_disconnected";
             job.UpdatedAtUtc = DateTime.UtcNow;
+            job.CompletedAtUtc = job.UpdatedAtUtc;
+            db.WbSyncJobEvents.Add(new WbSyncJobEvent { JobId = job.Id, OccurredAtUtc = job.UpdatedAtUtc,
+                Stage = job.Stage, ErrorCode = job.ErrorCode, ProcessedCount = job.NextCampaignOffset });
         }
         await db.SaveChangesAsync(cancellationToken);
         return NoContent();
@@ -232,8 +237,11 @@ public sealed class WbStoresController(
             NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
                 ? lastRequest.Value.AddHours(1) : now
         };
+        PrepareQueuedJob(job);
         db.WbSyncJobs.Add(job);
-        await db.SaveChangesAsync(cancellationToken);
+        RecordQueuedJob(job);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" }) { return Conflict(new { message = "Другая загрузка уже запущена. Обновите статус." }); }
         return Accepted(ToSyncResponse(job));
     }
 
@@ -300,8 +308,11 @@ public sealed class WbStoresController(
             NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
                 ? lastRequest.Value.AddHours(1) : now
         };
+        PrepareQueuedJob(job);
         db.WbSyncJobs.Add(job);
-        await db.SaveChangesAsync(cancellationToken);
+        RecordQueuedJob(job);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" }) { return Conflict(new { message = "Другая загрузка уже запущена. Обновите статус." }); }
         return Accepted(ToSyncResponse(job));
     }
 
@@ -361,10 +372,27 @@ public sealed class WbStoresController(
             NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
                 ? lastRequest.Value.AddHours(1) : now
         };
+        PrepareQueuedJob(job);
         db.WbSyncJobs.Add(job);
-        await db.SaveChangesAsync(cancellationToken);
+        RecordQueuedJob(job);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" }) { return Conflict(new { message = "Другая загрузка уже запущена. Обновите статус." }); }
         return Accepted(ToSyncResponse(job));
     }
+
+    private static void PrepareQueuedJob(WbSyncJob job)
+    {
+        if (job.NextAttemptAtUtc > job.CreatedAtUtc.AddSeconds(5))
+        {
+            job.Stage = "waiting";
+            job.WaitReason = "rate_limit";
+        }
+    }
+
+    private void RecordQueuedJob(WbSyncJob job) => db.WbSyncJobEvents.Add(new WbSyncJobEvent
+    {
+        JobId = job.Id, OccurredAtUtc = job.CreatedAtUtc, Stage = job.Stage
+    });
 
     private static SyncResponse ToSyncResponse(WbSyncJob job)
     {

@@ -1,9 +1,7 @@
-import RefreshIcon from '@mui/icons-material/Refresh';
-import StorefrontIcon from '@mui/icons-material/Storefront';
-import { Alert, Button, Card, CardContent, Stack, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Card, CardContent, Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { appRoutes } from '../../app/routes';
 import { queryKeys } from '../../shared/api/queryKeys';
 import type { DashboardFilters } from './dashboardApi';
@@ -17,23 +15,29 @@ import { PageHeader } from '../../shared/ui/PageHeader';
 import { DailyChart } from '../../shared/ui/DailyChart';
 import { RecommendationList } from '../../shared/ui/RecommendationList';
 import { campaignRecommendations } from '../../shared/lib/recommendations';
+import type { MetricKey } from '../../shared/ui/DailyChart';
+import { getWbStores } from '../WbStoresPage/wbStoresApi';
+import { previousPeriod } from '../../shared/lib/previousPeriod';
 
 export function DashboardPage() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const [filters, setFilters] = useState<DashboardFilters>(defaultPeriod);
-  const [draftFilters, setDraftFilters] = useState<DashboardFilters>(defaultPeriod);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filters: DashboardFilters = { startDate: searchParams.get('startDate') ?? defaultPeriod().startDate,
+    endDate: searchParams.get('endDate') ?? defaultPeriod().endDate };
+  const [draftFilters, setDraftFilters] = useState<DashboardFilters>(filters);
+  const [metric, setMetric] = useState<MetricKey>('revenue');
+  useEffect(() => { setDraftFilters(filters); }, [filters.startDate, filters.endDate]);
 
   const campaignsQuery = useQuery({
     queryKey: queryKeys.projects.list(filters),
     queryFn: () => getCampaigns(filters)
   });
 
-  const periodsQuery = useQuery({
-    queryKey: queryKeys.statistics.periods,
-    queryFn: getLoadedPeriods
-  });
+  const storesQuery = useQuery({ queryKey: ['wb-stores'], queryFn: getWbStores });
+  const loadedPeriods = useQuery({ queryKey: ['loaded-periods'], queryFn: getLoadedPeriods });
   const dailyQuery = useQuery({ queryKey: ['dashboard-daily', filters], queryFn: () => getDailySeries(filters) });
+  const prior = previousPeriod(filters);
+  const priorQuery = useQuery({ queryKey: ['dashboard-daily', prior], queryFn: () => getDailySeries(prior) });
 
   const campaigns = campaignsQuery.data ?? [];
   const campaignsWithData = campaigns.filter((campaign) => campaign.kpi.coverageDays > 0).length;
@@ -42,43 +46,24 @@ export function DashboardPage() {
   const recommendations = campaignRecommendations(campaigns);
   const demoFeedbackSuccess = (location.state as { demoFeedbackSuccess?: string } | null)?.demoFeedbackSuccess;
 
+  const applyPeriod = (next: DashboardFilters) => {
+    setSearchParams({ startDate: next.startDate ?? '', endDate: next.endDate ?? '' });
+  };
+  const dateLabel = `${new Date(`${filters.startDate}T00:00:00Z`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })} – ${new Date(`${filters.endDate}T00:00:00Z`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })}`;
+  const incomplete = campaigns.length > 0 && (campaignsWithData < campaigns.length || hasIncompleteDays);
+  const latestAvailable = [...(loadedPeriods.data ?? [])].sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2.5}>
       <PageHeader
-        title="Сводка"
+        title={`Сводка за ${dateLabel}`}
+        description={`${storesQuery.data?.[0]?.name || 'Кабинет WB'} · сравнение с ${prior.startDate?.slice(5).split('-').reverse().join('.')} – ${prior.endDate?.slice(5).split('-').reverse().join('.')} · даты по МСК`}
         actions={
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button
-              color="primary"
-              startIcon={<RefreshIcon />}
-              variant="outlined"
-              onClick={() => {
-                void campaignsQuery.refetch();
-                void periodsQuery.refetch();
-                void dailyQuery.refetch();
-              }}
-            >
-              Обновить
-            </Button>
-            <Button startIcon={<StorefrontIcon />} variant="contained" onClick={() => navigate(appRoutes.wbStores)}>
-              Кабинеты WB и сбор данных
-            </Button>
-          </Stack>
+          <PeriodFilter draftFilters={draftFilters} periods={[]} onApply={applyPeriod} onDraftChange={setDraftFilters} />
         }
       />
 
       {demoFeedbackSuccess ? <Alert severity="success">{demoFeedbackSuccess}</Alert> : null}
-
-      <Card>
-        <CardContent>
-          <PeriodFilter
-            draftFilters={draftFilters}
-            periods={periodsQuery.data ?? []}
-            onApply={(next) => setFilters({ startDate: next.startDate || undefined, endDate: next.endDate || undefined })}
-            onDraftChange={(nextFilters) => setDraftFilters(nextFilters)}
-          />
-        </CardContent>
-      </Card>
 
       {campaignsQuery.isLoading ? <LoadingState title="Загружаем обзор рекламы" /> : null}
 
@@ -92,25 +77,35 @@ export function DashboardPage() {
 
       {!campaignsQuery.isLoading && !campaignsQuery.isError ? (
         <>
-          {campaigns.length > 0 && campaignsWithData < campaigns.length ?
-            <Alert severity="warning">Статистика за период есть по {campaignsWithData} из {campaigns.length} кампаний. Сводные показатели относятся только к загруженным кампаниям, а не ко всему кабинету.{hasIncompleteDays ? ' У некоторых кампаний загружены не все дни.' : ''}</Alert> :
-            hasIncompleteDays ? <Alert severity="warning">У некоторых кампаний загружены не все дни. Сводные показатели за период неполные.</Alert> : null}
-          <Card>
+          {campaignsWithData === 0 && latestAvailable ? <Alert severity="info" action={<Button onClick={() => applyPeriod(latestAvailable)}>Показать</Button>}>
+            За выбранный период данных нет. Доступный период: {latestAvailable.startDate} – {latestAvailable.endDate}.
+          </Alert> : null}
+          {incomplete ? <Accordion disableGutters sx={{ '&:before': { display: 'none' } }}>
+            <AccordionSummary sx={{ minHeight: 44, '& .MuiAccordionSummary-content': { my: 1 } }}><Typography variant="body2" color="warning.main">⚠ Данные неполные: {campaignsWithData} из {campaigns.length} кампаний. Подробнее</Typography></AccordionSummary>
+            <AccordionDetails><Typography variant="body2">Показатели относятся только к загруженным кампаниям. {hasIncompleteDays ? 'Для части кампаний загружены не все дни.' : ''} Сбор можно проверить в разделе «Кабинет WB и Telegram».</Typography></AccordionDetails>
+          </Accordion> : null}
+          {recommendations.length ? <Card sx={{ '& .MuiCardContent-root': { py: 1.5 } }}>
             <CardContent>
               <Stack spacing={1.5}>
-                <Typography variant="h6" fontWeight={800}>Требуют внимания {recommendations.length ? `· ${recommendations.length}` : ''}</Typography>
-                <RecommendationList items={recommendations} startDate={filters.startDate} endDate={filters.endDate} emptyText={campaigns.length === 0 ?
-                  'Кампаний за выбранный период пока нет. Подключите WB и загрузите данные.' :
-                  'Подтверждённых превышений рекламного ДРР нет. Кампании с неполным периодом или без рекламной суммы заказов не оцениваются.'} />
+                <Typography variant="h6" fontWeight={800}>Требуют внимания · {recommendations.length}</Typography>
+                <RecommendationList items={recommendations} maxVisible={3} startDate={filters.startDate} endDate={filters.endDate} emptyText="" />
               </Stack>
             </CardContent>
-          </Card>
+          </Card> : <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} gap={0.5} sx={{ px: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">
+              {campaigns.length === 0 ? 'Кампаний за выбранный период пока нет.' :
+                incomplete ? 'Рекомендаций пока нет: для подтверждённых выводов недостаточно данных.' : 'Отклонений от заданных норм нет.'}
+            </Typography>
+            {incomplete || campaigns.length === 0 ? <Button size="small" component={Link} to={appRoutes.wbStores} sx={{ px: 0.5, minWidth: 0, alignSelf: 'flex-start' }}>
+              Проверить загрузку
+            </Button> : null}
+          </Stack>}
 
-          <DashboardKpiGrid campaigns={campaigns} />
+          <DashboardKpiGrid campaigns={campaigns} selectedMetric={metric} onSelect={setMetric} />
 
           <Card><CardContent>
             {dailyQuery.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
-              <DailyChart days={dailyQuery.data ?? []} />}
+              <DailyChart days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []} metric={metric} onMetricChange={setMetric} />}
           </CardContent></Card>
 
           <Card>

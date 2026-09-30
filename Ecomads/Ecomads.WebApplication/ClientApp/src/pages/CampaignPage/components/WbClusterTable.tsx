@@ -1,22 +1,29 @@
-import { Alert, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { appRoutes } from '../../../app/routes';
 import type { WbClusterRow } from '../campaignApi';
+import { PaginationBar } from '../../../shared/ui/PaginationBar';
 
 const money = (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 const count = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU').format(value);
 
 export function WbClusterTable({ rows }: { rows: WbClusterRow[] }) {
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(5);
   useEffect(() => { setPage(0); }, [rows]);
   if (rows.length === 0) {
-    return <Alert severity="info">За выбранный период кластерных строк пока нет. Состояние сбора и возможную ошибку проверьте в разделе «Кабинеты WB». Если сбор ещё не запускали, загрузите статистику кампаний, затем кластеры.</Alert>;
+    return <Alert severity="info" action={<Button size="small" component={Link} to={appRoutes.wbStores}>Проверить загрузку</Button>}>
+      Поисковые кластеры за выбранный период пока не загружены.
+    </Alert>;
   }
   return <>
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-      Расход и заказы по поисковым кластерам WB. Выручка кластера и его ДРР недоступны в текущем API.
-      Прочерк означает, что WB не вернул показатель.
-    </Typography>
+    <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', mb: 1, '&:before': { display: 'none' } }}>
+      <AccordionSummary expandIcon="⌄"><Typography variant="body2" color="text.secondary">О показателях кластеров</Typography></AccordionSummary>
+      <AccordionDetails><Typography variant="body2" color="text.secondary">
+        WB передаёт расход и заказы по поисковым кластерам, но не их выручку и ДРР. Прочерк означает, что WB не вернул показатель.
+      </Typography></AccordionDetails>
+    </Accordion>
     <TableContainer sx={{ maxHeight: 650 }}>
       <Table stickyHeader size="small" aria-label="Статистика поисковых кластеров WB">
         <TableHead><TableRow>
@@ -35,10 +42,6 @@ export function WbClusterTable({ rows }: { rows: WbClusterRow[] }) {
         </TableRow>)}</TableBody>
       </Table>
     </TableContainer>
-    <TablePagination component="div" count={rows.length} page={page} rowsPerPage={rowsPerPage}
-      onPageChange={(_, nextPage) => setPage(nextPage)}
-      onRowsPerPageChange={(event) => { setRowsPerPage(Number(event.target.value)); setPage(0); }}
-      rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="Строк на странице"
-      labelDisplayedRows={({ from, to, count: total }) => `${from}–${to} из ${total}`} />
+    <PaginationBar count={rows.length} page={page} rowsPerPage={rowsPerPage} onPageChange={setPage} onRowsPerPageChange={(size) => { setRowsPerPage(size); setPage(0); }} />
   </>;
 }

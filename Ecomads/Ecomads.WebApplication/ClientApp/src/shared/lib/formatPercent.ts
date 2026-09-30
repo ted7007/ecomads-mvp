@@ -1,4 +1,5 @@
 export function formatPercent(value: number | null | undefined, fractionDigits = 1): string {
-  return `${(value ?? 0).toFixed(fractionDigits)}%`;
+  if (value == null || !Number.isFinite(value)) return '—';
+  return `${new Intl.NumberFormat('ru-RU', { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(value)}%`;
 }
 

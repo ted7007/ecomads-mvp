@@ -12,8 +12,8 @@ export function campaignRecommendations(campaigns: ProjectDashboard[]): Recommen
       kpi.drr <= campaign.targetDrr) return [];
     return [{ id: `drr:${campaign.id}`, severity: 'warning' as const,
       title: campaign.name,
-      detail: `ДРР рекламы ${formatPercent(kpi.drr, 1)} при цели ${formatPercent(campaign.targetDrr, 1)}. Расход ${formatMoney(kpi.spend)} за полностью загруженный период.`,
-      action: 'Проверьте расходы, ставки и состав кампании в кабинете WB.' }];
+      detail: `ДРР ${formatPercent(kpi.drr, 1)} при норме ${formatPercent(campaign.targetDrr, 1)} · расход ${formatMoney(kpi.spend)}.`,
+      action: 'Проверьте ставки и состав кампании.' }];
   }).sort((left, right) => left.title.localeCompare(right.title, 'ru'));
 }
 

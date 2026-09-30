@@ -1,23 +1,34 @@
-import { Alert, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { appRoutes } from '../../../app/routes';
 import type { WbJamResponse } from '../campaignApi';
+import { PaginationBar } from '../../../shared/ui/PaginationBar';
 
 const count = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU').format(value);
 const position = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value);
+const shortDate = (date: string) => date.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3.$2.$1');
 
 export function WbJamTable({ report }: { report: WbJamResponse }) {
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(5);
   useEffect(() => { setPage(0); }, [report.rows]);
   if (!report.rows.length) {
-    return <Alert severity="info">За выбранный период строк отчёта Джема пока нет. Проверьте состояние сбора в разделе «Кабинеты WB»; если его ещё не запускали, выберите период до 7 дней и нажмите «Загрузить Джем». {report.jamStatus === 'access_denied' ? 'Последний запрос WB отклонил: проверьте подписку Джем и категорию «Аналитика» в токене.' : ''}</Alert>;
+    return <Alert severity="info" action={<Button size="small" component={Link} to={appRoutes.wbStores}>Проверить загрузку</Button>}>
+      Запросов Джема за выбранный период пока нет. {report.jamStatus === 'access_denied' ? 'WB отклонил последний запрос: проверьте права токена и доступ к отчёту.' : ''}
+    </Alert>;
   }
   return <>
     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-      Отчёт WB за {report.startDate} — {report.endDate}: данные есть по {report.articlesWithQueries} из {report.articleCount} товаров кампании.
-      WB возвращает до 30 запросов на товар, отобранных по заказам. Показатели относятся к товарам в поиске, а не только к этой рекламной кампании. Позиция не помечена API как органическая.
-      Совпадение с рекламным кластером означает лишь совпадение текста в загруженных данных.
+      За {shortDate(report.startDate)}–{shortDate(report.endDate)}: запросы есть по {report.articlesWithQueries} из {report.articleCount} товаров кампании.
     </Typography>
+    <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', mb: 1, '&:before': { display: 'none' } }}>
+      <AccordionSummary expandIcon="⌄"><Typography variant="body2" color="text.secondary">О данных Джема</Typography></AccordionSummary>
+      <AccordionDetails><Typography variant="body2" color="text.secondary">
+        WB возвращает до 30 запросов на товар, отобранных по заказам. Данные относятся к товарам в поиске, а не только к этой рекламной кампании.
+        Позиция не подтверждена как органическая. Совпадение с рекламным кластером означает лишь совпадение текста.
+      </Typography></AccordionDetails>
+    </Accordion>
     <TableContainer sx={{ maxHeight: 650 }}>
       <Table stickyHeader size="small" aria-label="Поисковые запросы Джема">
         <TableHead><TableRow>
@@ -38,10 +49,6 @@ export function WbJamTable({ report }: { report: WbJamResponse }) {
           </TableRow>)}</TableBody>
       </Table>
     </TableContainer>
-    <TablePagination component="div" count={report.rows.length} page={page} rowsPerPage={rowsPerPage}
-      onPageChange={(_, nextPage) => setPage(nextPage)}
-      onRowsPerPageChange={(event) => { setRowsPerPage(Number(event.target.value)); setPage(0); }}
-      rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="Строк на странице"
-      labelDisplayedRows={({ from, to, count: total }) => `${from}–${to} из ${total}`} />
+    <PaginationBar count={report.rows.length} page={page} rowsPerPage={rowsPerPage} onPageChange={setPage} onRowsPerPageChange={(size) => { setRowsPerPage(size); setPage(0); }} />
   </>;
 }

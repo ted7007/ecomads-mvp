@@ -1,9 +1,10 @@
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Grid, Stack, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { connectWbStore, disconnectWbStore, getWbStores, getWbSync, startWbClusterSync, startWbJamSync, startWbSync } from './wbStoresApi';
+import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, startWbClusterSync, startWbJamSync, startWbSync } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
 import { createTelegramLink, disconnectTelegramChat, getTelegramChats, sendYesterdaySummary } from './telegramApi';
+import { SyncDashboard } from './SyncDashboard';
 
 function StoreCard({ store }: { store: WbStore }) {
   const [error, setError] = useState<string | null>(null);
@@ -12,18 +13,20 @@ function StoreCard({ store }: { store: WbStore }) {
   const [campaignIds, setCampaignIds] = useState('');
   const queryClient = useQueryClient();
   const sync = useQuery({
-    queryKey: ['wb-sync', store.id],
-    queryFn: () => getWbSync(store.id),
-    refetchInterval: (query) => query.state.data?.status === 'running' || query.state.data?.status === 'pending' ? 15000 : false
+    queryKey: ['wb-sync-overview', store.id],
+    queryFn: () => getWbSyncOverview(store.id),
+    refetchInterval: (query) => query.state.data?.activeJob ? 15000 : 60000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true
   });
   useEffect(() => {
-    if (sync.data?.status === 'completed') {
+    if (sync.data?.sources.some((source) => source.lastJob?.status === 'completed')) {
       void queryClient.invalidateQueries({ queryKey: ['wb-stores'] });
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
       void queryClient.invalidateQueries({ queryKey: ['wb-clusters'] });
       void queryClient.invalidateQueries({ queryKey: ['wb-jam'] });
     }
-  }, [queryClient, sync.data?.id, sync.data?.status]);
+  }, [queryClient, sync.data?.sources]);
   const start = useMutation({
     mutationFn: () => startWbSync(store.id, {
       startDate: startDate || undefined,
@@ -32,7 +35,8 @@ function StoreCard({ store }: { store: WbStore }) {
     }),
     onSuccess: async () => {
       setError(null);
-      await queryClient.invalidateQueries({ queryKey: ['wb-sync', store.id] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-history', store.id] });
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить сбор')
   });
@@ -44,7 +48,8 @@ function StoreCard({ store }: { store: WbStore }) {
     }),
     onSuccess: async () => {
       setError(null);
-      await queryClient.invalidateQueries({ queryKey: ['wb-sync', store.id] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-history', store.id] });
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить сбор кластеров')
   });
@@ -56,7 +61,8 @@ function StoreCard({ store }: { store: WbStore }) {
     }),
     onSuccess: async () => {
       setError(null);
-      await queryClient.invalidateQueries({ queryKey: ['wb-sync', store.id] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-history', store.id] });
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить отчёт Джема')
   });
@@ -65,12 +71,7 @@ function StoreCard({ store }: { store: WbStore }) {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['wb-stores'] }),
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отключить кабинет WB')
   });
-  const sendSummary = useMutation({
-    mutationFn: () => sendYesterdaySummary(store.id),
-    onSuccess: () => setError(null),
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку')
-  });
-  const active = sync.data?.status === 'pending' || sync.data?.status === 'running';
+  const invalidParameters = Boolean(startDate) !== Boolean(endDate) || Boolean(campaignIds.trim()) && !/^\d+(\s*,\s*\d+)*$/.test(campaignIds.trim());
 
   return (
     <Card>
@@ -80,27 +81,15 @@ function StoreCard({ store }: { store: WbStore }) {
             <Typography variant="h6" fontWeight={800}>{store.name}</Typography>
             <Chip label="Подключён" color="success" size="small" variant="outlined" />
           </Stack>
-          <Typography variant="body2">Токен: ••••{store.tokenLastFour} · действует до {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU')}</Typography>
-          <Typography variant="body2">Кампаний: {store.campaignCount}</Typography>
-          <Typography variant="body2">Данные: {store.lastSyncAt ? `обновлены ${new Date(store.lastSyncAt).toLocaleString('ru-RU')}` : 'ещё не загружены'}</Typography>
-          <Typography variant="body2">Джем: {store.jamStatus === 'active' ? 'отчёт доступен' :
-            store.jamStatus === 'access_denied' ? 'WB отказал в доступе — проверьте Джем и право «Аналитика»' :
-            store.jamStatus === 'payment_required' ? 'WB запросил оплату доступа' : 'ещё не проверен'}
-            {store.jamCheckedAtUtc ? ` · проверен ${new Date(store.jamCheckedAtUtc).toLocaleString('ru-RU')}` : ''}</Typography>
-          {sync.data ? <Typography variant="body2">
-            Сбор {sync.data.kind === 'clusters' ? 'кластеров' : sync.data.kind === 'jam' ? 'поисковых запросов Джема' : 'статистики кампаний'} {sync.data.status === 'completed' ? 'завершён' : sync.data.status === 'failed' ? 'не удался' : sync.data.status === 'running' ? 'выполняется или ждёт лимит WB' : 'в очереди'}:
-            {' '}{sync.data.processedCampaigns} из {sync.data.totalCampaigns} {sync.data.kind === 'clusters' ? 'пар кампания/артикул' : sync.data.kind === 'jam' ? 'товаров' : 'кампаний'} за {sync.data.startDate} — {sync.data.endDate}.
-            {active ? ` Следующая попытка: ${new Date(sync.data.nextAttemptAtUtc).toLocaleString('ru-RU')}.` : ''}
-            {sync.data.errorCode ? ` Код ошибки: ${sync.data.errorCode}.` : ''}
-          </Typography> : null}
+          <Typography variant="body2" color="text.secondary">Кампаний: {store.campaignCount} · токен действует до {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU')}</Typography>
+          <SyncDashboard storeId={store.id} overview={sync.data} refresh={() => { void sync.refetch(); }} error={sync.isError}
+            onStart={(kind) => { if (kind === 'clusters') startClusters.mutate(); else if (kind === 'jam') startJam.mutate(); else start.mutate(); }}
+            startPending={start.isPending || startClusters.isPending || startJam.isPending} startDisabledReason={invalidParameters ? 'Исправьте период или список ID кампаний в параметрах загрузки.' : null} />
           {error ? <Alert severity="error">{error}</Alert> : null}
-          <Divider sx={{ my: 1 }} />
-          <Typography variant="subtitle1" fontWeight={800}>Загрузка данных</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Статистику кампаний загрузим за последние 30 завершённых дней, кластеры и поисковые запросы Джема — за 7 дней после сбора статистики кампаний.
-            Для базового токена отчёт Джема ограничен одним запросом в час; кнопка ставит сбор в очередь, если нужно подождать.
-            Для быстрой сверки укажите период и ID нужных кампаний, например 35174765, 35736322.
-          </Typography>
+          <Accordion disableGutters elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
+            <AccordionSummary expandIcon="⌄"><Typography fontWeight={700}>Параметры новой загрузки</Typography></AccordionSummary>
+            <AccordionDetails><Stack spacing={1.5}>
+          <Typography variant="body2" color="text.secondary">Без настройки: статистика за 30 завершённых дней, кластеры и Джем за 7 дней. Можно указать обе даты и ID кампаний.</Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <TextField label="С даты" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)}
               slotProps={{ inputLabel: { shrink: true } }} size="small" />
@@ -111,29 +100,17 @@ function StoreCard({ store }: { store: WbStore }) {
           <TextField label="ID кампаний через запятую (необязательно)" size="small" value={campaignIds}
             onChange={(event) => setCampaignIds(event.target.value)}
             helperText="Можно выбрать завершённые кампании. Пустое поле — все активные и приостановленные." />
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ pt: 1 }}>
-            <Button variant="contained" disabled={active || start.isPending || Boolean(startDate) !== Boolean(endDate)
-              || Boolean(campaignIds.trim()) && !/^\d+(\s*,\s*\d+)*$/.test(campaignIds.trim())} onClick={() => start.mutate()}>
-              {active ? 'Сбор идёт' : 'Загрузить кампании'}
-            </Button>
-            <Button variant="outlined" disabled={active || startClusters.isPending || Boolean(startDate) !== Boolean(endDate)
-              || Boolean(campaignIds.trim()) && !/^\d+(\s*,\s*\d+)*$/.test(campaignIds.trim())} onClick={() => startClusters.mutate()}>
-              Загрузить кластеры
-            </Button>
-            <Button variant="outlined" disabled={active || startJam.isPending || Boolean(startDate) !== Boolean(endDate)
-              || Boolean(campaignIds.trim()) && !/^\d+(\s*,\s*\d+)*$/.test(campaignIds.trim())} onClick={() => startJam.mutate()}>
-              Загрузить Джем
-            </Button>
-            <Button color="error" variant="outlined" disabled={disconnect.isPending} onClick={() => disconnect.mutate()}>
-              Отключить токен
-            </Button>
-            <Button variant="outlined" disabled={sendSummary.isPending} onClick={() => sendSummary.mutate()}>
-              {sendSummary.isPending ? 'Отправляем…' : 'Отправить вчерашнюю сводку в Telegram'}
-            </Button>
-          </Stack>
-          {sendSummary.data ? <Alert severity={sendSummary.data.failed ? 'warning' : 'success'}>
-            Отправлено: {sendSummary.data.sent}; уже обработано: {sendSummary.data.skipped}; ошибок: {sendSummary.data.failed}.
-          </Alert> : null}
+            </Stack></AccordionDetails>
+          </Accordion>
+          <Accordion disableGutters elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
+            <AccordionSummary expandIcon="⌄"><Typography fontWeight={700}>Настройки подключения</Typography></AccordionSummary>
+            <AccordionDetails><Stack spacing={1} alignItems="flex-start">
+              {store.name === 'Кабинет WB' ? <Typography variant="body2">ID продавца WB: {store.externalId}</Typography> : null}
+              <Typography variant="body2">Токен: ••••{store.tokenLastFour}</Typography>
+              <Typography variant="body2">Джем: {store.jamStatus === 'active' ? 'доступен' : store.jamStatus === 'access_denied' ? 'WB отказал в доступе; проверьте права и подписку' : 'доступ ещё не подтверждён'}</Typography>
+              <Button color="error" variant="outlined" disabled={disconnect.isPending} onClick={() => disconnect.mutate()}>Отключить токен</Button>
+            </Stack></AccordionDetails>
+          </Accordion>
         </Stack>
       </CardContent>
     </Card>
@@ -142,12 +119,15 @@ function StoreCard({ store }: { store: WbStore }) {
 
 export function WbStoresPage() {
   const [token, setToken] = useState('');
+  const [showConnection, setShowConnection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const stores = useQuery({ queryKey: ['wb-stores'], queryFn: getWbStores });
   const telegram = useQuery({ queryKey: ['telegram-chats'], queryFn: getTelegramChats });
   const link = useMutation({ mutationFn: createTelegramLink, onSuccess: () => setError(null),
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось создать ссылку') });
+  const sendSummary = useMutation({ mutationFn: (storeId: string) => sendYesterdaySummary(storeId),
+    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку') });
   const disconnectChat = useMutation({ mutationFn: disconnectTelegramChat,
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отключить чат') });
@@ -155,6 +135,7 @@ export function WbStoresPage() {
     mutationFn: connectWbStore,
     onSuccess: async () => {
       setToken('');
+      setShowConnection(false);
       setError(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['wb-stores'] }),
@@ -175,7 +156,8 @@ export function WbStoresPage() {
       <Grid container spacing={2} alignItems="flex-start">
       <Grid item xs={12} lg={7}><Stack spacing={2}>
         {stores.data?.map((store) => <StoreCard key={store.id} store={store} />)}
-
+      </Stack></Grid>
+      <Grid item xs={12} lg={5}><Stack spacing={2}>
       <Card>
         <CardContent>
           <Stack spacing={2}>
@@ -188,15 +170,18 @@ export function WbStoresPage() {
             </Stack>)}
             {telegram.data?.chats.length === 0 && telegram.data.botConfigured ? <Typography color="text.secondary">Чаты пока не привязаны.</Typography> : null}
             <Button variant="outlined" disabled={!telegram.data?.botConfigured || link.isPending} onClick={() => link.mutate()} sx={{ alignSelf: 'flex-start' }}>Создать ссылку для привязки</Button>
+            {stores.data?.[0] ? <Button variant="outlined" disabled={!telegram.data?.botConfigured || sendSummary.isPending} onClick={() => sendSummary.mutate(stores.data[0].id)} sx={{ alignSelf: 'flex-start' }}>Отправить вчерашнюю сводку</Button> : null}
+            {sendSummary.data ? <Alert severity={sendSummary.data.failed ? 'warning' : 'success'}>Отправлено: {sendSummary.data.sent}; ошибок: {sendSummary.data.failed}.</Alert> : null}
             {link.data?.linkUrl ? <Button href={link.data.linkUrl} target="_blank" rel="noopener noreferrer" sx={{ alignSelf: 'flex-start' }}>Открыть бота и привязать чат</Button> : null}
             {link.data && !link.data.linkUrl ? <Typography>Отправьте боту команду /start {link.data.code}</Typography> : null}
             {link.data ? <Typography variant="caption">Ссылка действует до {new Date(link.data.expiresAtUtc).toLocaleString('ru-RU')}. После привязки обновите страницу.</Typography> : null}
           </Stack>
         </CardContent>
-      </Card></Stack></Grid>
-
-      <Grid item xs={12} lg={5}><Stack spacing={2}>
-      <Card>
+      </Card>
+      <Button variant="outlined" onClick={() => setShowConnection(!showConnection)} sx={{ alignSelf: 'flex-start' }}>
+        {stores.data?.length ? 'Подключить ещё кабинет или заменить токен' : 'Подключить кабинет WB'}
+      </Button>
+      {(showConnection || stores.data?.length === 0) ? <Card>
         <CardContent>
           <Stack spacing={2}>
             <Typography variant="h6" fontWeight={800}>{stores.data?.length ? 'Добавить или заменить токен' : 'Подключить кабинет'}</Typography>
@@ -224,12 +209,11 @@ export function WbStoresPage() {
             </Button>
           </Stack>
         </CardContent>
-      </Card>
-      <Card><CardContent><Stack spacing={1}>
-        <Typography variant="h6" fontWeight={800}>Что сейчас доступно</Typography>
-        <Typography variant="body2" color="text.secondary">Обновление запускается кнопкой и может ждать лимит WB. История заданий показана в карточке кабинета.</Typography>
-        <Typography variant="body2" color="text.secondary">Ночной запуск, уведомления о бюджете и настройка времени утренней сводки из макета пока не работают: источники бюджета и расписание ещё не подключены.</Typography>
-      </Stack></CardContent></Card>
+      </Card> : null}
+      <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}>
+        <AccordionSummary expandIcon="⌄"><Typography variant="body2">Ограничения и подробности</Typography></AccordionSummary>
+        <AccordionDetails><Typography variant="body2" color="text.secondary">Загрузка может ждать лимит WB. Ночной запуск, бюджетные уведомления и расписание утренней сводки пока не подключены.</Typography></AccordionDetails>
+      </Accordion>
       </Stack></Grid>
       </Grid>
     </Stack>

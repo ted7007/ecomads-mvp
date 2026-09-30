@@ -1,5 +1,5 @@
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
-import { Box, Button, Chip, MenuItem, Select, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, Typography } from '@mui/material';
+import { Box, Chip, MenuItem, Select, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { appRoutes } from '../../../app/routes';
@@ -8,6 +8,7 @@ import { EmptyState } from '../../../shared/ui/EmptyState';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
 import type { DashboardFilters } from '../dashboardApi';
+import { PaginationBar } from '../../../shared/ui/PaginationBar';
 
 type SortKey = 'spend' | 'revenue' | 'drr' | 'name';
 
@@ -16,7 +17,7 @@ export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashb
   const [sort, setSort] = useState<SortKey>('spend');
   const [ascending, setAscending] = useState(false);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(5);
   useEffect(() => setPage(0), [campaigns, sort, ascending, rowsPerPage]);
   if (!campaigns.length) return <EmptyState title="Кампаний нет" description="Загрузите статистику или измените период." />;
 
@@ -47,10 +48,10 @@ export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashb
           <MenuItem value="drr">ДРР рекламы</MenuItem><MenuItem value="name">Название</MenuItem>
         </Select>
       </Stack>
-      <Stack gap={1}>
+      <Stack gap={0}>
         {visible.map((campaign) => <Box key={campaign.id} role="button" tabIndex={0} onClick={() => open(campaign)}
           onKeyDown={(event) => { if (event.key === 'Enter') open(campaign); }}
-          sx={{ p: 1.5, border: '1px solid rgba(30,30,60,.09)', borderRadius: 2, cursor: 'pointer' }}>
+          sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider', cursor: 'pointer' }}>
           <Stack direction="row" alignItems="center" gap={1}>
             <Typography fontWeight={700} sx={{ flex: 1, minWidth: 0 }} noWrap>{campaign.name}</Typography>
             <ArrowForwardIosIcon sx={{ fontSize: 13, color: 'text.secondary' }} />
@@ -70,25 +71,22 @@ export function CampaignsTable({ campaigns, filters }: { campaigns: ProjectDashb
             <TableCell key={key} align={key === 'name' ? 'left' : 'right'} sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
               <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key as SortKey)}>{label}</TableSortLabel>
             </TableCell>)}
-          <TableCell align="right">CTR</TableCell><TableCell align="right">Покрытие</TableCell><TableCell />
+          <TableCell align="right">CTR</TableCell><TableCell align="right">Покрытие</TableCell>
         </TableRow></TableHead>
         <TableBody>{visible.map((campaign) => <TableRow key={campaign.id} hover>
-          <TableCell><Typography fontWeight={700}>{campaign.name}</Typography></TableCell>
+          <TableCell><Typography component="a" href={`${appRoutes.campaignPath(campaign.id)}?startDate=${filters.startDate}&endDate=${filters.endDate}`}
+            fontWeight={700} color="text.primary" sx={{ textDecoration: 'none', '&:hover': { color: 'primary.main' } }}>{campaign.name}</Typography>
+            <Chip size="small" variant="outlined" color={campaign.wbStatus === 9 ? 'success' : 'default'} label={campaign.wbStatus === 9 ? 'Активна' : campaign.wbStatus === 11 ? 'Приостановлена' : 'Кампания WB'} sx={{ mt: .5 }} /></TableCell>
           <TableCell align="right">{formatMoney(campaign.kpi.spend)}</TableCell>
           <TableCell align="right">{formatMoney(campaign.kpi.revenue)}</TableCell>
           <TableCell align="right">{campaign.kpi.revenue > 0 ? formatPercent(campaign.kpi.drr, 1) : '—'}
             {campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr ? <Chip size="small" color="warning" label="Выше цели" sx={{ ml: 1 }} /> : null}</TableCell>
           <TableCell align="right">{campaign.kpi.impressions > 0 ? formatPercent(campaign.kpi.ctr, 2) : '—'}</TableCell>
           <TableCell align="right">{campaign.kpi.coverageDays}/{campaign.kpi.expectedDays}</TableCell>
-          <TableCell align="right"><Button size="small" onClick={() => open(campaign)}>Открыть</Button></TableCell>
         </TableRow>)}</TableBody>
       </Table>
     </TableContainer>
-    <TablePagination component="div" count={campaigns.length} page={page} rowsPerPage={rowsPerPage}
-      onPageChange={(_, nextPage) => setPage(nextPage)}
-      onRowsPerPageChange={(event) => setRowsPerPage(Number(event.target.value))}
-      rowsPerPageOptions={[5, 10, 20, 50]} labelRowsPerPage="Строк на странице"
-      labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
-      sx={{ mt: 1, '& .MuiTablePagination-toolbar': { px: 0, flexWrap: 'wrap', justifyContent: 'flex-end' } }} />
+    <PaginationBar count={campaigns.length} page={page} rowsPerPage={rowsPerPage}
+      onPageChange={setPage} onRowsPerPageChange={(size) => { setRowsPerPage(size); setPage(0); }} />
   </>;
 }

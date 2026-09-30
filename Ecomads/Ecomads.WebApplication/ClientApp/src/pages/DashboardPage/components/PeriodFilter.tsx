@@ -1,4 +1,5 @@
-import { Box, Button, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Button, Stack, TextField, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { useState } from 'react';
 import type { LoadedPeriod } from '../../../shared/api/apiTypes';
 import type { DashboardFilters } from '../dashboardApi';
 
@@ -9,54 +10,50 @@ type Props = {
   onApply: (filters: DashboardFilters) => void;
 };
 
-export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: Props) {
+export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
+  const [customOpen, setCustomOpen] = useState(false);
   const end = moscowYesterday();
   const presets = [7, 14, 30].map((days) => ({
     days, filters: { startDate: addDays(end, 1 - days), endDate: end }
   }));
-  const selected = presets.find(({ filters }) => filters.startDate === draftFilters.startDate &&
+  const selected = customOpen ? 'custom' : presets.find(({ filters }) => filters.startDate === draftFilters.startDate &&
     filters.endDate === draftFilters.endDate)?.days ?? 'custom';
   const invalid = !draftFilters.startDate || !draftFilters.endDate ||
     draftFilters.startDate > draftFilters.endDate || draftFilters.endDate > end;
 
-  return <Stack spacing={1.5}>
-    <Stack direction={{ xs: 'column', md: 'row' }} gap={1.5} alignItems={{ md: 'center' }} justifyContent="space-between">
-      <Box>
-        <Typography variant="subtitle2" fontWeight={700}>Период статистики</Typography>
-        <Typography variant="caption" color="text.secondary">Завершённые дни по московскому времени</Typography>
-      </Box>
+  return <Stack spacing={1}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }} justifyContent="space-between">
       <ToggleButtonGroup exclusive size="small" value={selected} aria-label="Период статистики"
         onChange={(_, value) => {
           const days = Number(value);
           if (!Number.isFinite(days)) return;
           const next = presets.find((preset) => preset.days === days)?.filters;
           if (!next) return;
+          setCustomOpen(false);
           onDraftChange(next);
           onApply(next);
         }} sx={{ bgcolor: 'rgba(118,118,140,.10)', borderRadius: '999px', p: .4,
-          '& .MuiToggleButton-root': { border: 0, borderRadius: '999px!important', px: 2.5, textTransform: 'none' } }}>
+          '& .MuiToggleButton-root': { border: 0, borderRadius: '999px!important', px: { xs: 1, sm: 2.5 },
+            fontSize: { xs: 12, sm: 13 }, whiteSpace: 'nowrap', textTransform: 'none' } }}>
         {presets.map(({ days }) => <ToggleButton key={days} value={days}>{days} дней</ToggleButton>)}
-        <ToggleButton value="custom" onClick={() => document.getElementById('period-start')?.focus()}>Свой</ToggleButton>
+        <ToggleButton value="custom" onClick={() => setCustomOpen(true)}>Свой период</ToggleButton>
       </ToggleButtonGroup>
     </Stack>
-    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
+    {customOpen ? <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
       <TextField id="period-start" label="С даты" type="date" size="small" value={draftFilters.startDate ?? ''}
         onChange={(event) => onDraftChange({ ...draftFilters, startDate: event.target.value })}
         InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
       <TextField label="По дату" type="date" size="small" value={draftFilters.endDate ?? ''}
         onChange={(event) => onDraftChange({ ...draftFilters, endDate: event.target.value })}
         InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
-      <Button variant="contained" disabled={invalid} onClick={() => onApply(draftFilters)}>Показать</Button>
-      <Typography variant="caption" color="text.secondary" sx={{ ml: { sm: 'auto' } }}>
-        {periods.length ? `Всего дней в истории: ${periods.length}` : 'Данные появятся после загрузки WB'}
-      </Typography>
-    </Stack>
+      <Button variant="contained" disabled={invalid} onClick={() => { onApply(draftFilters); setCustomOpen(false); }}>Показать</Button>
+    </Stack> : null}
   </Stack>;
 }
 
 export function defaultPeriod(): DashboardFilters {
   const endDate = moscowYesterday();
-  return { startDate: addDays(endDate, -29), endDate };
+  return { startDate: addDays(endDate, -6), endDate };
 }
 
 function moscowYesterday(): string {

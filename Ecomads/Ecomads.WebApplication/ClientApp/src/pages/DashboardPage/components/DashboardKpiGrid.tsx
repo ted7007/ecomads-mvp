@@ -8,9 +8,12 @@ import type { ReactNode } from 'react';
 import type { ProjectDashboard } from '../../../shared/api/apiTypes';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
+import { metricColors } from '../../../shared/ui/DailyChart';
+import type { MetricKey } from '../../../shared/ui/DailyChart';
 
 type DashboardTotals = {
   orderedAmount: number;
+  revenue: number;
   spend: number;
   clicks: number;
   impressions: number;
@@ -19,38 +22,42 @@ type DashboardTotals = {
 };
 
 type KpiCardProps = {
+  keyMetric: MetricKey;
   icon: ReactNode;
   label: string;
   value: string;
 };
 
-export function DashboardKpiGrid({ campaigns }: { campaigns: ProjectDashboard[] }) {
+export function DashboardKpiGrid({ campaigns, selectedMetric, onSelect }: { campaigns: ProjectDashboard[];
+  selectedMetric: MetricKey; onSelect: (metric: MetricKey) => void }) {
   const totals = calculateTotals(campaigns);
+  const hasData = campaigns.some((campaign) => campaign.kpi.coverageDays > 0);
 
   const items: KpiCardProps[] = [
-    { icon: <AttachMoneyIcon fontSize="small" />, label: 'Заказано на сумму', value: formatMoney(totals.orderedAmount) },
-    { icon: <ShoppingBagIcon fontSize="small" />, label: 'Расход', value: formatMoney(totals.spend) },
-    { icon: <MouseIcon fontSize="small" />, label: 'Клики', value: totals.clicks.toLocaleString('ru-RU') },
-    { icon: <TargetIcon fontSize="small" />, label: 'ДРР рекламы', value: totals.drr === null ? '—' : formatPercent(totals.drr, 1) },
-    { icon: <TrendingUpIcon fontSize="small" />, label: 'CTR', value: formatPercent(totals.ctr, 2) }
+    { keyMetric: 'revenue', icon: <AttachMoneyIcon fontSize="small" />, label: 'Заказы с рекламы', value: hasData ? formatMoney(totals.revenue) : '—' },
+    { keyMetric: 'spend', icon: <ShoppingBagIcon fontSize="small" />, label: 'Расход', value: hasData ? formatMoney(totals.spend) : '—' },
+    { keyMetric: 'drr', icon: <TargetIcon fontSize="small" />, label: 'ДРР рекламы', value: totals.drr === null ? '—' : formatPercent(totals.drr, 1) },
+    { keyMetric: 'ctr', icon: <TrendingUpIcon fontSize="small" />, label: 'CTR', value: totals.impressions > 0 ? formatPercent(totals.ctr, 2) : '—' },
+    { keyMetric: 'clicks', icon: <MouseIcon fontSize="small" />, label: 'Клики', value: hasData ? totals.clicks.toLocaleString('ru-RU') : '—' }
   ];
 
   return (
     <Grid container spacing={2}>
       {items.map((item) => (
-        <Grid item xs={6} sm={6} lg={2.4} key={item.label}>
-          <KpiCard {...item} />
+        <Grid item xs={6} md={4} lg={2.4} key={item.label}>
+          <KpiCard {...item} selected={selectedMetric === item.keyMetric} onSelect={() => onSelect(item.keyMetric)} />
         </Grid>
       ))}
     </Grid>
   );
 }
 
-function KpiCard({ icon, label, value }: KpiCardProps) {
+function KpiCard({ keyMetric, icon, label, value, selected, onSelect }: KpiCardProps & { selected: boolean; onSelect: () => void }) {
   return (
-    <Card sx={{ height: '100%' }}>
-      <CardContent>
-        <Stack spacing={1}>
+    <Card onClick={onSelect} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
+      aria-pressed={selected} sx={{ height: '100%', cursor: 'pointer', border: selected ? `2px solid ${metricColors[keyMetric]}` : undefined }}>
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        <Stack spacing={0.5}>
           <Stack direction="row" alignItems="center" gap={1} color="text.secondary">
             {icon}
             <Typography variant="body2">{label}</Typography>
@@ -81,6 +88,7 @@ function calculateTotals(campaigns: ProjectDashboard[]): DashboardTotals {
   const ctr = totals.impressions > 0 ? totals.clicks * 100 / totals.impressions : 0;
 
   return {
+    revenue: totals.revenue,
     orderedAmount: totals.orderedAmount,
     spend: totals.spend,
     clicks: totals.clicks,

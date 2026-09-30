@@ -15,6 +15,7 @@ public class EcomadsDbContext : DbContext
     public DbSet<CampaignStatistics> CampaignStatistics { get; set; }
     public DbSet<DemoFeedback> DemoFeedbacks { get; set; }
     public DbSet<WbSyncJob> WbSyncJobs { get; set; }
+    public DbSet<WbSyncJobEvent> WbSyncJobEvents { get; set; }
     public DbSet<WbClusterStatistic> WbClusterStatistics { get; set; }
     public DbSet<WbJamSearchQuery> WbJamSearchQueries { get; set; }
     public DbSet<WbStoreNorms> WbStoreNorms { get; set; }
@@ -134,13 +135,34 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.NextCampaignOffset).HasColumnName("next_campaign_offset");
             entity.Property(e => e.AttemptCount).HasColumnName("attempt_count");
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(32);
+            entity.Property(e => e.Stage).HasColumnName("stage").HasMaxLength(40).HasDefaultValue("queued");
+            entity.Property(e => e.WaitReason).HasColumnName("wait_reason").HasMaxLength(80);
+            entity.Property(e => e.RetriedFromJobId).HasColumnName("retried_from_job_id");
             entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+            entity.Property(e => e.StartedAtUtc).HasColumnName("started_at_utc");
+            entity.Property(e => e.CompletedAtUtc).HasColumnName("completed_at_utc");
             entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc");
             entity.Property(e => e.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc");
             entity.Property(e => e.LastRequestAtUtc).HasColumnName("last_request_at_utc");
             entity.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(80);
             entity.HasIndex(e => new { e.StoreId, e.Status, e.NextAttemptAtUtc });
+            entity.HasIndex(e => e.StoreId).IsUnique().HasFilter("status IN ('pending', 'running')");
             entity.HasOne<Store>().WithMany().HasForeignKey(e => e.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WbSyncJobEvent>(entity =>
+        {
+            entity.ToTable("wb_sync_job_events");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.JobId).HasColumnName("job_id");
+            entity.Property(e => e.OccurredAtUtc).HasColumnName("occurred_at_utc");
+            entity.Property(e => e.Stage).HasColumnName("stage").HasMaxLength(40);
+            entity.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(80);
+            entity.Property(e => e.ProcessedCount).HasColumnName("processed_count");
+            entity.Property(e => e.AttemptNumber).HasColumnName("attempt_number");
+            entity.HasIndex(e => new { e.JobId, e.OccurredAtUtc });
+            entity.HasOne<WbSyncJob>().WithMany().HasForeignKey(e => e.JobId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WbClusterStatistic>(entity =>

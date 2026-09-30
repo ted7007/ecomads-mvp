@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Ecomads.WebApplication.Data;
+using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Services.Wb;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -23,6 +24,53 @@ namespace Ecomads.WebApplication.Tests.Integration;
 [Collection(PostgresCollection.Name)]
 public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
 {
+    [Fact]
+    public async Task FailedJobRetry_PreservesOriginalAndAllowsOnlyOneActiveJob()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        using var factory = new WbFactory(connection);
+        using var client = factory.CreateClient();
+        var seller = TestData.CreateActiveDemoSeller();
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            db.Sellers.Add(seller);
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Add("X-Test-UserId", seller.Id.ToString());
+        using var connected = await client.PostAsJsonAsync("/api/wb/stores/connect", new { token = FakeToken(Guid.NewGuid()) });
+        Assert.Equal(HttpStatusCode.OK, connected.StatusCode);
+        using var connectedJson = JsonDocument.Parse(await connected.Content.ReadAsStringAsync());
+        var storeId = connectedJson.RootElement.GetProperty("id").GetGuid();
+        var failedId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            db.WbSyncJobs.Add(new WbSyncJob
+            {
+                Id = failedId, StoreId = storeId, Kind = "fullstats", Status = "failed", Stage = "failed",
+                StartDate = new DateOnly(2026, 7, 1), EndDate = new DateOnly(2026, 7, 2),
+                CampaignIdsJson = "[35174765]", NextCampaignOffset = 0,
+                CreatedAtUtc = now.AddMinutes(-5), UpdatedAtUtc = now, CompletedAtUtc = now,
+                LastRequestAtUtc = now, NextAttemptAtUtc = now, ErrorCode = "transport_error"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var retry = await client.PostAsync($"/api/wb/stores/{storeId}/sync-jobs/{failedId}/retry", null);
+        Assert.Equal(HttpStatusCode.Accepted, retry.StatusCode);
+        using var retryJson = JsonDocument.Parse(await retry.Content.ReadAsStringAsync());
+        Assert.Equal(failedId, retryJson.RootElement.GetProperty("retriedFromJobId").GetGuid());
+        Assert.Equal("rate_limit", retryJson.RootElement.GetProperty("waitReason").GetString());
+        using var duplicate = await client.PostAsync($"/api/wb/stores/{storeId}/sync-jobs/{failedId}/retry", null);
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            Assert.Equal("failed", (await db.WbSyncJobs.SingleAsync(x => x.Id == failedId)).Status);
+            Assert.Equal(1, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId &&
+                (x.Status == "pending" || x.Status == "running")));
+        }
+    }
+
     [Fact]
     public async Task ConnectSyncAndNorms_WorkThroughHttpWithoutExposingToken()
     {
@@ -76,6 +124,30 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             if (state == "completed") { completed = true; break; }
         }
         Assert.True(completed, "WB worker did not complete the queued fullstats import.");
+
+        using var overview = await client.GetAsync($"/api/wb/stores/{storeId}/sync-overview");
+        Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
+        using var overviewJson = JsonDocument.Parse(await overview.Content.ReadAsStringAsync());
+        var sources = overviewJson.RootElement.GetProperty("sources").EnumerateArray().ToArray();
+        Assert.Equal(3, sources.Length);
+        var statsSource = Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "fullstats"));
+        var completedJob = statsSource.GetProperty("lastJob");
+        Assert.Equal("completed", completedJob.GetProperty("status").GetString());
+        Assert.Equal("campaign", completedJob.GetProperty("unit").GetString());
+        Assert.Equal(1, completedJob.GetProperty("processedCount").GetInt32());
+        Assert.NotEqual(JsonValueKind.Null, statsSource.GetProperty("lastSuccessAtUtc").ValueKind);
+        Assert.Equal(JsonValueKind.Null, sources.Single(x => x.GetProperty("kind").GetString() == "jam")
+            .GetProperty("lastSuccessAtUtc").ValueKind);
+        var completedJobId = completedJob.GetProperty("id").GetGuid();
+        using var history = await client.GetAsync($"/api/wb/stores/{storeId}/sync-jobs?page=1&pageSize=10&kind=fullstats");
+        Assert.Equal(HttpStatusCode.OK, history.StatusCode);
+        using var historyJson = JsonDocument.Parse(await history.Content.ReadAsStringAsync());
+        Assert.Equal(1, historyJson.RootElement.GetProperty("total").GetInt32());
+        using var details = await client.GetAsync($"/api/wb/stores/{storeId}/sync-jobs/{completedJobId}");
+        Assert.Equal(HttpStatusCode.OK, details.StatusCode);
+        using var detailsJson = JsonDocument.Parse(await details.Content.ReadAsStringAsync());
+        Assert.Contains(detailsJson.RootElement.GetProperty("events").EnumerateArray(),
+            x => x.GetProperty("stage").GetString() == "completed");
 
         Guid campaignId;
         await using (var db = postgres.CreateDbContext(connection))
@@ -132,6 +204,10 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         }
         client.DefaultRequestHeaders.Remove("X-Test-UserId");
         client.DefaultRequestHeaders.Add("X-Test-UserId", otherSeller.Id.ToString());
+        using var hiddenOverview = await client.GetAsync($"/api/wb/stores/{storeId}/sync-overview");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenOverview.StatusCode);
+        using var hiddenJob = await client.GetAsync($"/api/wb/stores/{storeId}/sync-jobs/{completedJobId}");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenJob.StatusCode);
         using var otherSellerJam = await client.GetAsync($"/api/wb/campaigns/{campaignId}/jam?startDate=2026-07-01&endDate=2026-07-01");
         Assert.Equal(HttpStatusCode.NotFound, otherSellerJam.StatusCode);
         client.DefaultRequestHeaders.Remove("X-Test-UserId");

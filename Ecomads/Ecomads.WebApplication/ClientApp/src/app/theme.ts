@@ -35,7 +35,7 @@ export const theme = createTheme({
     }
   },
   shape: {
-    borderRadius: 18
+    borderRadius: 8
   },
   components: {
     MuiCard: {
@@ -44,7 +44,8 @@ export const theme = createTheme({
           backgroundColor: 'rgba(255,255,255,0.72)',
           border: '1px solid rgba(255,255,255,0.85)',
           backdropFilter: 'blur(18px)',
-          boxShadow: '0 6px 22px rgba(40,50,90,0.07)'
+          boxShadow: '0 6px 22px rgba(40,50,90,0.07)',
+          borderRadius: 18
         }
       }
     },
@@ -61,7 +62,8 @@ export const theme = createTheme({
     MuiButton: {
       defaultProps: {
         disableElevation: true
-      }
+      },
+      styleOverrides: { root: { borderRadius: 18 } }
     }
   }
 });
