@@ -48,7 +48,7 @@ export function PeriodFilter({ draftFilters, periods, onDraftChange, onApply }: 
         InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
       <Button variant="contained" disabled={invalid} onClick={() => onApply(draftFilters)}>Показать</Button>
       <Typography variant="caption" color="text.secondary" sx={{ ml: { sm: 'auto' } }}>
-        {periods.length ? `Загруженных дней: ${periods.length}` : 'Данные появятся после загрузки WB'}
+        {periods.length ? `Всего дней в истории: ${periods.length}` : 'Данные появятся после загрузки WB'}
       </Typography>
     </Stack>
   </Stack>;
