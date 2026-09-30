@@ -123,6 +123,19 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.True(query.GetProperty("matchingLoadedAdCluster").GetBoolean());
         Assert.Equal(42, query.GetProperty("frequency").GetInt64());
 
+        var otherSeller = TestData.CreateActiveDemoSeller();
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            db.Sellers.Add(otherSeller);
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Remove("X-Test-UserId");
+        client.DefaultRequestHeaders.Add("X-Test-UserId", otherSeller.Id.ToString());
+        using var otherSellerJam = await client.GetAsync($"/api/wb/campaigns/{campaignId}/jam?startDate=2026-07-01&endDate=2026-07-01");
+        Assert.Equal(HttpStatusCode.NotFound, otherSellerJam.StatusCode);
+        client.DefaultRequestHeaders.Remove("X-Test-UserId");
+        client.DefaultRequestHeaders.Add("X-Test-UserId", seller.Id.ToString());
+
         using var projects = await client.GetAsync("/api/projects?startDate=2026-07-01&endDate=2026-07-01");
         Assert.Equal(HttpStatusCode.OK, projects.StatusCode);
         using var projectsJson = JsonDocument.Parse(await projects.Content.ReadAsStringAsync());

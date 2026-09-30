@@ -33,10 +33,7 @@ public sealed class WbJamClient(HttpClient httpClient) : IWbJamClient
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var retryAfter = response.Headers.RetryAfter?.Delta;
-            if (retryAfter == null && response.Headers.RetryAfter?.Date is { } retryAt)
-                retryAfter = retryAt - DateTimeOffset.UtcNow;
-            throw new WbApiException(response.StatusCode, retryAfter > TimeSpan.Zero ? retryAfter : null);
+            throw new WbApiException(response.StatusCode, WbPromotionClient.GetRetryAfter(response));
         }
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);

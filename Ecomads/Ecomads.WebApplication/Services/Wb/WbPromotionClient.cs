@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Ecomads.WebApplication.Services.Wb;
@@ -137,15 +138,20 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         return result;
     }
 
-    private static TimeSpan? GetRetryAfter(HttpResponseMessage response)
+    internal static TimeSpan? GetRetryAfter(HttpResponseMessage response)
     {
+        TimeSpan? custom = null;
+        if (response.Headers.TryGetValues("X-Ratelimit-Retry", out var values) &&
+            double.TryParse(values.FirstOrDefault(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) &&
+            seconds > 0 && seconds < TimeSpan.MaxValue.TotalSeconds)
+            custom = TimeSpan.FromSeconds(seconds);
         var header = response.Headers.RetryAfter;
-        if (header?.Delta is { } delta) return delta;
+        if (header?.Delta is { } delta) return custom > delta ? custom : delta;
         if (header?.Date is { } date)
         {
             var remaining = date - DateTimeOffset.UtcNow;
-            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            return custom > remaining ? custom : remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }
-        return null;
+        return custom;
     }
 }

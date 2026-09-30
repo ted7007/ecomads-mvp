@@ -79,12 +79,12 @@ function StoreCard({ store }: { store: WbStore }) {
           <Typography variant="body2">Кампаний: {store.campaignCount}</Typography>
           <Typography variant="body2">Данные: {store.lastSyncAt ? `обновлены ${new Date(store.lastSyncAt).toLocaleString('ru-RU')}` : 'ещё не загружены'}</Typography>
           <Typography variant="body2">Джем: {store.jamStatus === 'active' ? 'отчёт доступен' :
-            store.jamStatus === 'access_denied' ? 'WB отказал в доступе' :
+            store.jamStatus === 'access_denied' ? 'WB отказал в доступе — проверьте Джем и право «Аналитика»' :
             store.jamStatus === 'payment_required' ? 'WB запросил оплату доступа' : 'ещё не проверен'}
             {store.jamCheckedAtUtc ? ` · проверен ${new Date(store.jamCheckedAtUtc).toLocaleString('ru-RU')}` : ''}</Typography>
           {sync.data ? <Typography variant="body2">
             Сбор {sync.data.kind === 'clusters' ? 'кластеров' : sync.data.kind === 'jam' ? 'поисковых запросов Джема' : 'статистики кампаний'} {sync.data.status === 'completed' ? 'завершён' : sync.data.status === 'failed' ? 'не удался' : sync.data.status === 'running' ? 'выполняется или ждёт лимит WB' : 'в очереди'}:
-            {' '}{sync.data.processedCampaigns} из {sync.data.totalCampaigns} {sync.data.kind === 'clusters' ? 'пар кампания/артикул' : sync.data.kind === 'jam' ? 'товаров' : 'кампаний'}.
+            {' '}{sync.data.processedCampaigns} из {sync.data.totalCampaigns} {sync.data.kind === 'clusters' ? 'пар кампания/артикул' : sync.data.kind === 'jam' ? 'товаров' : 'кампаний'} за {sync.data.startDate} — {sync.data.endDate}.
             {active ? ` Следующая попытка: ${new Date(sync.data.nextAttemptAtUtc).toLocaleString('ru-RU')}.` : ''}
             {sync.data.errorCode ? ` Код ошибки: ${sync.data.errorCode}.` : ''}
           </Typography> : null}

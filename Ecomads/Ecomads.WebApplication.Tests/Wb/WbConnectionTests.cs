@@ -113,6 +113,33 @@ public sealed class WbConnectionTests
         Assert.Equal(JsonValueKind.Array, response.RootElement.GetProperty("data").GetProperty("items").ValueKind);
     }
 
+    [Fact]
+    public async Task JamClient_ReportsAccessDeniedWithoutExposingResponseBody()
+    {
+        using var http = new HttpClient(new RecordingHandler(HttpStatusCode.Forbidden,
+            responseBody: "commercial account details"))
+        { BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru") };
+        var error = await Assert.ThrowsAsync<WbApiException>(() =>
+            new WbJamClient(http).GetSearchTextsAsync("secret-token", [123],
+                new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7), CancellationToken.None));
+        Assert.Equal(HttpStatusCode.Forbidden, error.StatusCode);
+        Assert.DoesNotContain("secret-token", error.Message);
+        Assert.DoesNotContain("commercial account details", error.Message);
+    }
+
+    [Fact]
+    public async Task JamClient_RespectsWildberriesRateLimitRetryHeader()
+    {
+        using var http = new HttpClient(new RecordingHandler(HttpStatusCode.TooManyRequests,
+            rateLimitRetrySeconds: 4200))
+        { BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru") };
+        var error = await Assert.ThrowsAsync<WbApiException>(() =>
+            new WbJamClient(http).GetSearchTextsAsync("secret-token", [123],
+                new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7), CancellationToken.None));
+        Assert.Equal(HttpStatusCode.TooManyRequests, error.StatusCode);
+        Assert.Equal(TimeSpan.FromSeconds(4200), error.RetryAfter);
+    }
+
     private static string CreateToken(DateTimeOffset expiry, bool isTest, long scopes = (1L << 6) | (1L << 30))
     {
         static string Encode(object value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))
@@ -121,7 +148,8 @@ public sealed class WbConnectionTests
     }
 
     private sealed class RecordingHandler(HttpStatusCode status = HttpStatusCode.OK,
-        DateTimeOffset? retryAt = null, string? responseBody = null) : HttpMessageHandler
+        DateTimeOffset? retryAt = null, string? responseBody = null,
+        int? rateLimitRetrySeconds = null) : HttpMessageHandler
     {
         public string? LastAuthorization { get; private set; }
         public string? LastUri { get; private set; }
@@ -140,6 +168,8 @@ public sealed class WbConnectionTests
                 Content = new StringContent(body, Encoding.UTF8, "application/json")
             };
             if (retryAt.HasValue) response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAt.Value);
+            if (rateLimitRetrySeconds.HasValue)
+                response.Headers.TryAddWithoutValidation("X-Ratelimit-Retry", rateLimitRetrySeconds.Value.ToString());
             return response;
         }
     }
