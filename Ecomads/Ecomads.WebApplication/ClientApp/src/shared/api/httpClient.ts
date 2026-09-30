@@ -57,12 +57,12 @@ export async function sendRequest(url: string, options: HttpClientOptions = {}):
     headers: requestHeaders
   });
 
-  if (response.status === 401) {
+  if (response.status === 401 && !skipAuth) {
     clearAuth();
     window.location.href = '/login';
   }
 
-  if (response.status === 403) {
+  if (response.status === 403 && !skipAuth) {
     const redirectTo = await getRedirectTo(response.clone());
     if (redirectTo && window.location.pathname !== redirectTo) {
       window.location.href = redirectTo;
