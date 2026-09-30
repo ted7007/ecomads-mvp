@@ -65,6 +65,18 @@ public sealed class WbImportTests(PostgresFixture postgres)
             Assert.Null(cluster.Views);
             Assert.Equal(1, cluster.Orders);
         }
+
+        // WB includes pairs without dailyStats when there were no cluster impressions.
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            using var emptyDocument = JsonDocument.Parse("""
+                {"items":[{"advertId":35174765,"nmId":123}]}
+                """);
+            await new WbNormQueryImporter(db).ImportAsync(storeId, pairs, date, date,
+                emptyDocument.RootElement, CancellationToken.None);
+        }
+        await using (var db = postgres.CreateDbContext(connection))
+            Assert.Empty(await db.WbClusterStatistics.Where(x => x.CampaignId == campaignId).ToListAsync());
     }
 
     [Fact]

@@ -29,7 +29,11 @@ public sealed class WbNormQueryImporter(EcomadsDbContext db)
             {
                 throw new JsonException("WB вернул незапрошенную пару кампания/артикул.");
             }
-            foreach (var day in item.GetProperty("dailyStats").EnumerateArray())
+            // WB omits dailyStats for requested pairs with no statistics in the period.
+            if (!item.TryGetProperty("dailyStats", out var dailyStats)) continue;
+            if (dailyStats.ValueKind != JsonValueKind.Array)
+                throw new JsonException("WB вернул некорректную дневную статистику кластера.");
+            foreach (var day in dailyStats.EnumerateArray())
             {
                 if (!DateOnly.TryParseExact(day.GetProperty("date").GetString(), "yyyy-MM-dd",
                         CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
