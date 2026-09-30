@@ -68,19 +68,24 @@ export function CampaignsTable({ campaigns, priorCampaigns, filters }: { campaig
       </Stack>
     </Box>
     <TableContainer sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
-      <Table size="small" sx={{ minWidth: 920 }} aria-label="Рекламные кампании">
+      <Table size="small" sx={{ width: '100%', tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25 }, '& .MuiTableCell-head': { fontSize: 11, fontWeight: 700, lineHeight: 1.25, color: 'text.secondary', textTransform: 'uppercase' } }} aria-label="Рекламные кампании">
         <TableHead><TableRow>
           {[['name', 'Кампания']].map(([key, label]) =>
-            <TableCell key={key} align={key === 'name' ? 'left' : 'right'} sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
+            <TableCell key={key} sx={{ width: '24%' }} align={key === 'name' ? 'left' : 'right'} sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
               <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key as SortKey)}>{label}</TableSortLabel>
             </TableCell>)}
-          <TableCell>Статус</TableCell>
-          {([['spend', 'Расход'], ['revenue', 'Заказы с рекламы'], ['drr', 'ДРР рекламы']] as const).map(([key, label]) =>
+          <TableCell sx={{ width: '13%' }}>Статус</TableCell>
+          {([['spend', 'Расход']] as const).map(([key, label]) =>
             <TableCell key={key} align="right" sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
               <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key)}>{label}</TableSortLabel>
             </TableCell>)}
-          <TableCell align="right">Расход к пред. пер.</TableCell><TableCell align="right">CTR</TableCell>
-          <TableCell align="right">CPC</TableCell><TableCell align="right">Покрытие</TableCell>
+          <TableCell align="right" sx={{ width: '10%' }}>К пред. пер.</TableCell>
+          {([['revenue', 'Заказы с рекл.'], ['drr', 'ДРР от рекл.']] as const).map(([key, label]) =>
+            <TableCell key={key} align="right" sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
+              <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key)}>{label}</TableSortLabel>
+            </TableCell>)}
+          <TableCell align="right" sx={{ width: '7%' }}>CTR</TableCell>
+          <TableCell align="right" sx={{ width: '8%' }}>CPC</TableCell>
         </TableRow></TableHead>
         <TableBody>{visible.map((campaign) => {
           const prior = priorById.get(campaign.id);
@@ -88,17 +93,20 @@ export function CampaignsTable({ campaigns, priorCampaigns, filters }: { campaig
             compareKpi(campaign.kpi.spend, prior!.kpi.spend, 'money').delta : '—';
           return <TableRow key={campaign.id} hover>
           <TableCell><Typography component="a" href={`${appRoutes.campaignPath(campaign.id)}?startDate=${filters.startDate}&endDate=${filters.endDate}`}
-            fontWeight={700} color="text.primary" sx={{ textDecoration: 'none', '&:hover': { color: 'primary.main' } }}>{campaign.name}</Typography></TableCell>
+            fontWeight={700} color="text.primary" sx={{ textDecoration: 'none', '&:hover': { color: 'primary.main' } }}>{campaign.name}</Typography>
+            {campaign.kpi.coverageDays < campaign.kpi.expectedDays ? <Typography variant="caption" color="text.secondary" display="block">
+              Данные за {campaign.kpi.coverageDays} из {campaign.kpi.expectedDays} дней
+            </Typography> : null}</TableCell>
           <TableCell><Chip size="small" variant="outlined" color={campaign.wbStatus === 9 ? 'success' : 'default'}
-            label={campaign.wbStatus === 9 ? 'Активна' : campaign.wbStatus === 11 ? 'Приостановлена' : 'Кампания WB'} /></TableCell>
-          <TableCell align="right">{formatMoney(campaign.kpi.spend)}</TableCell>
-          <TableCell align="right">{formatMoney(campaign.kpi.revenue)}</TableCell>
-          <TableCell align="right">{campaign.kpi.revenue > 0 ? formatPercent(campaign.kpi.drr, 1) : '—'}
-            {campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr ? <Chip size="small" color="warning" label="Выше цели" sx={{ ml: 1 }} /> : null}</TableCell>
+            label={campaign.wbStatus === 9 ? 'Активна' : campaign.wbStatus === 11 ? 'Приостановлена' : 'Кампания WB'}
+            sx={{ maxWidth: '100%', '& .MuiChip-label': { px: .75, overflow: 'hidden', textOverflow: 'ellipsis' } }} /></TableCell>
+          <TableCell align="right" sx={{ whiteSpace: 'nowrap', fontWeight: 700 }}>{formatMoney(campaign.kpi.spend)}</TableCell>
           <TableCell align="right">{delta}</TableCell>
+          <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatMoney(campaign.kpi.revenue)}</TableCell>
+          <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{campaign.kpi.revenue > 0 ? formatPercent(campaign.kpi.drr, 1) : '—'}
+            {campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr ? <Chip size="small" color="warning" label="Выше цели" sx={{ ml: 1 }} /> : null}</TableCell>
           <TableCell align="right">{campaign.kpi.impressions > 0 ? formatPercent(campaign.kpi.ctr, 2) : '—'}</TableCell>
           <TableCell align="right">{campaign.kpi.clicks > 0 ? formatMoney(campaign.kpi.spend / campaign.kpi.clicks) : '—'}</TableCell>
-          <TableCell align="right">{campaign.kpi.coverageDays}/{campaign.kpi.expectedDays}</TableCell>
         </TableRow>;})}</TableBody>
       </Table>
     </TableContainer>

@@ -83,7 +83,8 @@ export function DashboardPage() {
           {campaignsWithData === 0 && latestAvailable ? <Alert severity="info" action={<Button onClick={() => applyPeriod(latestAvailable)}>Показать</Button>}>
             За выбранный период данных нет. Доступный период: {latestAvailable.startDate} – {latestAvailable.endDate}.
           </Alert> : null}
-          {incomplete ? <Accordion disableGutters sx={{ '&:before': { display: 'none' } }}>
+          <Stack spacing={0.75}>
+          {incomplete ? <Accordion disableGutters elevation={0} sx={{ bgcolor: 'rgba(255,255,255,.48)', border: '1px solid', borderColor: 'divider', boxShadow: 'none', '&:before': { display: 'none' } }}>
             <AccordionSummary sx={{ minHeight: 44, '& .MuiAccordionSummary-content': { my: 1 } }}><Typography variant="body2" color="warning.main">⚠ Данные неполные: {campaignsWithData} из {campaigns.length} кампаний. Подробнее</Typography></AccordionSummary>
             <AccordionDetails><Typography variant="body2">Показатели относятся только к загруженным кампаниям. {hasIncompleteDays ? 'Для части кампаний загружены не все дни.' : ''} Сбор можно проверить в разделе «Кабинет WB и Telegram».</Typography></AccordionDetails>
           </Accordion> : null}
@@ -103,12 +104,15 @@ export function DashboardPage() {
               Проверить загрузку
             </Button> : null}
           </Stack>}
+          </Stack>
 
+          <Stack spacing={0.5}>
           <DashboardKpiGrid campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []}
             selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
           <Typography variant="caption" color="text.secondary" sx={{ px: .5 }}>
             Сравнение появится после полной загрузки обоих периодов. Все заказы кабинета и ДРР от них пока недоступны; здесь показаны рекламные данные.
           </Typography>
+          </Stack>
 
           <Card><CardContent>
             {dailyQuery.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :

@@ -156,6 +156,25 @@ export function WbStoresPage() {
       <Grid container spacing={2} alignItems="flex-start">
       <Grid item xs={12} lg={7}><Stack spacing={2}>
         {stores.data?.map((store) => <StoreCard key={store.id} store={store} />)}
+        <Button variant="outlined" onClick={() => setShowConnection(!showConnection)} sx={{ alignSelf: 'flex-start' }}>
+          {stores.data?.length ? 'Подключить ещё кабинет или заменить токен' : 'Подключить кабинет WB'}
+        </Button>
+        {(showConnection || stores.data?.length === 0) ? <Card>
+          <CardContent><Stack spacing={2}>
+            <Typography variant="h6" fontWeight={800}>{stores.data?.length ? 'Добавить или заменить токен' : 'Подключить кабинет'}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              В личном кабинете WB создайте отдельный базовый токен с категорией «Продвижение» и доступом «Только чтение».
+              Для общего ДРР дополнительно понадобится категория «Аналитика».
+            </Typography>
+            <TextField label="Токен WB" type="password" autoComplete="off" fullWidth value={token}
+              onChange={(event) => setToken(event.target.value)} disabled={connect.isPending} />
+            {error ? <Alert severity="error">{error}</Alert> : null}
+            <Button variant="contained" disabled={!token.trim() || connect.isPending}
+              onClick={() => connect.mutate(token.trim())} sx={{ alignSelf: 'flex-start' }}>
+              {connect.isPending ? <CircularProgress size={20} color="inherit" /> : 'Проверить и подключить'}
+            </Button>
+          </Stack></CardContent>
+        </Card> : null}
       </Stack></Grid>
       <Grid item xs={12} lg={5}><Stack spacing={2}>
       <Card>
@@ -169,8 +188,8 @@ export function WbStoresPage() {
               <Button color="error" size="small" disabled={disconnectChat.isPending} onClick={() => disconnectChat.mutate(chat.id)}>Отключить</Button>
             </Stack>)}
             {telegram.data?.chats.length === 0 && telegram.data.botConfigured ? <Typography color="text.secondary">Чаты пока не привязаны.</Typography> : null}
-            <Button variant="outlined" disabled={!telegram.data?.botConfigured || link.isPending} onClick={() => link.mutate()} sx={{ alignSelf: 'flex-start' }}>Создать ссылку для привязки</Button>
-            {stores.data?.[0] ? <Button variant="outlined" disabled={!telegram.data?.botConfigured || sendSummary.isPending} onClick={() => sendSummary.mutate(stores.data[0].id)} sx={{ alignSelf: 'flex-start' }}>Отправить вчерашнюю сводку</Button> : null}
+            {telegram.data?.botConfigured ? <Button variant="outlined" disabled={link.isPending} onClick={() => link.mutate()} sx={{ alignSelf: 'flex-start' }}>Создать ссылку для привязки</Button> : null}
+            {telegram.data?.botConfigured && stores.data?.[0] ? <Button variant="outlined" disabled={sendSummary.isPending} onClick={() => sendSummary.mutate(stores.data[0].id)} sx={{ alignSelf: 'flex-start' }}>Отправить вчерашнюю сводку</Button> : null}
             {sendSummary.data ? <Alert severity={sendSummary.data.failed ? 'warning' : 'success'}>Отправлено: {sendSummary.data.sent}; ошибок: {sendSummary.data.failed}.</Alert> : null}
             {link.data?.linkUrl ? <Button href={link.data.linkUrl} target="_blank" rel="noopener noreferrer" sx={{ alignSelf: 'flex-start' }}>Открыть бота и привязать чат</Button> : null}
             {link.data && !link.data.linkUrl ? <Typography>Отправьте боту команду /start {link.data.code}</Typography> : null}
@@ -178,38 +197,6 @@ export function WbStoresPage() {
           </Stack>
         </CardContent>
       </Card>
-      <Button variant="outlined" onClick={() => setShowConnection(!showConnection)} sx={{ alignSelf: 'flex-start' }}>
-        {stores.data?.length ? 'Подключить ещё кабинет или заменить токен' : 'Подключить кабинет WB'}
-      </Button>
-      {(showConnection || stores.data?.length === 0) ? <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6" fontWeight={800}>{stores.data?.length ? 'Добавить или заменить токен' : 'Подключить кабинет'}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              В личном кабинете WB создайте отдельный базовый токен с категорией «Продвижение» и доступом «Только чтение».
-              Для общего ДРР дополнительно понадобится категория «Аналитика».
-            </Typography>
-            <TextField
-              label="Токен WB"
-              type="password"
-              autoComplete="off"
-              fullWidth
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              disabled={connect.isPending}
-            />
-            {error ? <Alert severity="error">{error}</Alert> : null}
-            <Button
-              variant="contained"
-              disabled={!token.trim() || connect.isPending}
-              onClick={() => connect.mutate(token.trim())}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              {connect.isPending ? <CircularProgress size={20} color="inherit" /> : 'Проверить и подключить'}
-            </Button>
-          </Stack>
-        </CardContent>
-      </Card> : null}
       <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}>
         <AccordionSummary expandIcon="⌄"><Typography variant="body2">Ограничения и подробности</Typography></AccordionSummary>
         <AccordionDetails><Typography variant="body2" color="text.secondary">Загрузка может ждать лимит WB. Ночной запуск, бюджетные уведомления и расписание утренней сводки пока не подключены.</Typography></AccordionDetails>
