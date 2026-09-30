@@ -20,6 +20,8 @@ function StoreCard({ store }: { store: WbStore }) {
     if (sync.data?.status === 'completed') {
       void queryClient.invalidateQueries({ queryKey: ['wb-stores'] });
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void queryClient.invalidateQueries({ queryKey: ['wb-clusters'] });
+      void queryClient.invalidateQueries({ queryKey: ['wb-jam'] });
     }
   }, [queryClient, sync.data?.id, sync.data?.status]);
   const start = useMutation({
@@ -91,6 +93,7 @@ function StoreCard({ store }: { store: WbStore }) {
           {error ? <Alert severity="error">{error}</Alert> : null}
           <Typography variant="body2" color="text.secondary">
             Статистику кампаний загрузим за последние 30 завершённых дней, кластеры и поисковые запросы Джема — за 7 дней после сбора статистики кампаний.
+            Для базового токена отчёт Джема ограничен одним запросом в час; кнопка ставит сбор в очередь, если нужно подождать.
             Для быстрой сверки укажите период и ID нужных кампаний, например 35174765, 35736322.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>

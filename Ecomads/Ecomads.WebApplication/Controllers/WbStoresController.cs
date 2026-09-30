@@ -103,6 +103,8 @@ public sealed class WbStoresController(
         store.ApiKey = tokens.Protect(rawToken);
         store.TokenLastFour = rawToken[^4..];
         store.TokenExpiresAtUtc = claims.ExpiresAtUtc;
+        store.JamStatus = "unknown";
+        store.JamCheckedAtUtc = null;
         if (existing == null) store.LastSyncAt = null;
         if (string.IsNullOrWhiteSpace(store.Name) || store.Name.EndsWith(" store", StringComparison.Ordinal))
         {
@@ -153,6 +155,8 @@ public sealed class WbStoresController(
         store.ApiKey = null;
         store.TokenLastFour = null;
         store.TokenExpiresAtUtc = null;
+        store.JamStatus = "unknown";
+        store.JamCheckedAtUtc = null;
         var activeJobs = await db.WbSyncJobs.Where(x => x.StoreId == storeId &&
             (x.Status == "pending" || x.Status == "running")).ToListAsync(cancellationToken);
         foreach (var job in activeJobs)
