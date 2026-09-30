@@ -82,7 +82,7 @@ function KpiCard({ keyMetric, icon, label, value, comparison, selected, onSelect
             {value}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ minHeight: 20 }}>
-            {comparison ?? 'Сравнение недоступно'}
+            {comparison ?? '\u00a0'}
           </Typography>
         </Stack>
       </CardContent>

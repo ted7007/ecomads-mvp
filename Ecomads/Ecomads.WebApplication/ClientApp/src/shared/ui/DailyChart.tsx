@@ -57,7 +57,7 @@ export function DailyChart({ days, title = 'Динамика показател�
     const values = [...current, ...previous].filter((value): value is number => value !== null);
     const min = values.length ? Math.min(...values) : 0, max = values.length ? Math.max(...values) : 1;
     const spread = max - min || Math.max(Math.abs(max) * .2, 1);
-    const lo = min - spread * .15, hi = max + spread * .12;
+    const lo = Math.max(0, min - spread * .15), hi = max + spread * .12;
     const y = (value: number) => bottom - (value - lo) / (hi - lo) * (bottom - top);
     return { metric, current, previous, comparable, lo, hi, currentPaths: paths(current, x, y), previousPaths: paths(previous, x, y) };
   });

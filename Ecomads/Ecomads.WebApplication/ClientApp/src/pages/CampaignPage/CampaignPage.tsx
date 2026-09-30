@@ -94,6 +94,9 @@ export function CampaignPage() {
         <Alert severity="warning">Загружено {summary.data.kpi.coverageDays} из {summary.data.kpi.expectedDays} дней. Оценки по этому периоду предварительные.</Alert> : null}
       <CampaignKpiGrid campaign={summary.data ?? null} priorCampaign={priorSummary.data ?? null}
         selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
+      <Typography variant="caption" color="text.secondary" sx={{ px: .5 }}>
+        Сравнение KPI появится после полной загрузки обоих периодов.
+      </Typography>
       <Card><CardContent>{daily.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
         <DailyChart days={daily.data ?? []} previousDays={priorDaily.data ?? []} title="Динамика кампании" selectedMetrics={selectedMetrics} />}
         {trend.isError ? <Alert severity="error">Не удалось загрузить сравнение расходов.</Alert> : null}

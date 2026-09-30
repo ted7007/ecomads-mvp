@@ -72,7 +72,7 @@ export function CampaignKpiGrid({ campaign, priorCampaign, selectedMetrics, onSe
                   {item.value}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ minHeight: 20 }}>
-                  {item.comparison ?? 'Сравнение недоступно'}
+                  {item.comparison ?? '\u00a0'}
                 </Typography>
               </Stack>
             </CardContent>

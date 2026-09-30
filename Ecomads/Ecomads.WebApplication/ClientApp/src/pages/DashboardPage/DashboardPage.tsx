@@ -106,8 +106,8 @@ export function DashboardPage() {
 
           <DashboardKpiGrid campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []}
             selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
-          <Typography variant="caption" color="text.secondary" sx={{ mt: '-12px !important', px: .5 }}>
-            Все заказы кабинета и ДРР от них пока недоступны в источнике данных. Здесь показаны только рекламные заказы и рекламный ДРР.
+          <Typography variant="caption" color="text.secondary" sx={{ px: .5 }}>
+            Сравнение появится после полной загрузки обоих периодов. Все заказы кабинета и ДРР от них пока недоступны; здесь показаны рекламные данные.
           </Typography>
 
           <Card><CardContent>
