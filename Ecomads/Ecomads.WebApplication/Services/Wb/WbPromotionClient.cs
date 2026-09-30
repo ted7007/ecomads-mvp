@@ -52,7 +52,7 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         {
             from = startDate.ToString("yyyy-MM-dd"),
             to = endDate.ToString("yyyy-MM-dd"),
-            items = pairs.Select(pair => new { advert_id = pair.AdvertId, nm_id = pair.NmId }).ToArray()
+            items = pairs.Select(pair => new { advertId = pair.AdvertId, nmId = pair.NmId }).ToArray()
         });
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response));

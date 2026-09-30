@@ -90,8 +90,8 @@ public sealed class WbConnectionTests
         Assert.Equal("https://advert-api.wildberries.ru/adv/v1/normquery/stats", handler.LastUri);
         using var request = JsonDocument.Parse(handler.LastBody!);
         Assert.Equal("2026-07-01", request.RootElement.GetProperty("from").GetString());
-        Assert.Equal(35174765, request.RootElement.GetProperty("items")[0].GetProperty("advert_id").GetInt64());
-        Assert.Equal(123, request.RootElement.GetProperty("items")[0].GetProperty("nm_id").GetInt64());
+        Assert.Equal(35174765, request.RootElement.GetProperty("items")[0].GetProperty("advertId").GetInt64());
+        Assert.Equal(123, request.RootElement.GetProperty("items")[0].GetProperty("nmId").GetInt64());
         Assert.Equal(JsonValueKind.Array, response.RootElement.GetProperty("items").ValueKind);
     }
 

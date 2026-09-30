@@ -10,7 +10,7 @@ export function WbClusterTable({ rows }: { rows: WbClusterRow[] }) {
   const [rowsPerPage, setRowsPerPage] = useState(25);
   useEffect(() => { setPage(0); }, [rows]);
   if (rows.length === 0) {
-    return <Alert severity="info">Кластеры за выбранный период ещё не загружены. Запустите их сбор в разделе «Кабинеты WB» после статистики кампаний.</Alert>;
+    return <Alert severity="info">За выбранный период кластерных строк пока нет. Состояние сбора и возможную ошибку проверьте в разделе «Кабинеты WB». Если сбор ещё не запускали, загрузите статистику кампаний, затем кластеры.</Alert>;
   }
   return <>
     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
