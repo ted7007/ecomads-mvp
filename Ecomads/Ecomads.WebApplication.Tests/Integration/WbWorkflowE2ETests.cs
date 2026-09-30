@@ -100,6 +100,12 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             await new WbNormQueryImporter(db).ImportAsync(storeId,
                 [new WbNormQueryPair(35174765, 123)], new DateOnly(2026, 7, 1),
                 new DateOnly(2026, 7, 1), clusterDocument.RootElement, CancellationToken.None);
+            using var jamDocument = JsonDocument.Parse("""
+                {"data":{"items":[{"nmId":123,"text":"пример","frequency":{"current":42},
+                "avgPosition":{"current":5.4},"openCard":{"current":10},"orders":{"current":2}}]}}
+                """);
+            await new WbJamImporter(db).ImportAsync(storeId, [123], new DateOnly(2026, 7, 1),
+                new DateOnly(2026, 7, 1), jamDocument.RootElement, CancellationToken.None);
         }
         using var clusters = await client.GetAsync($"/api/wb/campaigns/{campaignId}/clusters?startDate=2026-07-01&endDate=2026-07-01");
         Assert.Equal(HttpStatusCode.OK, clusters.StatusCode);
@@ -108,6 +114,14 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal("пример", cluster.GetProperty("clusterName").GetString());
         Assert.Equal(JsonValueKind.Null, cluster.GetProperty("views").ValueKind);
         Assert.Equal("Недостаточно данных", cluster.GetProperty("assessment").GetString());
+
+        using var jam = await client.GetAsync($"/api/wb/campaigns/{campaignId}/jam?startDate=2026-07-01&endDate=2026-07-01");
+        Assert.Equal(HttpStatusCode.OK, jam.StatusCode);
+        using var jamJson = JsonDocument.Parse(await jam.Content.ReadAsStringAsync());
+        var query = Assert.Single(jamJson.RootElement.GetProperty("rows").EnumerateArray());
+        Assert.Equal("пример", query.GetProperty("searchText").GetString());
+        Assert.True(query.GetProperty("matchingLoadedAdCluster").GetBoolean());
+        Assert.Equal(42, query.GetProperty("frequency").GetInt64());
 
         using var projects = await client.GetAsync("/api/projects?startDate=2026-07-01&endDate=2026-07-01");
         Assert.Equal(HttpStatusCode.OK, projects.StatusCode);

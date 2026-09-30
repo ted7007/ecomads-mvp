@@ -28,7 +28,9 @@ public sealed class WbStoresController(
         string TokenLastFour,
         DateTime TokenExpiresAtUtc,
         DateTime? LastSyncAt,
-        int CampaignCount);
+        int CampaignCount,
+        string JamStatus,
+        DateTime? JamCheckedAtUtc);
     public sealed record CampaignListItem(Guid Id, string Name, string WbCampaignId, int? WbStatus);
 
     [HttpGet]
@@ -44,7 +46,8 @@ public sealed class WbStoresController(
                 x.TokenLastFour ?? string.Empty,
                 x.TokenExpiresAtUtc ?? DateTime.MinValue,
                 x.LastSyncAt,
-                db.Campaigns.Count(c => c.StoreId == x.Id)))
+                db.Campaigns.Count(c => c.StoreId == x.Id),
+                x.JamStatus, x.JamCheckedAtUtc))
             .ToListAsync(cancellationToken);
         return Ok(stores);
     }
@@ -125,7 +128,8 @@ public sealed class WbStoresController(
 
         await db.SaveChangesAsync(cancellationToken);
         return Ok(new StoreResponse(store.Id, store.Name, store.ExternalId, store.TokenLastFour,
-            store.TokenExpiresAtUtc.Value, store.LastSyncAt, adverts.Count));
+            store.TokenExpiresAtUtc.Value, store.LastSyncAt, adverts.Count,
+            store.JamStatus, store.JamCheckedAtUtc));
     }
 
     [HttpGet("{storeId:guid}/campaigns")]
@@ -288,6 +292,67 @@ public sealed class WbStoresController(
         {
             Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
             CampaignIdsJson = "[]", PairIdsJson = JsonSerializer.Serialize(pairs), Kind = "clusters", Status = "pending",
+            CreatedAtUtc = now, UpdatedAtUtc = now,
+            NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
+                ? lastRequest.Value.AddHours(1) : now
+        };
+        db.WbSyncJobs.Add(job);
+        await db.SaveChangesAsync(cancellationToken);
+        return Accepted(ToSyncResponse(job));
+    }
+
+    [HttpPost("{storeId:guid}/jam/sync")]
+    public async Task<IActionResult> StartJamSync(Guid storeId, [FromBody] SyncRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
+        if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
+        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId &&
+            (x.Status == "pending" || x.Status == "running"), cancellationToken);
+        if (active != null) return active.Kind == "jam"
+            ? Ok(ToSyncResponse(active))
+            : Conflict(new { message = "Дождитесь завершения текущего сбора WB." });
+
+        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
+        var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
+        var end = request?.EndDate ?? yesterday;
+        var start = request?.StartDate ?? end.AddDays(-6);
+        if (start > end || end > yesterday || end.DayNumber - start.DayNumber > 6)
+            return BadRequest(new { message = "Для отчёта Джема выберите завершённый период не более 7 дней." });
+
+        var selectedIds = request?.CampaignIds?.Distinct().ToArray();
+        if (selectedIds is { Length: > 0 })
+        {
+            var ownedIds = await db.Campaigns.Where(x => x.StoreId == storeId)
+                .Select(x => x.WbCampaignId).ToListAsync(cancellationToken);
+            var owned = ownedIds.Where(x => long.TryParse(x, out _)).Select(long.Parse).ToHashSet();
+            if (selectedIds.Any(x => !owned.Contains(x)))
+                return BadRequest(new { message = "Выбрана кампания другого кабинета." });
+        }
+
+        var fromUtc = DateTime.SpecifyKind(start.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        var throughUtc = DateTime.SpecifyKind(end.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        var observed = await (from stat in db.CampaignNomenclatureStatistics
+            join campaign in db.Campaigns on stat.CampaignId equals campaign.Id
+            join article in db.Nomenclatures on stat.NomenclatureId equals article.Id
+            where campaign.StoreId == storeId && stat.Date >= fromUtc && stat.Date <= throughUtc
+            select new { campaign.WbCampaignId, article.WbNomenclatureId })
+            .Distinct().ToListAsync(cancellationToken);
+        var ids = observed.Where(x => selectedIds is not { Length: > 0 } ||
+                long.TryParse(x.WbCampaignId, out var campaignId) && selectedIds.Contains(campaignId))
+            .Select(x => long.TryParse(x.WbNomenclatureId, out var nmId) ? nmId : 0)
+            .Where(x => x > 0).Distinct().Order().ToArray();
+        if (ids.Length == 0)
+            return BadRequest(new { message = "Сначала загрузите статистику кампаний за этот период." });
+
+        var lastRequest = await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.LastRequestAtUtc != null)
+            .MaxAsync(x => x.LastRequestAtUtc, cancellationToken);
+        var now = DateTime.UtcNow;
+        var job = new WbSyncJob
+        {
+            Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
+            CampaignIdsJson = JsonSerializer.Serialize(ids), Kind = "jam", Status = "pending",
             CreatedAtUtc = now, UpdatedAtUtc = now,
             NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
                 ? lastRequest.Value.AddHours(1) : now

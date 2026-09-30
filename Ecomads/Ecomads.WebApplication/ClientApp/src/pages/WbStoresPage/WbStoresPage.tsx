@@ -1,7 +1,7 @@
 import { Alert, Box, Button, Card, CardContent, CircularProgress, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { connectWbStore, disconnectWbStore, getWbStores, getWbSync, startWbClusterSync, startWbSync } from './wbStoresApi';
+import { connectWbStore, disconnectWbStore, getWbStores, getWbSync, startWbClusterSync, startWbJamSync, startWbSync } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
 import { createTelegramLink, disconnectTelegramChat, getTelegramChats, sendYesterdaySummary } from './telegramApi';
 
@@ -46,6 +46,18 @@ function StoreCard({ store }: { store: WbStore }) {
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить сбор кластеров')
   });
+  const startJam = useMutation({
+    mutationFn: () => startWbJamSync(store.id, {
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      campaignIds: campaignIds.trim() ? campaignIds.split(',').map((id) => Number(id.trim())) : undefined
+    }),
+    onSuccess: async () => {
+      setError(null);
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync', store.id] });
+    },
+    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить отчёт Джема')
+  });
   const disconnect = useMutation({
     mutationFn: () => disconnectWbStore(store.id),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['wb-stores'] }),
@@ -66,15 +78,19 @@ function StoreCard({ store }: { store: WbStore }) {
           <Typography variant="body2">Токен: ••••{store.tokenLastFour} · действует до {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU')}</Typography>
           <Typography variant="body2">Кампаний: {store.campaignCount}</Typography>
           <Typography variant="body2">Данные: {store.lastSyncAt ? `обновлены ${new Date(store.lastSyncAt).toLocaleString('ru-RU')}` : 'ещё не загружены'}</Typography>
+          <Typography variant="body2">Джем: {store.jamStatus === 'active' ? 'отчёт доступен' :
+            store.jamStatus === 'access_denied' ? 'WB отказал в доступе' :
+            store.jamStatus === 'payment_required' ? 'WB запросил оплату доступа' : 'ещё не проверен'}
+            {store.jamCheckedAtUtc ? ` · проверен ${new Date(store.jamCheckedAtUtc).toLocaleString('ru-RU')}` : ''}</Typography>
           {sync.data ? <Typography variant="body2">
-            Сбор {sync.data.kind === 'clusters' ? 'кластеров' : 'статистики кампаний'} {sync.data.status === 'completed' ? 'завершён' : sync.data.status === 'failed' ? 'не удался' : sync.data.status === 'running' ? 'выполняется или ждёт лимит WB' : 'в очереди'}:
-            {' '}{sync.data.processedCampaigns} из {sync.data.totalCampaigns} {sync.data.kind === 'clusters' ? 'пар кампания/артикул' : 'кампаний'}.
+            Сбор {sync.data.kind === 'clusters' ? 'кластеров' : sync.data.kind === 'jam' ? 'поисковых запросов Джема' : 'статистики кампаний'} {sync.data.status === 'completed' ? 'завершён' : sync.data.status === 'failed' ? 'не удался' : sync.data.status === 'running' ? 'выполняется или ждёт лимит WB' : 'в очереди'}:
+            {' '}{sync.data.processedCampaigns} из {sync.data.totalCampaigns} {sync.data.kind === 'clusters' ? 'пар кампания/артикул' : sync.data.kind === 'jam' ? 'товаров' : 'кампаний'}.
             {active ? ` Следующая попытка: ${new Date(sync.data.nextAttemptAtUtc).toLocaleString('ru-RU')}.` : ''}
             {sync.data.errorCode ? ` Код ошибки: ${sync.data.errorCode}.` : ''}
           </Typography> : null}
           {error ? <Alert severity="error">{error}</Alert> : null}
           <Typography variant="body2" color="text.secondary">
-            Статистику кампаний загрузим за последние 30 завершённых дней, кластеры — за 7 дней после сбора статистики кампаний.
+            Статистику кампаний загрузим за последние 30 завершённых дней, кластеры и поисковые запросы Джема — за 7 дней после сбора статистики кампаний.
             Для быстрой сверки укажите период и ID нужных кампаний, например 35174765, 35736322.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -95,6 +111,10 @@ function StoreCard({ store }: { store: WbStore }) {
             <Button variant="outlined" disabled={active || startClusters.isPending || Boolean(startDate) !== Boolean(endDate)
               || Boolean(campaignIds.trim()) && !/^\d+(\s*,\s*\d+)*$/.test(campaignIds.trim())} onClick={() => startClusters.mutate()}>
               Загрузить кластеры
+            </Button>
+            <Button variant="outlined" disabled={active || startJam.isPending || Boolean(startDate) !== Boolean(endDate)
+              || Boolean(campaignIds.trim()) && !/^\d+(\s*,\s*\d+)*$/.test(campaignIds.trim())} onClick={() => startJam.mutate()}>
+              Загрузить Джем
             </Button>
             <Button color="error" variant="outlined" disabled={disconnect.isPending} onClick={() => disconnect.mutate()}>
               Отключить токен

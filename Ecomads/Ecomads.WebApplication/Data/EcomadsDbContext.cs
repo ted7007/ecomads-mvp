@@ -16,6 +16,7 @@ public class EcomadsDbContext : DbContext
     public DbSet<DemoFeedback> DemoFeedbacks { get; set; }
     public DbSet<WbSyncJob> WbSyncJobs { get; set; }
     public DbSet<WbClusterStatistic> WbClusterStatistics { get; set; }
+    public DbSet<WbJamSearchQuery> WbJamSearchQueries { get; set; }
     public DbSet<WbStoreNorms> WbStoreNorms { get; set; }
     public DbSet<WbCampaignNorms> WbCampaignNorms { get; set; }
     public DbSet<WbNormRevision> WbNormRevisions { get; set; }
@@ -84,6 +85,8 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.TokenExpiresAtUtc).HasColumnName("token_expires_at_utc");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.LastSyncAt).HasColumnName("last_sync_at");
+            entity.Property(e => e.JamStatus).HasColumnName("jam_status").HasMaxLength(32).HasDefaultValue("unknown");
+            entity.Property(e => e.JamCheckedAtUtc).HasColumnName("jam_checked_at_utc");
             entity.Property(e => e.SellerId).HasColumnName("seller_id");
             entity.HasIndex(e => new { e.Marketplace, e.ExternalId })
                 .IsUnique()
@@ -161,6 +164,29 @@ public class EcomadsDbContext : DbContext
             entity.HasOne<Campaign>().WithMany().HasForeignKey(e => e.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Nomenclature>().WithMany().HasForeignKey(e => e.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => new { e.CampaignId, e.NomenclatureId, e.Date, e.ClusterName }).IsUnique();
+        });
+
+        modelBuilder.Entity<WbJamSearchQuery>(entity =>
+        {
+            entity.ToTable("wb_jam_search_queries");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.StoreId).HasColumnName("store_id");
+            entity.Property(x => x.NomenclatureId).HasColumnName("nomenclature_id");
+            entity.Property(x => x.StartDate).HasColumnName("start_date");
+            entity.Property(x => x.EndDate).HasColumnName("end_date");
+            entity.Property(x => x.SearchText).HasColumnName("search_text").HasMaxLength(500);
+            entity.Property(x => x.Frequency).HasColumnName("frequency");
+            entity.Property(x => x.WeekFrequency).HasColumnName("week_frequency");
+            entity.Property(x => x.AveragePosition).HasColumnName("average_position").HasColumnType("decimal(18,4)");
+            entity.Property(x => x.MedianPosition).HasColumnName("median_position").HasColumnType("decimal(18,4)");
+            entity.Property(x => x.OpenCard).HasColumnName("open_card");
+            entity.Property(x => x.AddToCart).HasColumnName("add_to_cart");
+            entity.Property(x => x.Orders).HasColumnName("orders");
+            entity.Property(x => x.LoadedAtUtc).HasColumnName("loaded_at_utc");
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Nomenclature>().WithMany().HasForeignKey(x => x.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.StoreId, x.NomenclatureId, x.StartDate, x.EndDate, x.SearchText }).IsUnique();
         });
 
         modelBuilder.Entity<WbStoreNorms>(entity =>

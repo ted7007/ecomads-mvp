@@ -12,10 +12,11 @@ import { formatMoney } from '../../shared/lib/formatMoney';
 import { formatPercent } from '../../shared/lib/formatPercent';
 import { PeriodFilter, defaultPeriod } from '../DashboardPage/components/PeriodFilter';
 import type { DashboardFilters } from '../DashboardPage/dashboardApi';
-import { getCampaignPeriods, getCampaignSummary, getNomenclatureStatistics, getWbClusters, getWbSpendTrend } from './campaignApi';
+import { getCampaignPeriods, getCampaignSummary, getNomenclatureStatistics, getWbClusters, getWbJam, getWbSpendTrend } from './campaignApi';
 import { CampaignKpiGrid } from './components/CampaignKpiGrid';
 import { NomenclatureTable } from './components/NomenclatureTable';
 import { WbClusterTable } from './components/WbClusterTable';
+import { WbJamTable } from './components/WbJamTable';
 
 export function CampaignPage() {
   const { campaignId } = useParams();
@@ -31,6 +32,8 @@ export function CampaignPage() {
     queryFn: () => getCampaignSummary(id, filters), enabled: Boolean(id) });
   const clusters = useQuery({ queryKey: ['wb-clusters', id, filters],
     queryFn: () => getWbClusters(id, filters), enabled: Boolean(id) });
+  const jam = useQuery({ queryKey: ['wb-jam', id, filters],
+    queryFn: () => getWbJam(id, filters), enabled: Boolean(id) });
   const articles = useQuery({ queryKey: ['campaign-nomenclatures', id, filters],
     queryFn: () => getNomenclatureStatistics(id, filters), enabled: Boolean(id) });
   const trend = useQuery({ queryKey: ['wb-spend-trend', id, filters.endDate],
@@ -43,7 +46,7 @@ export function CampaignPage() {
 
   return <Stack spacing={3}>
     <PageHeader title={summary.data?.name ?? 'Кампания'} actions={<Button startIcon={<RefreshIcon />}
-      variant="outlined" onClick={() => { void summary.refetch(); void clusters.refetch(); void articles.refetch(); void trend.refetch(); }}>
+      variant="outlined" onClick={() => { void summary.refetch(); void clusters.refetch(); void jam.refetch(); void articles.refetch(); void trend.refetch(); }}>
       Обновить экран
     </Button>} />
     <Card><CardContent><PeriodFilter draftFilters={draftFilters} periods={periods.data ?? []}
@@ -89,6 +92,12 @@ export function CampaignPage() {
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
         {clusters.data?.isWbConnected ? <WbClusterTable rows={clusters.data.rows} />
           : <Alert severity="info">Подключите кабинет WB для просмотра кластеров.</Alert>}
+      </CardContent></Card>
+      <Card><CardContent>
+        <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые запросы Джема</Typography>
+        {jam.isLoading ? <LoadingState title="Загружаем запросы Джема" /> :
+          jam.isError ? <Alert severity="error">Не удалось загрузить отчёт Джема.</Alert> :
+          jam.data ? <WbJamTable report={jam.data} /> : null}
       </CardContent></Card>
     </> : null}
   </Stack>;

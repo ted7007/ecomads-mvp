@@ -36,6 +36,9 @@ public class Store
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     
     public DateTime? LastSyncAt { get; set; }
+
+    public string JamStatus { get; set; } = "unknown";
+    public DateTime? JamCheckedAtUtc { get; set; }
     
     // Связь с продавцом
     [Required]

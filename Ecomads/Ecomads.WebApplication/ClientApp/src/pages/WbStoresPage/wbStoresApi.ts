@@ -8,14 +8,16 @@ const storeSchema = z.object({
   tokenLastFour: z.string(),
   tokenExpiresAtUtc: z.string(),
   lastSyncAt: z.string().nullable(),
-  campaignCount: z.number().int()
+  campaignCount: z.number().int(),
+  jamStatus: z.enum(['unknown', 'active', 'access_denied', 'payment_required']),
+  jamCheckedAtUtc: z.string().nullable()
 });
 
 export type WbStore = z.infer<typeof storeSchema>;
 
 const syncSchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(['fullstats', 'clusters']),
+  kind: z.enum(['fullstats', 'clusters', 'jam']),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   startDate: z.string(),
   endDate: z.string(),
@@ -58,5 +60,11 @@ export async function startWbClusterSync(storeId: string, request: { startDate?:
   return syncSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/clusters/sync`, {
     method: 'POST',
     body: request
+  }));
+}
+
+export async function startWbJamSync(storeId: string, request: { startDate?: string; endDate?: string; campaignIds?: number[] }): Promise<WbSync> {
+  return syncSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/jam/sync`, {
+    method: 'POST', body: request
   }));
 }

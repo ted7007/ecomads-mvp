@@ -53,6 +53,26 @@ export async function getWbClusters(campaignId: string, filters: DashboardFilter
     `/api/wb/campaigns/${encodeURIComponent(campaignId)}/clusters${queryString(filters)}`));
 }
 
+const jamRowSchema = z.object({
+  nomenclatureId: z.string(), nomenclatureName: z.string(), searchText: z.string(),
+  frequency: z.number().nullable(), weekFrequency: z.number().nullable(),
+  averagePosition: z.number().nullable(), medianPosition: z.number().nullable(),
+  openCard: z.number().nullable(), addToCart: z.number().nullable(), orders: z.number().nullable(),
+  matchingLoadedAdCluster: z.boolean()
+});
+const jamResponseSchema = z.object({
+  jamStatus: z.enum(['unknown', 'active', 'access_denied', 'payment_required']),
+  jamCheckedAtUtc: z.string().nullable(), startDate: z.string(), endDate: z.string(),
+  articleCount: z.number().int(), articlesWithQueries: z.number().int(), rows: z.array(jamRowSchema)
+});
+export type WbJamRow = z.infer<typeof jamRowSchema>;
+export type WbJamResponse = z.infer<typeof jamResponseSchema>;
+
+export async function getWbJam(campaignId: string, filters: DashboardFilters = {}): Promise<WbJamResponse> {
+  return jamResponseSchema.parse(await httpClient<unknown>(
+    `/api/wb/campaigns/${encodeURIComponent(campaignId)}/jam${queryString(filters)}`));
+}
+
 export async function getWbSpendTrend(campaignId: string, endDate?: string) {
   const query = endDate ? `?endDate=${encodeURIComponent(endDate)}` : '';
   return spendTrendSchema.parse(await httpClient<unknown>(

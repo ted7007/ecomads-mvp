@@ -66,4 +66,44 @@ public sealed class WbImportTests(PostgresFixture postgres)
             Assert.Equal(1, cluster.Orders);
         }
     }
+
+    [Fact]
+    public async Task JamImport_ReplacesSamePeriodAndPreservesMissingMetrics()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        var storeId = Guid.NewGuid();
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            await db.Database.MigrateAsync();
+            var seller = TestData.CreateRegularSeller();
+            db.Sellers.Add(seller);
+            db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Name = "WB" });
+            db.Nomenclatures.Add(new Nomenclature { Id = Guid.NewGuid(), StoreId = storeId,
+                WbNomenclatureId = "123", Name = "Item" });
+            await db.SaveChangesAsync();
+        }
+        const string report = """
+            {"data":{"items":[{"nmId":123,"text":"поисковый запрос",
+            "frequency":{"current":42},"weekFrequency":140,
+            "avgPosition":{"current":5.4},"orders":{"current":3},
+            "openCard":{"current":10},"addToCart":{"current":4}}]}}
+            """;
+        var start = new DateOnly(2026, 7, 1);
+        var end = new DateOnly(2026, 7, 7);
+        for (var repeat = 0; repeat < 2; repeat++)
+        {
+            await using var db = postgres.CreateDbContext(connection);
+            using var document = JsonDocument.Parse(report);
+            await new WbJamImporter(db).ImportAsync(storeId, [123], start, end,
+                document.RootElement, CancellationToken.None);
+        }
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            var row = Assert.Single(await db.WbJamSearchQueries.Where(x => x.StoreId == storeId).ToListAsync());
+            Assert.Equal(42, row.Frequency);
+            Assert.Equal(5.4m, row.AveragePosition);
+            Assert.Null(row.MedianPosition);
+            Assert.Equal(3, row.Orders);
+        }
+    }
 }

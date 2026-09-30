@@ -95,6 +95,24 @@ public sealed class WbConnectionTests
         Assert.Equal(JsonValueKind.Array, response.RootElement.GetProperty("items").ValueKind);
     }
 
+    [Fact]
+    public async Task JamClient_UsesSearchReportContractAndDoesNotLeakToken()
+    {
+        var handler = new RecordingHandler(responseBody: """{"data":{"items":[],"currency":"RUB"}}""");
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru") };
+        using var response = await new WbJamClient(http).GetSearchTextsAsync("secret-token", [123],
+            new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7), CancellationToken.None);
+        Assert.Equal("https://seller-analytics-api.wildberries.ru/api/v2/search-report/product/search-texts", handler.LastUri);
+        Assert.Equal("Bearer secret-token", handler.LastAuthorization);
+        Assert.Null(http.DefaultRequestHeaders.Authorization);
+        using var body = JsonDocument.Parse(handler.LastBody!);
+        Assert.Equal(123, body.RootElement.GetProperty("nmIds")[0].GetInt64());
+        Assert.Equal("2026-07-01", body.RootElement.GetProperty("currentPeriod").GetProperty("start").GetString());
+        Assert.Equal("orders", body.RootElement.GetProperty("topOrderBy").GetString());
+        Assert.Equal(30, body.RootElement.GetProperty("limit").GetInt32());
+        Assert.Equal(JsonValueKind.Array, response.RootElement.GetProperty("data").GetProperty("items").ValueKind);
+    }
+
     private static string CreateToken(DateTimeOffset expiry, bool isTest, long scopes = (1L << 6) | (1L << 30))
     {
         static string Encode(object value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))

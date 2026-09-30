@@ -95,6 +95,18 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                     response.RootElement, cancellationToken);
                 job.NextCampaignOffset += pairBatch.Length;
             }
+            else if (job.Kind == "jam")
+            {
+                var jam = scope.ServiceProvider.GetRequiredService<IWbJamClient>();
+                using var response = await jam.GetSearchTextsAsync(token, batch,
+                    job.StartDate, job.EndDate, cancellationToken);
+                var importer = scope.ServiceProvider.GetRequiredService<WbJamImporter>();
+                await importer.ImportAsync(store.Id, batch, job.StartDate, job.EndDate,
+                    response.RootElement, cancellationToken);
+                job.NextCampaignOffset += batch.Length;
+                store.JamStatus = "active";
+                store.JamCheckedAtUtc = DateTime.UtcNow;
+            }
             else
             {
                 using var response = await wb.GetFullStatsAsync(token, batch,
@@ -111,6 +123,11 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
         catch (WbApiException error)
         {
+            if (job.Kind == "jam" && error.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.PaymentRequired)
+            {
+                store.JamStatus = error.StatusCode == HttpStatusCode.PaymentRequired ? "payment_required" : "access_denied";
+                store.JamCheckedAtUtc = DateTime.UtcNow;
+            }
             // A quota response means "wait", not that the payload is broken.
             if (error.StatusCode != HttpStatusCode.TooManyRequests) job.AttemptCount++;
             job.ErrorCode = $"wb_{(int)error.StatusCode}";
