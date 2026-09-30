@@ -29,8 +29,9 @@ function paths(values: (number | null)[], x: (index: number) => number, y: (valu
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i - 1] ?? points[i], b = points[i], c = points[i + 1], d = points[i + 2] ?? c;
       const dx = (c[0] - b[0]) / 3;
-      path += ` C${(b[0] + dx).toFixed(1)} ${(b[1] + (c[1] - a[1]) / 6).toFixed(1)}` +
-        ` ${(c[0] - dx).toFixed(1)} ${(c[1] - (d[1] - b[1]) / 6).toFixed(1)} ${c[0].toFixed(1)} ${c[1].toFixed(1)}`;
+      const bound = (value: number) => Math.max(Math.min(b[1], c[1]), Math.min(Math.max(b[1], c[1]), value));
+      path += ` C${(b[0] + dx).toFixed(1)} ${bound(b[1] + (c[1] - a[1]) / 6).toFixed(1)}` +
+        ` ${(c[0] - dx).toFixed(1)} ${bound(c[1] - (d[1] - b[1]) / 6).toFixed(1)} ${c[0].toFixed(1)} ${c[1].toFixed(1)}`;
     }
     result.push(path); points = [];
   };
@@ -102,7 +103,8 @@ export function DailyChart({ days, title = 'Динамика показател�
           width={index === days.length - 1 ? right - x(index) + 1 : (x(index + 1) - (index === 0 ? left : x(index - 1))) / 2}
           height={bottom - top} fill="transparent" onMouseEnter={() => setHovered(index)} onClick={() => setHovered(index)} />)}
         {days.map((day, index) => {
-          const step = days.length <= 7 ? 1 : days.length <= 14 ? 2 : Math.ceil(days.length / 8);
+          const step = compact ? Math.max(1, days.length - 1) :
+            days.length <= 7 ? 1 : days.length <= 14 ? 2 : Math.ceil(days.length / 8);
           return index % step !== 0 && index !== days.length - 1 ? null :
             <text key={day.date} x={x(index)} y="235" textAnchor={index === 0 ? 'start' : index === days.length - 1 ? 'end' : 'middle'}
               fontSize="11" fill="#777985">{shortDate(day.date)}</text>;
