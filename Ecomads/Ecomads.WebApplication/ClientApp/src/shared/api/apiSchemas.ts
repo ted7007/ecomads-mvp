@@ -6,7 +6,7 @@ export const projectKpiSchema = z.object({
   coverageDays: z.number().int(), expectedDays: z.number().int()
 });
 export const projectDashboardSchema = z.object({
-  id: z.string(), name: z.string(), kpi: projectKpiSchema, targetDrr: z.coerce.number(),
+  id: z.string(), name: z.string(), kpi: projectKpiSchema, targetDrr: z.coerce.number(), minCtr: z.coerce.number(),
   goal: z.string().nullable().optional(), wbStatus: z.number().int().nullable().optional()
 });
 export const projectsResponseSchema = z.array(projectDashboardSchema);

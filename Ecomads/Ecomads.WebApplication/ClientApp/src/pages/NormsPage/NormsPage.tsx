@@ -7,11 +7,12 @@ import type { CampaignNormOverrides, StoreNormValues } from './normsApi';
 import { PaginationBar } from '../../shared/ui/PaginationBar';
 
 const defaults: StoreNormValues = { targetDrr: 30, minClicks: 30, minSpend: 500,
-  minOrders: 3, deviationPercent: 40 };
+  minOrders: 3, deviationPercent: 40, minCtr: 3 };
 const emptyOverrides: CampaignNormOverrides = { customName: null, goal: null, targetDrr: null,
-  minClicks: null, minSpend: null, minOrders: null, deviationPercent: null };
+  minClicks: null, minSpend: null, minOrders: null, deviationPercent: null, minCtr: null };
 const numericFields = [
   { key: 'targetDrr', label: 'Целевой рекламный ДРР, %' },
+  { key: 'minCtr', label: 'Минимальный CTR, %' },
   { key: 'minClicks', label: 'Минимум кликов' },
   { key: 'minSpend', label: 'Минимум расхода, ₽' },
   { key: 'minOrders', label: 'Минимум заказов' },
@@ -80,15 +81,15 @@ export function NormsPage() {
       <Typography variant="h6" fontWeight={800}>Нормы кабинета</Typography>
       <Typography variant="body2" color="text.secondary">Целевой рекламный ДРР применяется по умолчанию ко всем кампаниям.</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
-        {numericFields.slice(0, 1).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
-          inputProps={{ min: 0 }} value={storeValues[key]}
+        {numericFields.slice(0, 2).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
+          inputProps={{ min: key === 'minCtr' ? 0.01 : 0, max: key === 'minCtr' ? 100 : undefined, step: 0.01 }} value={storeValues[key]}
           onChange={(event) => setStoreValues((previous) => ({ ...previous, [key]: Number(event.target.value) }))} />)}
       </Stack>
     </Stack></CardContent></Card></Grid>
       <Grid item xs={12} md={8}><Card sx={{ height: '100%' }}><CardContent><Stack spacing={2}>
       <Typography variant="h6" fontWeight={800}>Достаточность данных</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
-        {numericFields.slice(1).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
+        {numericFields.slice(2).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
           inputProps={{ min: 0 }} value={storeValues[key]}
           onChange={(event) => setStoreValues((previous) => ({ ...previous, [key]: Number(event.target.value) }))} />)}
       </Stack>
@@ -127,7 +128,7 @@ export function NormsPage() {
           {row.campaignId === campaignId ? <TableRow sx={{ display: { xs: 'none', md: 'table-row' } }}><TableCell colSpan={4} sx={{ bgcolor: 'rgba(0,122,255,.04)' }}><Stack spacing={1.5} sx={{ py: 1 }}>
             <Typography variant="caption" color="text.secondary">Дополнительные настройки кампании</Typography>
             <TextField label="Своё название" size="small" sx={{ maxWidth: 320 }} value={overrides.customName ?? ''} onChange={(event) => setOverrides((previous) => ({ ...previous, customName: event.target.value || null }))} />
-            <Stack direction="row" useFlexGap flexWrap="wrap" gap={1.5}>{numericFields.slice(1).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small" sx={{ width: 190 }} inputProps={{ min: 0 }} value={overrides[key] ?? ''}
+            <Stack direction="row" useFlexGap flexWrap="wrap" gap={1.5}>{numericFields.slice(1).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small" sx={{ width: 190 }} inputProps={{ min: key === 'minCtr' ? 0.01 : 0, max: key === 'minCtr' ? 100 : undefined }} value={overrides[key] ?? ''}
               onChange={(event) => setOverrides((previous) => ({ ...previous, [key]: event.target.value === '' ? null : Number(event.target.value) }))}
               helperText={overrides[key] === null ? `Наследуется: ${campaignNorms.data?.effective[key] ?? storeValues[key]}` : 'Переопределено'} />)}</Stack>
             {campaignDirty ? <Typography variant="caption" color="warning.main">Есть несохранённые изменения</Typography> : null}

@@ -4,6 +4,7 @@ public sealed class WbStoreNorms
 {
     public Guid StoreId { get; set; }
     public decimal TargetDrr { get; set; } = 30m;
+    public decimal MinCtr { get; set; } = 3m;
     public int MinClicks { get; set; } = 30;
     public decimal MinSpend { get; set; } = 500m;
     public int MinOrders { get; set; } = 3;
@@ -18,6 +19,7 @@ public sealed class WbCampaignNorms
     public string? CustomName { get; set; }
     public string? Goal { get; set; }
     public decimal? TargetDrr { get; set; }
+    public decimal? MinCtr { get; set; }
     public int? MinClicks { get; set; }
     public decimal? MinSpend { get; set; }
     public int? MinOrders { get; set; }

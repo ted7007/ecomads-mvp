@@ -27,6 +27,8 @@ export function CampaignKpiGrid({ campaign, priorCampaign, selectedMetrics, onSe
   const drr = kpi && kpi.revenue > 0 ? kpi.drr : null;
   const cpc = kpi?.clicks ? kpi.spend / kpi.clicks : null;
   const drrComparison = comparison(drr, previous?.revenue ? previous.drr : null, 'percent', -1);
+  const ctrComparison = comparison(kpi?.impressions ? kpi.ctr : null,
+    previous?.impressions ? previous.ctr : null, 'percent', 1);
 
   return (
     <Stack spacing={0.5}>
@@ -40,7 +42,9 @@ export function CampaignKpiGrid({ campaign, priorCampaign, selectedMetrics, onSe
           valueColor={drr !== null && campaign && drr > campaign.targetDrr ? 'warning.main' : undefined}
           note={campaign ? `норма ${formatPercent(campaign.targetDrr, campaign.targetDrr % 1 ? 1 : 0)}` : undefined} />
         <KpiCard label="CTR" value={kpi?.impressions ? formatPercent(kpi.ctr, 1) : '—'} {...toggle('ctr')}
-          {...comparison(kpi?.impressions ? kpi.ctr : null, previous?.impressions ? previous.ctr : null, 'percent', 1)} />
+          delta={ctrComparison.delta} deltaTone={ctrComparison.deltaTone}
+          valueColor={kpi?.impressions && campaign && kpi.ctr < campaign.minCtr ? 'warning.main' : undefined}
+          note={campaign ? `норма ${formatPercent(campaign.minCtr, campaign.minCtr % 1 ? 1 : 0)}` : undefined} />
         <KpiCard label="CPC" value={cpc === null ? '—' : formatMoney(cpc, 1)} {...toggle('cpc')}
           {...comparison(cpc, previous?.clicks ? previous.spend / previous.clicks : null, 'cpc', -1)} />
       </KpiGrid>

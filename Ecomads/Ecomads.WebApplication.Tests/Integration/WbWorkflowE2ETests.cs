@@ -103,9 +103,17 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
 
         using var norms = await client.PutAsJsonAsync($"/api/wb/norms/stores/{storeId}", new
         {
-            targetDrr = 27, minClicks = 25, minSpend = 400, minOrders = 2, deviationPercent = 40
+            targetDrr = 27, minClicks = 25, minSpend = 400, minOrders = 2, deviationPercent = 40, minCtr = 2.5m
         });
         Assert.Equal(HttpStatusCode.OK, norms.StatusCode);
+        using var invalidCtr = await client.PutAsJsonAsync($"/api/wb/norms/stores/{storeId}", new
+        {
+            targetDrr = 27, minClicks = 25, minSpend = 400, minOrders = 2, deviationPercent = 40, minCtr = 0
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidCtr.StatusCode);
+        using var storedNorms = await client.GetAsync($"/api/wb/norms/stores/{storeId}");
+        using var storedNormsJson = JsonDocument.Parse(await storedNorms.Content.ReadAsStringAsync());
+        Assert.Equal(2.5m, storedNormsJson.RootElement.GetProperty("values").GetProperty("minCtr").GetDecimal());
 
         using var sync = await client.PostAsJsonAsync($"/api/wb/stores/{storeId}/sync", new
         {
@@ -158,7 +166,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         {
             customName = "Моя кампания", goal = "Проверить рекламу", targetDrr = (int?)null,
             minClicks = (int?)null, minSpend = (int?)null, minOrders = (int?)null,
-            deviationPercent = (int?)null
+            deviationPercent = (int?)null, minCtr = 4m
         });
         Assert.Equal(HttpStatusCode.OK, campaignNorms.StatusCode);
 
@@ -219,6 +227,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         var campaign = Assert.Single(projectsJson.RootElement.EnumerateArray());
         Assert.Equal("Моя кампания", campaign.GetProperty("name").GetString());
         Assert.Equal(27, campaign.GetProperty("targetDrr").GetDecimal());
+        Assert.Equal(4m, campaign.GetProperty("minCtr").GetDecimal());
         Assert.Equal(10.25, campaign.GetProperty("kpi").GetProperty("spend").GetDouble(), 2);
         Assert.Equal(10, campaign.GetProperty("kpi").GetProperty("clicks").GetInt32());
         Assert.Equal(100, campaign.GetProperty("kpi").GetProperty("impressions").GetInt32());

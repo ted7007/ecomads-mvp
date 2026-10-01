@@ -218,6 +218,7 @@ public class EcomadsDbContext : DbContext
             entity.HasKey(x => x.StoreId);
             entity.Property(x => x.StoreId).HasColumnName("store_id");
             entity.Property(x => x.TargetDrr).HasColumnName("target_drr").HasColumnType("decimal(8,2)");
+            entity.Property(x => x.MinCtr).HasColumnName("min_ctr").HasColumnType("decimal(8,2)").HasDefaultValue(3m);
             entity.Property(x => x.MinClicks).HasColumnName("min_clicks");
             entity.Property(x => x.MinSpend).HasColumnName("min_spend").HasColumnType("decimal(18,2)");
             entity.Property(x => x.MinOrders).HasColumnName("min_orders");
@@ -235,6 +236,7 @@ public class EcomadsDbContext : DbContext
             entity.Property(x => x.CustomName).HasColumnName("custom_name").HasMaxLength(255);
             entity.Property(x => x.Goal).HasColumnName("goal").HasMaxLength(255);
             entity.Property(x => x.TargetDrr).HasColumnName("target_drr").HasColumnType("decimal(8,2)");
+            entity.Property(x => x.MinCtr).HasColumnName("min_ctr").HasColumnType("decimal(8,2)");
             entity.Property(x => x.MinClicks).HasColumnName("min_clicks");
             entity.Property(x => x.MinSpend).HasColumnName("min_spend").HasColumnType("decimal(18,2)");
             entity.Property(x => x.MinOrders).HasColumnName("min_orders");

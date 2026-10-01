@@ -79,16 +79,21 @@ public class ProjectsController : ControllerBase
                     x.Id,
                     CampaignTarget = _context.WbCampaignNorms.Where(n => n.CampaignId == x.Id)
                         .Select(n => n.TargetDrr).FirstOrDefault(),
+                    CampaignMinCtr = _context.WbCampaignNorms.Where(n => n.CampaignId == x.Id)
+                        .Select(n => n.MinCtr).FirstOrDefault(),
                     Goal = _context.WbCampaignNorms.Where(n => n.CampaignId == x.Id)
                         .Select(n => n.Goal).FirstOrDefault(),
                     x.WbStatus,
                     StoreTarget = _context.WbStoreNorms.Where(n => n.StoreId == x.StoreId)
-                        .Select(n => (decimal?)n.TargetDrr).FirstOrDefault()
+                        .Select(n => (decimal?)n.TargetDrr).FirstOrDefault(),
+                    StoreMinCtr = _context.WbStoreNorms.Where(n => n.StoreId == x.StoreId)
+                        .Select(n => (decimal?)n.MinCtr).FirstOrDefault()
                 })
                 .ToDictionaryAsync(x => x.Id);
             campaigns = campaigns.Select(x => x with
             {
                 TargetDrr = targets[x.Id].CampaignTarget ?? targets[x.Id].StoreTarget ?? 30m,
+                MinCtr = targets[x.Id].CampaignMinCtr ?? targets[x.Id].StoreMinCtr ?? 3m,
                 Goal = targets[x.Id].Goal,
                 WbStatus = targets[x.Id].WbStatus
             }).ToList();

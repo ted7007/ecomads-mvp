@@ -14,9 +14,9 @@ namespace Ecomads.WebApplication.Controllers;
 public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
 {
     public sealed record StoreNormRequest(decimal TargetDrr, int MinClicks, decimal MinSpend,
-        int MinOrders, decimal DeviationPercent);
+        int MinOrders, decimal DeviationPercent, decimal MinCtr = 3m);
     public sealed record CampaignNormRequest(string? CustomName, string? Goal, decimal? TargetDrr,
-        int? MinClicks, decimal? MinSpend, int? MinOrders, decimal? DeviationPercent);
+        int? MinClicks, decimal? MinSpend, int? MinOrders, decimal? DeviationPercent, decimal? MinCtr = null);
     public sealed record StoreNormResponse(Guid StoreId, StoreNormRequest Values, int Version, DateTime? UpdatedAtUtc);
     public sealed record CampaignNormResponse(Guid CampaignId, CampaignNormRequest Overrides,
         StoreNormRequest Effective, int Version, int StoreVersion, DateTime? UpdatedAtUtc);
@@ -55,7 +55,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
         if (!await db.Stores.AnyAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken)) return NotFound();
-        if (!Valid(request.TargetDrr, request.MinClicks, request.MinSpend, request.MinOrders, request.DeviationPercent))
+        if (!Valid(request.TargetDrr, request.MinClicks, request.MinSpend, request.MinOrders, request.DeviationPercent) || !ValidCtr(request.MinCtr))
             return BadRequest(new { message = "Нормы должны быть неотрицательными и находиться в допустимых пределах." });
 
         var norms = await db.WbStoreNorms.SingleOrDefaultAsync(x => x.StoreId == storeId, cancellationToken);
@@ -66,6 +66,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
         }
         else norms.Version++;
         norms.TargetDrr = request.TargetDrr;
+        norms.MinCtr = request.MinCtr;
         norms.MinClicks = request.MinClicks;
         norms.MinSpend = request.MinSpend;
         norms.MinOrders = request.MinOrders;
@@ -103,7 +104,8 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
             .Select(x => (Guid?)x.StoreId).SingleOrDefaultAsync(cancellationToken);
         if (!storeId.HasValue) return NotFound();
         if (request.CustomName?.Length > 255 || request.Goal?.Length > 255 ||
-            !Valid(request.TargetDrr, request.MinClicks, request.MinSpend, request.MinOrders, request.DeviationPercent))
+            !Valid(request.TargetDrr, request.MinClicks, request.MinSpend, request.MinOrders, request.DeviationPercent) ||
+            request.MinCtr.HasValue && !ValidCtr(request.MinCtr.Value))
             return BadRequest(new { message = "Проверьте длину названия и допустимые значения норм." });
 
         var norms = await db.WbCampaignNorms.SingleOrDefaultAsync(x => x.CampaignId == campaignId, cancellationToken);
@@ -116,6 +118,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
         norms.CustomName = string.IsNullOrWhiteSpace(request.CustomName) ? null : request.CustomName.Trim();
         norms.Goal = string.IsNullOrWhiteSpace(request.Goal) ? null : request.Goal.Trim();
         norms.TargetDrr = request.TargetDrr;
+        norms.MinCtr = request.MinCtr;
         norms.MinClicks = request.MinClicks;
         norms.MinSpend = request.MinSpend;
         norms.MinOrders = request.MinOrders;
@@ -134,17 +137,18 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
 
     private static StoreNormResponse ToStoreResponse(Guid storeId, WbStoreNorms? norms) =>
         new(storeId, new StoreNormRequest(norms?.TargetDrr ?? 30m, norms?.MinClicks ?? 30,
-            norms?.MinSpend ?? 500m, norms?.MinOrders ?? 3, norms?.DeviationPercent ?? 40m),
+            norms?.MinSpend ?? 500m, norms?.MinOrders ?? 3, norms?.DeviationPercent ?? 40m, norms?.MinCtr ?? 3m),
             norms?.Version ?? 0, norms?.UpdatedAtUtc);
 
     private static CampaignNormResponse ToCampaignResponse(Guid campaignId, WbStoreNorms? store, WbCampaignNorms? campaign)
     {
         var defaults = ToStoreResponse(store?.StoreId ?? Guid.Empty, store).Values;
         var overrides = new CampaignNormRequest(campaign?.CustomName, campaign?.Goal, campaign?.TargetDrr,
-            campaign?.MinClicks, campaign?.MinSpend, campaign?.MinOrders, campaign?.DeviationPercent);
+            campaign?.MinClicks, campaign?.MinSpend, campaign?.MinOrders, campaign?.DeviationPercent, campaign?.MinCtr);
         var effective = new StoreNormRequest(overrides.TargetDrr ?? defaults.TargetDrr,
             overrides.MinClicks ?? defaults.MinClicks, overrides.MinSpend ?? defaults.MinSpend,
-            overrides.MinOrders ?? defaults.MinOrders, overrides.DeviationPercent ?? defaults.DeviationPercent);
+            overrides.MinOrders ?? defaults.MinOrders, overrides.DeviationPercent ?? defaults.DeviationPercent,
+            overrides.MinCtr ?? defaults.MinCtr);
         return new CampaignNormResponse(campaignId, overrides, effective, campaign?.Version ?? 0,
             store?.Version ?? 0, campaign?.UpdatedAtUtc);
     }
@@ -153,6 +157,8 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
         (drr is null or >= 0 and <= 1000) && (clicks is null or >= 0 and <= 1_000_000) &&
         (spend is null or >= 0 and <= 1_000_000_000) && (orders is null or >= 0 and <= 1_000_000) &&
         (deviation is null or >= 0 and <= 1000);
+
+    private static bool ValidCtr(decimal ctr) => ctr is > 0 and <= 100;
 
     private bool TrySellerId(out Guid sellerId) =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out sellerId);
