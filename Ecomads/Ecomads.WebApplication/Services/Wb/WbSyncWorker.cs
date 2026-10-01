@@ -69,6 +69,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             Complete(job, store);
             Record(db, job);
             await db.SaveChangesAsync(cancellationToken);
+            if (job.Status == "completed")
+                await PlanFollowupsAsync(scope.ServiceProvider, job, store, cancellationToken);
             return;
         }
 
@@ -152,6 +154,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             else { job.Stage = "waiting"; job.WaitReason = "rate_limit"; }
             Record(db, job);
             await db.SaveChangesAsync(cancellationToken);
+            if (job.Status == "completed")
+                await PlanFollowupsAsync(scope.ServiceProvider, job, store, cancellationToken);
         }
         catch (WbApiException error)
         {
@@ -212,6 +216,22 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         job.UpdatedAtUtc = DateTime.UtcNow;
         job.CompletedAtUtc = job.UpdatedAtUtc;
         if (job.Kind == "fullstats") store.LastSyncAt = job.UpdatedAtUtc;
+    }
+
+    private async Task PlanFollowupsAsync(IServiceProvider services, WbSyncJob job, Store store,
+        CancellationToken cancellationToken)
+    {
+        if (job.Kind != "fullstats" || job.RunId == null) return;
+        try
+        {
+            var planner = services.GetRequiredService<WbSyncPlanner>();
+            await planner.EnqueueClustersAsync(store, job.RunId.Value, cancellationToken);
+            await planner.EnqueueJamAsync(store, job.RunId.Value, cancellationToken);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            logger.LogError(error, "Could not plan WB follow-up jobs for run {RunId}", job.RunId);
+        }
     }
 
     private static void Record(EcomadsDbContext db, WbSyncJob job) => db.WbSyncJobEvents.Add(new WbSyncJobEvent

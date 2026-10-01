@@ -126,7 +126,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         return $"{name} сейчас загружаются. Новое задание можно запустить после завершения.";
     }
 
-    private static object View(WbSyncJob job)
+    public static object View(WbSyncJob job)
     {
         var total = WbSyncJobUnits.Total(job);
         var remaining = Math.Max(0, total - job.NextCampaignOffset);
@@ -139,7 +139,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             processedCount = job.NextCampaignOffset, totalCount = total,
             unit = WbSyncJobUnits.Unit(job.Kind), estimatedCompletionAtUtc,
             job.CreatedAtUtc, job.StartedAtUtc, job.UpdatedAtUtc, job.CompletedAtUtc,
-            job.NextAttemptAtUtc, job.ErrorCode, job.RetriedFromJobId,
+            job.NextAttemptAtUtc, job.ErrorCode, job.RetriedFromJobId, job.RunId,
             canRetry = job.Status == "failed" && job.ErrorCode is not ("token_missing" or "token_disconnected" or "token_unreadable" or "wb_401" or "wb_403" or "wb_402") };
     }
 }

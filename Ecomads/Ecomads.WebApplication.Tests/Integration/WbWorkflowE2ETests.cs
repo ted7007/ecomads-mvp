@@ -103,6 +103,52 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Refresh_QueuesAllSourcesAndSurvivesCampaignListRateLimit()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        using var factory = new WbFactory(connection, campaignRefreshRateLimited: true);
+        using var client = factory.CreateClient();
+        var seller = TestData.CreateActiveDemoSeller();
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            db.Sellers.Add(seller);
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Add("X-Test-UserId", seller.Id.ToString());
+        using var connected = await client.PostAsJsonAsync("/api/wb/stores/connect", new { token = FakeToken(Guid.NewGuid()) });
+        using var connectedJson = JsonDocument.Parse(await connected.Content.ReadAsStringAsync());
+        var storeId = connectedJson.RootElement.GetProperty("id").GetGuid();
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            var store = await db.Stores.SingleAsync(x => x.Id == storeId);
+            store.CampaignsRefreshedAtUtc = DateTime.UtcNow.AddHours(-2);
+            await db.SaveChangesAsync();
+        }
+        using var refresh = await client.PostAsync($"/api/wb/stores/{storeId}/refresh", null);
+        Assert.Equal(HttpStatusCode.Accepted, refresh.StatusCode);
+        using var response = JsonDocument.Parse(await refresh.Content.ReadAsStringAsync());
+        Assert.False(response.RootElement.GetProperty("campaignsRefreshed").GetBoolean());
+        var runId = response.RootElement.GetProperty("runId").GetGuid();
+        var jobs = response.RootElement.GetProperty("jobs").EnumerateArray().ToArray();
+        Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "fullstats" && x.GetProperty("runId").GetGuid() == runId);
+        Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "funnel" && x.GetProperty("runId").GetGuid() == runId);
+        using var duplicate = await client.PostAsync($"/api/wb/stores/{storeId}/refresh", null);
+        Assert.True(duplicate.IsSuccessStatusCode);
+        await using (var db = postgres.CreateDbContext(connection))
+            Assert.Equal(1, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.Kind == "fullstats"));
+        var followedUp = false;
+        for (var attempt = 0; attempt < 30; attempt++)
+        {
+            await Task.Delay(1000);
+            await using var db = postgres.CreateDbContext(connection);
+            followedUp = await db.WbSyncJobs.AnyAsync(x => x.StoreId == storeId && x.Kind == "clusters" && x.RunId == runId) &&
+                await db.WbSyncJobs.AnyAsync(x => x.StoreId == storeId && x.Kind == "jam" && x.RunId == runId);
+            if (followedUp) break;
+        }
+        Assert.True(followedUp, "Fullstats completion did not queue clusters and Jam.");
+    }
+
+    [Fact]
     public async Task FailedJobRetry_PreservesOriginalAndAllowsOneActiveJobPerKind()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
@@ -394,10 +440,15 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         return $"{Encode(new { alg = "none" })}.{Encode(payload)}.1234";
     }
 
-    private sealed class FakeWbClient : IWbPromotionClient
+    private sealed class FakeWbClient(bool refreshRateLimited = false) : IWbPromotionClient
     {
-        public Task<IReadOnlyList<WbCampaignInfo>> GetCampaignsAsync(string token, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<WbCampaignInfo>>([new WbCampaignInfo(35174765, "WB campaign", 9, "cpm", [123])]);
+        private int campaignListCalls;
+        public Task<IReadOnlyList<WbCampaignInfo>> GetCampaignsAsync(string token, CancellationToken cancellationToken)
+        {
+            if (refreshRateLimited && Interlocked.Increment(ref campaignListCalls) > 1)
+                throw new WbApiException(HttpStatusCode.TooManyRequests, TimeSpan.FromMinutes(30));
+            return Task.FromResult<IReadOnlyList<WbCampaignInfo>>([new WbCampaignInfo(35174765, "WB campaign", 9, "cpm", [123])]);
+        }
 
         public Task<JsonDocument> GetFullStatsAsync(string token, IReadOnlyList<long> campaignIds,
             DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken) =>
@@ -406,7 +457,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
                 "sum_price":100,"views":100,"clicks":10,"atbs":2,"orders":1,"canceled":0,
                 "apps":[{"nms":[{"nmId":123,"name":"Item","sum":10.25,"sum_price":100,
                 "views":100,"clicks":10,"atbs":2,"orders":1,"canceled":0}]}]}]}]
-                """));
+                """.Replace("2026-07-01", endDate.ToString("yyyy-MM-dd"))));
 
         public Task<JsonDocument> GetNormQueryStatsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs,
             DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken) =>
@@ -432,7 +483,15 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         }
     }
 
-    private sealed class WbFactory(string connection, bool funnelForbidden = false) : WebApplicationFactory<Program>
+    private sealed class FakeJamClient : IWbJamClient
+    {
+        public Task<JsonDocument> GetSearchTextsAsync(string token, IReadOnlyList<long> nmIds,
+            DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken) =>
+            Task.FromResult(JsonDocument.Parse("""{"data":{"items":[]}}"""));
+    }
+
+    private sealed class WbFactory(string connection, bool funnelForbidden = false,
+        bool campaignRefreshRateLimited = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -444,9 +503,11 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IWbPromotionClient>();
-                services.AddSingleton<IWbPromotionClient, FakeWbClient>();
+                services.AddSingleton<IWbPromotionClient>(new FakeWbClient(campaignRefreshRateLimited));
                 services.RemoveAll<IWbSalesFunnelClient>();
                 services.AddSingleton<IWbSalesFunnelClient>(new FakeFunnelClient(funnelForbidden));
+                services.RemoveAll<IWbJamClient>();
+                services.AddSingleton<IWbJamClient, FakeJamClient>();
                 services.AddAuthentication(options =>
                     {
                         options.DefaultAuthenticateScheme = "Test";

@@ -88,6 +88,7 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.TokenExpiresAtUtc).HasColumnName("token_expires_at_utc");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.LastSyncAt).HasColumnName("last_sync_at");
+            entity.Property(e => e.CampaignsRefreshedAtUtc).HasColumnName("campaigns_refreshed_at_utc");
             entity.Property(e => e.JamStatus).HasColumnName("jam_status").HasMaxLength(32).HasDefaultValue("unknown");
             entity.Property(e => e.JamCheckedAtUtc).HasColumnName("jam_checked_at_utc");
             entity.Property(e => e.SellerId).HasColumnName("seller_id");
@@ -128,6 +129,7 @@ public class EcomadsDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.Property(e => e.RunId).HasColumnName("run_id");
             entity.Property(e => e.StartDate).HasColumnName("start_date");
             entity.Property(e => e.EndDate).HasColumnName("end_date");
             entity.Property(e => e.CampaignIdsJson).HasColumnName("campaign_ids_json").HasColumnType("jsonb");
@@ -148,6 +150,7 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(80);
             entity.HasIndex(e => new { e.StoreId, e.Status, e.NextAttemptAtUtc });
             entity.HasIndex(e => new { e.StoreId, e.Kind }).IsUnique().HasFilter("status IN ('pending', 'running')");
+            entity.HasIndex(e => new { e.StoreId, e.RunId });
             entity.HasOne<Store>().WithMany().HasForeignKey(e => e.StoreId).OnDelete(DeleteBehavior.Cascade);
         });
 

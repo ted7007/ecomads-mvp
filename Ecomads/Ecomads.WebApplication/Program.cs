@@ -58,6 +58,7 @@ builder.Services.AddScoped<WbFullStatsImporter>();
 builder.Services.AddScoped<WbNormQueryImporter>();
 builder.Services.AddScoped<WbJamImporter>();
 builder.Services.AddScoped<WbSalesFunnelImporter>();
+builder.Services.AddScoped<WbSyncPlanner>();
 builder.Services.AddHostedService<WbSyncWorker>();
 builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();
 builder.Services.AddHostedService<TelegramUpdatesWorker>();

@@ -16,7 +16,8 @@ namespace Ecomads.WebApplication.Controllers;
 public sealed class WbStoresController(
     EcomadsDbContext db,
     IWbPromotionClient wb,
-    IWbTokenService tokens) : ControllerBase
+    IWbTokenService tokens,
+    WbSyncPlanner planner) : ControllerBase
 {
     public sealed record ConnectRequest(string Token);
     public sealed record SyncRequest(DateOnly? StartDate, DateOnly? EndDate, long[]? CampaignIds);
@@ -112,24 +113,7 @@ public sealed class WbStoresController(
             store.Name = "Кабинет WB";
         }
 
-        var existingCampaigns = await db.Campaigns.Where(x => x.StoreId == store.Id).ToListAsync(cancellationToken);
-        var campaignById = existingCampaigns.ToDictionary(x => x.WbCampaignId, StringComparer.Ordinal);
-        var now = DateTime.UtcNow;
-        foreach (var advert in adverts)
-        {
-            var wbId = advert.Id.ToString();
-            if (!campaignById.TryGetValue(wbId, out var campaign))
-            {
-                campaign = new Campaign { Id = Guid.NewGuid(), StoreId = store.Id, WbCampaignId = wbId, CreatedAt = now };
-                db.Campaigns.Add(campaign);
-            }
-            campaign.Name = advert.Name;
-            campaign.IsActive = advert.Status == 9;
-            campaign.WbStatus = advert.Status;
-            campaign.LastSeenAt = now;
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
+        await planner.UpsertCampaignsAsync(store, adverts, cancellationToken);
         return Ok(new StoreResponse(store.Id, store.Name, store.ExternalId, store.TokenLastFour,
             store.TokenExpiresAtUtc.Value, store.LastSyncAt, adverts.Count,
             store.JamStatus, store.JamCheckedAtUtc));
@@ -145,6 +129,18 @@ public sealed class WbStoresController(
             .Select(x => new CampaignListItem(x.Id, x.Name, x.WbCampaignId, x.WbStatus))
             .ToListAsync(cancellationToken);
         return Ok(campaigns);
+    }
+
+    [HttpPost("{storeId:guid}/refresh")]
+    public async Task<IActionResult> Refresh(Guid storeId, CancellationToken cancellationToken)
+    {
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
+        if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
+        var run = await planner.StartRefreshAsync(store, cancellationToken);
+        var response = new { runId = run.RunId, campaignsRefreshed = run.CampaignsRefreshed,
+            jobs = run.Jobs.Select(WbSyncVisibilityController.View), skipped = run.Skipped };
+        return StatusCode(run.AlreadyActive ? StatusCodes.Status200OK : StatusCodes.Status202Accepted, response);
     }
 
     [HttpDelete("{storeId:guid}")]
@@ -205,39 +201,8 @@ public sealed class WbStoresController(
             return BadRequest(new { message = "Выберите завершённый период не более 31 дня." });
         }
 
-        var campaignIds = await db.Campaigns.Where(x => x.StoreId == storeId &&
-            (x.WbStatus == 7 || x.WbStatus == 9 || x.WbStatus == 11))
-            .OrderBy(x => x.WbStatus == 9 ? 0 : x.WbStatus == 11 ? 1 : 2)
-            .Select(x => new { x.WbCampaignId, x.WbStatus }).ToListAsync(cancellationToken);
-        var availableIds = campaignIds
-            .Select(x => long.TryParse(x.WbCampaignId, out var id) ? id : 0)
-            .Where(x => x > 0).ToHashSet();
-        var requestedIds = request?.CampaignIds?.Distinct().ToArray();
-        if (requestedIds is { Length: > 0 } && requestedIds.Any(x => !availableIds.Contains(x)))
-        {
-            return BadRequest(new { message = "Выбрана кампания, недоступная для статистики этого кабинета." });
-        }
-        var ids = requestedIds is { Length: > 0 }
-            ? requestedIds
-            : campaignIds.Where(x => x.WbStatus is 9 or 11)
-                .Select(x => long.TryParse(x.WbCampaignId, out var id) ? id : 0)
-                .Where(x => x > 0).ToArray();
-        if (ids.Length == 0) return BadRequest(new { message = "Нет кампаний WB, для которых доступна статистика." });
-
-        var now = DateTime.UtcNow;
-        var job = new WbSyncJob
-        {
-            Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
-            CampaignIdsJson = JsonSerializer.Serialize(ids), Kind = "fullstats", Status = "pending",
-            CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "fullstats", now, cancellationToken)
-        };
-        PrepareQueuedJob(job);
-        db.WbSyncJobs.Add(job);
-        RecordQueuedJob(job);
-        try { await db.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" }) { return Conflict(new { message = "Другая загрузка уже запущена. Обновите статус." }); }
-        return Accepted(ToSyncResponse(job));
+        var result = await planner.EnqueueFullStatsAsync(store, start, end, request?.CampaignIds, cancellationToken);
+        return result.Job == null ? BadRequest(new { message = result.Reason }) : Accepted(ToSyncResponse(result.Job));
     }
 
     [HttpPost("{storeId:guid}/clusters/sync")]
@@ -257,53 +222,8 @@ public sealed class WbStoresController(
         if (start > end || end > yesterday || end.DayNumber - start.DayNumber > 6)
             return BadRequest(new { message = "Для кластеров выберите завершённый период не более 7 дней." });
 
-        var selectedIds = request?.CampaignIds?.Distinct().ToArray();
-        if (selectedIds is { Length: > 0 })
-        {
-            var ownedIds = await db.Campaigns.Where(x => x.StoreId == storeId)
-                .Select(x => x.WbCampaignId).ToListAsync(cancellationToken);
-            var owned = ownedIds.Where(x => long.TryParse(x, out _)).Select(long.Parse).ToHashSet();
-            if (selectedIds.Any(x => !owned.Contains(x)))
-                return BadRequest(new { message = "Выбрана кампания другого кабинета." });
-        }
-
-        var startUtc = DateTime.SpecifyKind(start.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var endUtc = DateTime.SpecifyKind(end.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var coveringJobs = await db.WbSyncJobs.AsNoTracking()
-            .Where(x => x.StoreId == storeId && x.Kind == "fullstats" && x.Status == "completed" &&
-                x.StartDate <= start && x.EndDate >= end)
-            .Select(x => x.CampaignIdsJson).ToListAsync(cancellationToken);
-        var loadedIds = coveringJobs.SelectMany(x => JsonSerializer.Deserialize<long[]>(x) ?? [])
-            .ToHashSet();
-        var observed = await (from stat in db.CampaignNomenclatureStatistics
-            join campaign in db.Campaigns on stat.CampaignId equals campaign.Id
-            join article in db.Nomenclatures on stat.NomenclatureId equals article.Id
-            where campaign.StoreId == storeId && stat.Date >= startUtc && stat.Date <= endUtc
-            select new { campaign.WbCampaignId, article.WbNomenclatureId })
-            .Distinct().ToListAsync(cancellationToken);
-        var pairs = observed.Where(x => long.TryParse(x.WbCampaignId, out _) &&
-                long.TryParse(x.WbNomenclatureId, out _))
-            .Select(x => new WbNormQueryPair(long.Parse(x.WbCampaignId), long.Parse(x.WbNomenclatureId)))
-            .Where(x => loadedIds.Contains(x.AdvertId) &&
-                (selectedIds is not { Length: > 0 } || selectedIds.Contains(x.AdvertId)))
-            .ToArray();
-        if (pairs.Length == 0)
-            return BadRequest(new { message = "Сначала загрузите статистику выбранных кампаний за этот период." });
-
-        var now = DateTime.UtcNow;
-        var job = new WbSyncJob
-        {
-            Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
-            CampaignIdsJson = "[]", PairIdsJson = JsonSerializer.Serialize(pairs), Kind = "clusters", Status = "pending",
-            CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "clusters", now, cancellationToken)
-        };
-        PrepareQueuedJob(job);
-        db.WbSyncJobs.Add(job);
-        RecordQueuedJob(job);
-        try { await db.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" }) { return Conflict(new { message = "Другая загрузка уже запущена. Обновите статус." }); }
-        return Accepted(ToSyncResponse(job));
+        var result = await planner.EnqueueClustersAsync(store, start, end, request?.CampaignIds, cancellationToken);
+        return result.Job == null ? BadRequest(new { message = result.Reason }) : Accepted(ToSyncResponse(result.Job));
     }
 
     [HttpPost("{storeId:guid}/jam/sync")]
@@ -324,45 +244,8 @@ public sealed class WbStoresController(
         if (start > end || end > yesterday || end.DayNumber - start.DayNumber > 6)
             return BadRequest(new { message = "Для отчёта Джема выберите завершённый период не более 7 дней." });
 
-        var selectedIds = request?.CampaignIds?.Distinct().ToArray();
-        if (selectedIds is { Length: > 0 })
-        {
-            var ownedIds = await db.Campaigns.Where(x => x.StoreId == storeId)
-                .Select(x => x.WbCampaignId).ToListAsync(cancellationToken);
-            var owned = ownedIds.Where(x => long.TryParse(x, out _)).Select(long.Parse).ToHashSet();
-            if (selectedIds.Any(x => !owned.Contains(x)))
-                return BadRequest(new { message = "Выбрана кампания другого кабинета." });
-        }
-
-        var fromUtc = DateTime.SpecifyKind(start.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var throughUtc = DateTime.SpecifyKind(end.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var observed = await (from stat in db.CampaignNomenclatureStatistics
-            join campaign in db.Campaigns on stat.CampaignId equals campaign.Id
-            join article in db.Nomenclatures on stat.NomenclatureId equals article.Id
-            where campaign.StoreId == storeId && stat.Date >= fromUtc && stat.Date <= throughUtc
-            select new { campaign.WbCampaignId, article.WbNomenclatureId })
-            .Distinct().ToListAsync(cancellationToken);
-        var ids = observed.Where(x => selectedIds is not { Length: > 0 } ||
-                long.TryParse(x.WbCampaignId, out var campaignId) && selectedIds.Contains(campaignId))
-            .Select(x => long.TryParse(x.WbNomenclatureId, out var nmId) ? nmId : 0)
-            .Where(x => x > 0).Distinct().Order().ToArray();
-        if (ids.Length == 0)
-            return BadRequest(new { message = "Сначала загрузите статистику кампаний за этот период." });
-
-        var now = DateTime.UtcNow;
-        var job = new WbSyncJob
-        {
-            Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
-            CampaignIdsJson = JsonSerializer.Serialize(ids), Kind = "jam", Status = "pending",
-            CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "jam", now, cancellationToken)
-        };
-        PrepareQueuedJob(job);
-        db.WbSyncJobs.Add(job);
-        RecordQueuedJob(job);
-        try { await db.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" }) { return Conflict(new { message = "Другая загрузка уже запущена. Обновите статус." }); }
-        return Accepted(ToSyncResponse(job));
+        var result = await planner.EnqueueJamAsync(store, start, end, request?.CampaignIds, cancellationToken);
+        return result.Job == null ? BadRequest(new { message = result.Reason }) : Accepted(ToSyncResponse(result.Job));
     }
 
     [HttpPost("{storeId:guid}/funnel/sync")]
@@ -374,39 +257,9 @@ public sealed class WbStoresController(
         var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId && x.Kind == "funnel" &&
             (x.Status == "pending" || x.Status == "running"), cancellationToken);
         if (active != null) return Ok(ToSyncResponse(active));
-
-        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
-        var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
-        var now = DateTime.UtcNow;
-        var job = new WbSyncJob
-        {
-            Id = Guid.NewGuid(), StoreId = storeId, StartDate = yesterday.AddDays(-6), EndDate = yesterday,
-            CampaignIdsJson = "[]", Kind = "funnel", Status = "pending",
-            CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "funnel", now, cancellationToken)
-        };
-        PrepareQueuedJob(job);
-        db.WbSyncJobs.Add(job);
-        RecordQueuedJob(job);
-        try { await db.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" })
-        { return Conflict(new { message = "Загрузка заказов уже запущена. Обновите статус." }); }
-        return Accepted(ToSyncResponse(job));
+        var result = await planner.EnqueueFunnelAsync(store, cancellationToken);
+        return Accepted(ToSyncResponse(result.Job!));
     }
-
-    private static void PrepareQueuedJob(WbSyncJob job)
-    {
-        if (job.NextAttemptAtUtc > job.CreatedAtUtc.AddSeconds(5))
-        {
-            job.Stage = "waiting";
-            job.WaitReason = "rate_limit";
-        }
-    }
-
-    private void RecordQueuedJob(WbSyncJob job) => db.WbSyncJobEvents.Add(new WbSyncJobEvent
-    {
-        JobId = job.Id, OccurredAtUtc = job.CreatedAtUtc, Stage = job.Stage
-    });
 
     private static SyncResponse ToSyncResponse(WbSyncJob job)
     {

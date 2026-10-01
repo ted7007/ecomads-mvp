@@ -4,6 +4,7 @@ public sealed class WbSyncJob
 {
     public Guid Id { get; set; }
     public Guid StoreId { get; set; }
+    public Guid? RunId { get; set; }
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
     public string CampaignIdsJson { get; set; } = "[]";
