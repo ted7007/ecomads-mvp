@@ -1,8 +1,8 @@
-import { Alert, Box, Button, Chip, Collapse, Divider, MenuItem, Select, Stack, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Collapse, MenuItem, Select, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { getWbSyncDetails, getWbSyncHistory, retryWbSync } from './wbStoresApi';
-import type { WbSyncJob, WbSyncOverview } from './wbStoresApi';
+import type { WbRefreshResult, WbSyncJob, WbSyncOverview } from './wbStoresApi';
 
 const labels: Record<string, string> = { fullstats: 'Статистика кампаний', funnel: 'Все заказы (воронка продаж)',
   clusters: 'Поисковые кластеры', jam: 'Поисковые запросы Джема' };
@@ -86,7 +86,7 @@ function JobDetails({ storeId, job }: { storeId: string; job: WbSyncJob }) {
     {job.canRetry ? <Button size="small" disabled={retry.isPending} onClick={() => retry.mutate()}>Повторить</Button> : null}
     <Collapse in={open}><Box sx={{ p: 1.5, bgcolor: 'rgba(0,122,255,.04)', borderRadius: '8px' }}>
       <Typography variant="body2">Задание {job.id} · создано {moscowTime(job.createdAtUtc)}</Typography>
-      {details.data?.campaignIds.length ? <Typography variant="body2">ID кампаний: {details.data.campaignIds.join(', ')}</Typography> : null}
+      {job.kind === 'fullstats' ? <Typography variant="body2">Кампаний: {details.data?.campaignIds.length ?? job.totalCount}</Typography> : null}
       {details.data?.events.map((event, index) => <Typography key={`${event.occurredAtUtc}-${index}`} variant="body2" color="text.secondary">
         {moscowTime(event.occurredAtUtc)} · {stages[event.stage] || event.stage} · {event.processedCount} обработано{event.attemptNumber ? ` · попытка ${event.attemptNumber}` : ''}
         {event.errorCode ? ` · ${event.errorCode}` : ''}
@@ -97,11 +97,9 @@ function JobDetails({ storeId, job }: { storeId: string; job: WbSyncJob }) {
   </>;
 }
 
-export function SyncDashboard({ storeId, overview, refresh, error, onStart, startPending, startDisabledReason }: {
+export function SyncDashboard({ storeId, overview, refresh, error, skipped }: {
   storeId: string; overview?: WbSyncOverview; refresh: () => void; error: boolean;
-  onStart?: (kind: 'fullstats' | 'clusters' | 'jam') => void;
-  startPending?: boolean;
-  startDisabledReason?: string | null;
+  skipped: WbRefreshResult['skipped'];
 }) {
   const [page, setPage] = useState(1);
   const [kind, setKind] = useState('');
@@ -120,26 +118,27 @@ export function SyncDashboard({ storeId, overview, refresh, error, onStart, star
     {overview?.sources.map((source) => <Box key={source.kind} sx={{ py: 1, borderTop: '1px solid', borderColor: 'divider' }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
         <Typography fontWeight={700}>{labels[source.kind]}</Typography>
-        <Chip size="small" label={jobStatus(source.lastJob)} color={source.lastJob?.status === 'failed' ? 'error' : source.lastJob?.status === 'completed' ? 'success' : 'default'} />
+        <Chip size="small" label={jobStatus(source.activeJob ?? source.lastJob)} color={source.lastJob?.status === 'failed' ? 'error' : source.lastJob?.status === 'completed' ? 'success' : 'default'} />
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>Последняя успешная загрузка: {moscowTime(source.lastSuccessAtUtc)}</Typography>
       {source.lastJob ? <>
         <Typography variant="body2" sx={{ mt: 0.4 }}>Период {jobPeriod(source.lastJob)} · обработано {jobProgress(source.lastJob)}</Typography>
         {source.lastJob.status === 'failed' && source.lastJob.processedCount > 0 ? <Typography variant="body2">Сохранённые данные доступны.</Typography> : null}
         {source.lastJob.errorCode ? <Typography variant="body2" color="error.main">{jobError(source.lastJob.errorCode, source.kind)}</Typography> : null}
-        {source.lastJob.status !== 'completed' && source.lastJob.status !== 'failed' && source.lastJob.waitReason ?
-          <Typography variant="body2">Следующая попытка: {moscowTime(source.lastJob.nextAttemptAtUtc)}.</Typography> : null}
+        {source.activeJob?.waitReason === 'rate_limit' ? <Typography variant="body2">
+          Следующий запрос в {moscowTime(source.activeJob.nextAttemptAtUtc)} — лимит WB.
+        </Typography> : null}
       </> : null}
+      {skipped.find((item) => item.kind === source.kind)?.reason ? <Typography variant="body2" color="text.secondary">
+        Пропущено: {skipped.find((item) => item.kind === source.kind)?.reason}
+      </Typography> : null}
       <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ mt: 0.5 }}>
-        {onStart && source.kind !== 'funnel' ? <Button size="small" variant="outlined" disabled={Boolean(overview.activeJob) || startPending || Boolean(startDisabledReason) || !overview}
-          onClick={() => { if (source.kind !== 'funnel') onStart(source.kind); }}>Загрузить</Button> : null}
         {source.lastJob ? <JobDetails storeId={storeId} job={source.lastJob} /> : null}
       </Stack>
-      {overview.activeJob ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.4 }}>{blockingReason(overview)}</Typography> : null}
-      {startDisabledReason ? <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.4 }}>{startDisabledReason}</Typography> : null}
     </Box>)}
-    <Divider />
-    <Typography variant="h6" fontWeight={800}>История загрузок</Typography>
+    <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}>
+      <AccordionSummary expandIcon="⌄"><Typography fontWeight={700}>Журнал загрузок</Typography></AccordionSummary>
+      <AccordionDetails><Stack spacing={1.5}>
     <Stack direction="row" gap={1} flexWrap="wrap">
       <Select size="small" value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }} displayEmpty aria-label="Тип загрузки">
         <MenuItem value="">Все источники</MenuItem>{Object.entries(labels).map(([key, label]) => <MenuItem value={key} key={key}>{label}</MenuItem>)}
@@ -173,5 +172,7 @@ export function SyncDashboard({ storeId, overview, refresh, error, onStart, star
       <Typography>{page} из {Math.ceil(history.data.total / 10)}</Typography>
       <Button disabled={page * 10 >= history.data.total} onClick={() => setPage(page + 1)}>Вперёд</Button>
     </Stack> : null}
+      </Stack></AccordionDetails>
+    </Accordion>
   </Stack>;
 }

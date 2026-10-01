@@ -1,16 +1,13 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, startWbClusterSync, startWbJamSync, startWbSync } from './wbStoresApi';
+import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, refreshWbStore } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
 import { createTelegramLink, disconnectTelegramChat, getTelegramChats, sendYesterdaySummary } from './telegramApi';
 import { SyncDashboard } from './SyncDashboard';
 
 function StoreCard({ store }: { store: WbStore }) {
   const [error, setError] = useState<string | null>(null);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [campaignIds, setCampaignIds] = useState('');
   const queryClient = useQueryClient();
   const sync = useQuery({
     queryKey: ['wb-sync-overview', store.id],
@@ -27,51 +24,26 @@ function StoreCard({ store }: { store: WbStore }) {
       void queryClient.invalidateQueries({ queryKey: ['wb-jam'] });
     }
   }, [queryClient, sync.data?.sources]);
-  const start = useMutation({
-    mutationFn: () => startWbSync(store.id, {
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-      campaignIds: campaignIds.trim() ? campaignIds.split(',').map((id) => Number(id.trim())) : undefined
-    }),
+  const refreshAll = useMutation({
+    mutationFn: () => refreshWbStore(store.id),
     onSuccess: async () => {
       setError(null);
       await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
       await queryClient.invalidateQueries({ queryKey: ['wb-sync-history', store.id] });
     },
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить сбор')
-  });
-  const startClusters = useMutation({
-    mutationFn: () => startWbClusterSync(store.id, {
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-      campaignIds: campaignIds.trim() ? campaignIds.split(',').map((id) => Number(id.trim())) : undefined
-    }),
-    onSuccess: async () => {
-      setError(null);
-      await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
-      await queryClient.invalidateQueries({ queryKey: ['wb-sync-history', store.id] });
-    },
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить сбор кластеров')
-  });
-  const startJam = useMutation({
-    mutationFn: () => startWbJamSync(store.id, {
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-      campaignIds: campaignIds.trim() ? campaignIds.split(',').map((id) => Number(id.trim())) : undefined
-    }),
-    onSuccess: async () => {
-      setError(null);
-      await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
-      await queryClient.invalidateQueries({ queryKey: ['wb-sync-history', store.id] });
-    },
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить отчёт Джема')
+    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить загрузку WB')
   });
   const disconnect = useMutation({
     mutationFn: () => disconnectWbStore(store.id),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['wb-stores'] }),
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отключить кабинет WB')
   });
-  const invalidParameters = Boolean(startDate) !== Boolean(endDate) || Boolean(campaignIds.trim()) && !/^\d+(\s*,\s*\d+)*$/.test(campaignIds.trim());
+  const activeJobs = sync.data?.sources.flatMap((source) => source.activeJob ? [source.activeJob] : []) ?? [];
+  const estimates = activeJobs.map((job) => job.estimatedCompletionAtUtc)
+    .filter((value): value is string => Boolean(value)).sort();
+  const completion = estimates[estimates.length - 1];
+  const completionTime = completion ? new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow',
+    hour: '2-digit', minute: '2-digit' }).format(new Date(completion)) : null;
 
   return (
     <Card>
@@ -82,26 +54,17 @@ function StoreCard({ store }: { store: WbStore }) {
             <Chip label="Подключён" color="success" size="small" variant="outlined" />
           </Stack>
           <Typography variant="body2" color="text.secondary">Кампаний: {store.campaignCount} · токен действует до {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU')}</Typography>
-          <SyncDashboard storeId={store.id} overview={sync.data} refresh={() => { void sync.refetch(); }} error={sync.isError}
-            onStart={(kind) => { if (kind === 'clusters') startClusters.mutate(); else if (kind === 'jam') startJam.mutate(); else start.mutate(); }}
-            startPending={start.isPending || startClusters.isPending || startJam.isPending} startDisabledReason={invalidParameters ? 'Исправьте период или список ID кампаний в параметрах загрузки.' : null} />
-          {error ? <Alert severity="error">{error}</Alert> : null}
-          <Accordion disableGutters elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
-            <AccordionSummary expandIcon="⌄"><Typography fontWeight={700}>Параметры новой загрузки</Typography></AccordionSummary>
-            <AccordionDetails><Stack spacing={1.5}>
-          <Typography variant="body2" color="text.secondary">Без настройки: статистика за 30 завершённых дней, кластеры и Джем за 7 дней. Можно указать обе даты и ID кампаний.</Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <TextField label="С даты" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }} size="small" />
-            <TextField label="По дату" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }} size="small" />
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} gap={1.5}>
+            <Button variant="contained" disabled={activeJobs.length > 0 || refreshAll.isPending} onClick={() => refreshAll.mutate()}
+              sx={{ width: { xs: '100%', sm: 'auto' } }}>Загрузить всё из WB</Button>
+            {activeJobs.length > 0 ? <Typography variant="body2" color="text.secondary">
+              Загрузка идёт{completionTime ? `, завершится примерно в ${completionTime} МСК` : ''}.
+            </Typography> : null}
           </Stack>
-          {Boolean(startDate) !== Boolean(endDate) ? <Typography variant="caption" color="error">Укажите обе даты или оставьте оба поля пустыми.</Typography> : null}
-          <TextField label="ID кампаний через запятую (необязательно)" size="small" value={campaignIds}
-            onChange={(event) => setCampaignIds(event.target.value)}
-            helperText="Можно выбрать завершённые кампании. Пустое поле — все активные и приостановленные." />
-            </Stack></AccordionDetails>
-          </Accordion>
+          <Typography variant="body2" color="text.secondary">Период выбирается автоматически: статистика кампаний — 30 дней, заказы, кластеры и Джем — 7 дней. Запросы идут в пределах лимитов WB.</Typography>
+          <SyncDashboard storeId={store.id} overview={sync.data} refresh={() => { void sync.refetch(); }} error={sync.isError}
+            skipped={refreshAll.data?.skipped ?? []} />
+          {error ? <Alert severity="error">{error}</Alert> : null}
           <Accordion disableGutters elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
             <AccordionSummary expandIcon="⌄"><Typography fontWeight={700}>Настройки подключения</Typography></AccordionSummary>
             <AccordionDetails><Stack spacing={1} alignItems="flex-start">

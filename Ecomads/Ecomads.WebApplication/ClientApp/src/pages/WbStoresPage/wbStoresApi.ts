@@ -39,15 +39,20 @@ const jobSchema = z.object({
   createdAtUtc: z.string(), startedAtUtc: z.string().nullable(),
   updatedAtUtc: z.string(), completedAtUtc: z.string().nullable(),
   nextAttemptAtUtc: z.string(), errorCode: z.string().nullable(),
-  retriedFromJobId: z.string().uuid().nullable(), canRetry: z.boolean()
+  retriedFromJobId: z.string().uuid().nullable(), runId: z.string().uuid().nullable().optional(),
+  estimatedCompletionAtUtc: z.string().nullable().optional(), canRetry: z.boolean()
 });
 export type WbSyncJob = z.infer<typeof jobSchema>;
 const overviewSchema = z.object({
   sources: z.array(z.object({ kind: jobSchema.shape.kind,
-    lastJob: jobSchema.nullable(), lastSuccessAtUtc: z.string().nullable() })),
+    lastJob: jobSchema.nullable(), activeJob: jobSchema.nullable(), blockedReason: z.string().nullable(),
+    lastSuccessAtUtc: z.string().nullable() })),
   activeJob: jobSchema.nullable(), blockedReason: z.string().nullable()
 });
 export type WbSyncOverview = z.infer<typeof overviewSchema>;
+const refreshSchema = z.object({ runId: z.string().uuid(), campaignsRefreshed: z.boolean(),
+  jobs: z.array(jobSchema), skipped: z.array(z.object({ kind: jobSchema.shape.kind, reason: z.string() })) });
+export type WbRefreshResult = z.infer<typeof refreshSchema>;
 const historySchema = z.object({ items: z.array(jobSchema), total: z.number().int(),
   page: z.number().int(), pageSize: z.number().int() });
 const eventSchema = z.object({ occurredAtUtc: z.string(), stage: z.string(), errorCode: z.string().nullable(),
@@ -56,6 +61,10 @@ const detailsSchema = z.object({ job: jobSchema, campaignIds: z.array(z.number()
 
 export async function getWbSyncOverview(storeId: string): Promise<WbSyncOverview> {
   return overviewSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/sync-overview`));
+}
+export async function refreshWbStore(storeId: string): Promise<WbRefreshResult> {
+  return refreshSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/refresh`,
+    { method: 'POST' }));
 }
 export async function getWbSyncHistory(storeId: string, page: number, kind: string, status: string) {
   const query = new URLSearchParams({ page: String(page), pageSize: '10' });
@@ -90,22 +99,3 @@ export async function getWbSync(storeId: string): Promise<WbSync | undefined> {
   return response === undefined ? undefined : syncSchema.parse(response);
 }
 
-export async function startWbSync(storeId: string, request: { startDate?: string; endDate?: string; campaignIds?: number[] }): Promise<WbSync> {
-  return syncSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/sync`, {
-    method: 'POST',
-    body: request
-  }));
-}
-
-export async function startWbClusterSync(storeId: string, request: { startDate?: string; endDate?: string; campaignIds?: number[] }): Promise<WbSync> {
-  return syncSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/clusters/sync`, {
-    method: 'POST',
-    body: request
-  }));
-}
-
-export async function startWbJamSync(storeId: string, request: { startDate?: string; endDate?: string; campaignIds?: number[] }): Promise<WbSync> {
-  return syncSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/jam/sync`, {
-    method: 'POST', body: request
-  }));
-}
