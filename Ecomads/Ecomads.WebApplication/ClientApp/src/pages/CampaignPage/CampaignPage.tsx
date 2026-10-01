@@ -22,6 +22,7 @@ import { RecommendationList } from '../../shared/ui/RecommendationList';
 import { campaignRecommendations, clusterRecommendations } from '../../shared/lib/recommendations';
 import type { MetricKey } from '../../shared/ui/DailyChart';
 import { previousPeriod } from '../../shared/lib/previousPeriod';
+import { completeKpi } from '../../shared/lib/kpiComparison';
 
 export function CampaignPage() {
   const { campaignId } = useParams();
@@ -72,7 +73,7 @@ export function CampaignPage() {
   return <Stack spacing={2.5}>
     <Breadcrumbs aria-label="Навигация"><Link href={`${appRoutes.dashboard}?startDate=${filters.startDate}&endDate=${filters.endDate}`} underline="hover">Сводка</Link>
       <Typography color="text.secondary">Рекламные кампании</Typography><Typography>{summary.data?.name ?? 'Кампания'}</Typography></Breadcrumbs>
-    <PageHeader title={summary.data?.name ?? 'Кампания'} description={summary.data ?
+    <PageHeader compact title={summary.data?.name ?? 'Кампания'} description={summary.data ?
       <Stack spacing={0.5}>
         <Stack direction="row" gap={0.75} useFlexGap flexWrap="wrap" alignItems="center">
           {summary.data.wbStatus != null ? <Chip size="small" label={summary.data.wbStatus === 9 ? 'Активна' : summary.data.wbStatus === 11 ? 'Приостановлена' : `Статус WB: ${summary.data.wbStatus}`}
@@ -98,14 +99,16 @@ export function CampaignPage() {
       onRetry={() => { void summary.refetch(); void clusters.refetch(); void articles.refetch(); }} /> : null}
     {!loading && !error ? <>
       {summary.data && summary.data.kpi.coverageDays < summary.data.kpi.expectedDays ?
-        <Alert severity="warning">Загружено {summary.data.kpi.coverageDays} из {summary.data.kpi.expectedDays} дней. Оценки по этому периоду предварительные.</Alert> : null}
+        <Alert severity="warning" variant="outlined" sx={{ py: 0, '& .MuiAlert-message': { py: 0.5 } }}>Загружено {summary.data.kpi.coverageDays} из {summary.data.kpi.expectedDays} дней. Оценки по этому периоду предварительные.</Alert> : null}
+      <Stack spacing={0.5}>
       <CampaignKpiGrid campaign={summary.data ?? null} priorCampaign={priorSummary.data ?? null}
         selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
-      <Typography variant="caption" color="text.secondary" sx={{ px: .5 }}>
+      {!completeKpi(summary.data) || !completeKpi(priorSummary.data) ? <Typography variant="caption" color="text.secondary" sx={{ px: .5 }}>
         Сравнение KPI появится после полной загрузки обоих периодов.
-      </Typography>
+      </Typography> : null}
+      </Stack>
       <Card><CardContent>{daily.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
-        <DailyChart days={daily.data ?? []} previousDays={priorDaily.data ?? []} title="Динамика кампании" selectedMetrics={selectedMetrics} />}
+        <DailyChart days={daily.data ?? []} previousDays={priorDaily.data ?? []} selectedMetrics={selectedMetrics} />}
         {trend.isError ? <Alert severity="error">Не удалось загрузить сравнение расходов.</Alert> : null}
         {trend.data?.status === 'no_baseline' ? <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Сравнение расхода: за предыдущие семь дней расход был нулевым, поэтому процент не рассчитывается.

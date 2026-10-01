@@ -40,7 +40,7 @@ function paths(values: (number | null)[], x: (index: number) => number, y: (valu
   return result;
 }
 
-export function DailyChart({ days, title = 'Динамика показателей', selectedMetrics, previousDays = [] }: {
+export function DailyChart({ days, title, selectedMetrics, previousDays = [] }: {
   days: DailyPoint[]; title?: string; selectedMetrics: MetricKey[]; previousDays?: DailyPoint[];
 }) {
   const [showPrevious, setShowPrevious] = useState(true);
@@ -77,7 +77,7 @@ export function DailyChart({ days, title = 'Динамика показател�
   return <Box>
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} gap={1} sx={{ mb: 1 }}>
       <Box>
-        <Typography variant="h6" fontWeight={800}>{title}</Typography>
+        {title ? <Typography variant="h6" fontWeight={800}>{title}</Typography> : null}
         <Typography variant="body2" color="text.secondary">Выбирайте линии карточками KPI · у каждого показателя своя шкала · пропуски не считаются нулём</Typography>
       </Box>
       <FormControlLabel sx={{ m: 0, whiteSpace: 'nowrap' }} control={<Checkbox size="small" checked={showPrevious}

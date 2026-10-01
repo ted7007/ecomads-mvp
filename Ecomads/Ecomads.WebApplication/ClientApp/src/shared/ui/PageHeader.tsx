@@ -5,11 +5,12 @@ type PageHeaderProps = {
   title: string;
   description?: ReactNode;
   actions?: ReactNode;
+  compact?: boolean;
 };
 
-export function PageHeader({ title, description, actions }: PageHeaderProps) {
+export function PageHeader({ title, description, actions, compact = false }: PageHeaderProps) {
   return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} sx={{ mb: 3 }}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} sx={{ mb: compact ? 0 : 3 }}>
       <Stack spacing={0.5}>
         <Typography component="h1" variant="h4" fontWeight={800} color="text.primary">
           {title}
