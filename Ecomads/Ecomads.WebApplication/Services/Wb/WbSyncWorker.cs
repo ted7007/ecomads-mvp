@@ -9,9 +9,6 @@ namespace Ecomads.WebApplication.Services.Wb;
 
 public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWorker> logger) : BackgroundService
 {
-    // Basic tokens are conservatively limited to one fullstats request per hour per seller.
-    private static readonly TimeSpan FullStatsInterval = TimeSpan.FromHours(1);
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -66,7 +63,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         var pairs = job.Kind == "clusters"
             ? JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []
             : [];
-        var total = job.Kind == "clusters" ? pairs.Length : ids.Length;
+        var total = WbSyncJobUnits.Total(job);
         if (job.NextCampaignOffset >= total)
         {
             Complete(job, store);
@@ -80,7 +77,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         job.Stage = "requesting";
         job.WaitReason = null;
         job.StartedAtUtc ??= now;
-        job.NextAttemptAtUtc = now.Add(FullStatsInterval);
+        job.NextAttemptAtUtc = now.Add(WbRateLimits.IntervalFor(job.Kind));
         job.LastRequestAtUtc = now;
         job.UpdatedAtUtc = now;
         Record(db, job);
@@ -89,8 +86,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
 
         var wb = scope.ServiceProvider.GetRequiredService<IWbPromotionClient>();
         var tokens = scope.ServiceProvider.GetRequiredService<IWbTokenService>();
-        var batch = ids.Skip(job.NextCampaignOffset).Take(50).ToArray();
-        var pairBatch = pairs.Skip(job.NextCampaignOffset).Take(100).ToArray();
+        var batch = ids.Skip(job.NextCampaignOffset).Take(WbSyncJobUnits.BatchSize(job.Kind)).ToArray();
+        var pairBatch = pairs.Skip(job.NextCampaignOffset).Take(WbSyncJobUnits.BatchSize(job.Kind)).ToArray();
         try
         {
             var token = tokens.Unprotect(store.ApiKey);

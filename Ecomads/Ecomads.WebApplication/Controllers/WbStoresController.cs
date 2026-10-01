@@ -192,11 +192,9 @@ public sealed class WbStoresController(
         var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
         if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
 
-        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId &&
+        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId && x.Kind == "fullstats" &&
             (x.Status == "pending" || x.Status == "running"), cancellationToken);
-        if (active != null) return active.Kind == "fullstats"
-            ? Ok(ToSyncResponse(active))
-            : Conflict(new { message = "Сначала дождитесь завершения сбора кластеров." });
+        if (active != null) return Ok(ToSyncResponse(active));
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
@@ -226,16 +224,13 @@ public sealed class WbStoresController(
                 .Where(x => x > 0).ToArray();
         if (ids.Length == 0) return BadRequest(new { message = "Нет кампаний WB, для которых доступна статистика." });
 
-        var lastRequest = await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.LastRequestAtUtc != null)
-            .MaxAsync(x => x.LastRequestAtUtc, cancellationToken);
         var now = DateTime.UtcNow;
         var job = new WbSyncJob
         {
             Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
             CampaignIdsJson = JsonSerializer.Serialize(ids), Kind = "fullstats", Status = "pending",
             CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
-                ? lastRequest.Value.AddHours(1) : now
+            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "fullstats", now, cancellationToken)
         };
         PrepareQueuedJob(job);
         db.WbSyncJobs.Add(job);
@@ -251,11 +246,9 @@ public sealed class WbStoresController(
         if (!TrySellerId(out var sellerId)) return Unauthorized();
         var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
         if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
-        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId &&
+        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId && x.Kind == "clusters" &&
             (x.Status == "pending" || x.Status == "running"), cancellationToken);
-        if (active != null) return active.Kind == "clusters"
-            ? Ok(ToSyncResponse(active))
-            : Conflict(new { message = "Сначала дождитесь завершения сбора статистики кампаний." });
+        if (active != null) return Ok(ToSyncResponse(active));
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
@@ -297,16 +290,13 @@ public sealed class WbStoresController(
         if (pairs.Length == 0)
             return BadRequest(new { message = "Сначала загрузите статистику выбранных кампаний за этот период." });
 
-        var lastRequest = await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.LastRequestAtUtc != null)
-            .MaxAsync(x => x.LastRequestAtUtc, cancellationToken);
         var now = DateTime.UtcNow;
         var job = new WbSyncJob
         {
             Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
             CampaignIdsJson = "[]", PairIdsJson = JsonSerializer.Serialize(pairs), Kind = "clusters", Status = "pending",
             CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
-                ? lastRequest.Value.AddHours(1) : now
+            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "clusters", now, cancellationToken)
         };
         PrepareQueuedJob(job);
         db.WbSyncJobs.Add(job);
@@ -323,11 +313,9 @@ public sealed class WbStoresController(
         if (!TrySellerId(out var sellerId)) return Unauthorized();
         var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
         if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
-        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId &&
+        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId && x.Kind == "jam" &&
             (x.Status == "pending" || x.Status == "running"), cancellationToken);
-        if (active != null) return active.Kind == "jam"
-            ? Ok(ToSyncResponse(active))
-            : Conflict(new { message = "Дождитесь завершения текущего сбора WB." });
+        if (active != null) return Ok(ToSyncResponse(active));
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
@@ -361,16 +349,13 @@ public sealed class WbStoresController(
         if (ids.Length == 0)
             return BadRequest(new { message = "Сначала загрузите статистику кампаний за этот период." });
 
-        var lastRequest = await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.LastRequestAtUtc != null)
-            .MaxAsync(x => x.LastRequestAtUtc, cancellationToken);
         var now = DateTime.UtcNow;
         var job = new WbSyncJob
         {
             Id = Guid.NewGuid(), StoreId = storeId, StartDate = start, EndDate = end,
             CampaignIdsJson = JsonSerializer.Serialize(ids), Kind = "jam", Status = "pending",
             CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
-                ? lastRequest.Value.AddHours(1) : now
+            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "jam", now, cancellationToken)
         };
         PrepareQueuedJob(job);
         db.WbSyncJobs.Add(job);
@@ -396,9 +381,7 @@ public sealed class WbStoresController(
 
     private static SyncResponse ToSyncResponse(WbSyncJob job)
     {
-        var total = job.Kind == "clusters"
-            ? (JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []).Length
-            : (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length;
+        var total = WbSyncJobUnits.Total(job);
         return new SyncResponse(job.Id, job.Kind, job.Status, job.StartDate, job.EndDate,
             job.NextCampaignOffset, total, job.NextAttemptAtUtc, job.ErrorCode);
     }

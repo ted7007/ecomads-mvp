@@ -25,7 +25,7 @@ namespace Ecomads.WebApplication.Tests.Integration;
 public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
 {
     [Fact]
-    public async Task FailedJobRetry_PreservesOriginalAndAllowsOnlyOneActiveJob()
+    public async Task FailedJobRetry_PreservesOriginalAndAllowsOneActiveJobPerKind()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
         using var factory = new WbFactory(connection);
@@ -65,8 +65,28 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
         await using (var db = postgres.CreateDbContext(connection))
         {
+            var clusterLastRequest = now.AddMinutes(-10);
+            db.WbSyncJobs.Add(new WbSyncJob
+            {
+                Id = Guid.NewGuid(), StoreId = storeId, Kind = "clusters", Status = "completed", Stage = "completed",
+                StartDate = new DateOnly(2026, 7, 1), EndDate = new DateOnly(2026, 7, 2),
+                CampaignIdsJson = "[]", PairIdsJson = "[]", CreatedAtUtc = now.AddMinutes(-11),
+                UpdatedAtUtc = now.AddMinutes(-9), CompletedAtUtc = now.AddMinutes(-9),
+                LastRequestAtUtc = clusterLastRequest, NextAttemptAtUtc = now
+            });
+            await db.SaveChangesAsync();
+            Assert.InRange(await WbRateLimits.NextSlotAsync(db, storeId, "clusters", now, CancellationToken.None),
+                now.AddMinutes(19), now.AddMinutes(21));
+            db.WbSyncJobs.Add(new WbSyncJob
+            {
+                Id = Guid.NewGuid(), StoreId = storeId, Kind = "clusters", Status = "pending", Stage = "waiting",
+                StartDate = new DateOnly(2026, 7, 1), EndDate = new DateOnly(2026, 7, 2),
+                CampaignIdsJson = "[]", PairIdsJson = "[]", CreatedAtUtc = now, UpdatedAtUtc = now,
+                NextAttemptAtUtc = now.AddMinutes(20)
+            });
+            await db.SaveChangesAsync();
             Assert.Equal("failed", (await db.WbSyncJobs.SingleAsync(x => x.Id == failedId)).Status);
-            Assert.Equal(1, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId &&
+            Assert.Equal(2, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId &&
                 (x.Status == "pending" || x.Status == "running")));
         }
     }

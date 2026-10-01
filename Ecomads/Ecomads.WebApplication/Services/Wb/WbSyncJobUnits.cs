@@ -1,0 +1,29 @@
+using System.Text.Json;
+using Ecomads.WebApplication.Data.Models;
+
+namespace Ecomads.WebApplication.Services.Wb;
+
+public static class WbSyncJobUnits
+{
+    public static int Total(WbSyncJob job) => job.Kind switch
+    {
+        "clusters" => (JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []).Length,
+        "funnel" => 1,
+        _ => (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length
+    };
+
+    public static int BatchSize(string kind) => kind switch
+    {
+        "clusters" => 100,
+        "funnel" => 1,
+        _ => 50
+    };
+
+    public static string Unit(string kind) => kind switch
+    {
+        "clusters" => "pair",
+        "jam" => "product",
+        "funnel" => "request",
+        _ => "campaign"
+    };
+}

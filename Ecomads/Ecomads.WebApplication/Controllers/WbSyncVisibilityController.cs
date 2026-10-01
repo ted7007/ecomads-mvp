@@ -22,9 +22,10 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
     public async Task<IActionResult> Overview(Guid storeId, CancellationToken cancellationToken)
     {
         if (!await Owns(storeId, cancellationToken)) return NotFound();
-        var active = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
+        var activeJobs = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
             (x.Status == "pending" || x.Status == "running"))
-            .OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
+            .OrderBy(x => x.CreatedAtUtc).ToListAsync(cancellationToken);
+        var active = activeJobs.FirstOrDefault();
         var sources = new List<object>();
         foreach (var kind in Kinds)
         {
@@ -33,7 +34,11 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             var success = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
                 x.Kind == kind && x.Status == "completed")
                 .OrderByDescending(x => x.CompletedAtUtc).FirstOrDefaultAsync(cancellationToken);
-            sources.Add(new { kind, lastJob = last == null ? null : View(last), lastSuccessAtUtc = success?.CompletedAtUtc ?? success?.UpdatedAtUtc });
+            var kindActive = activeJobs.FirstOrDefault(x => x.Kind == kind);
+            sources.Add(new { kind, lastJob = last == null ? null : View(last),
+                activeJob = kindActive == null ? null : View(kindActive),
+                blockedReason = kindActive == null ? null : BlockedReason(kindActive),
+                lastSuccessAtUtc = success?.CompletedAtUtc ?? success?.UpdatedAtUtc });
         }
         return Ok(new { sources, activeJob = active == null ? null : View(active),
             blockedReason = active == null ? null : BlockedReason(active) });
@@ -81,10 +86,9 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         if (failed.Status != "failed") return Conflict(new { message = "Повтор доступен только для завершившегося ошибкой задания." });
         if (failed.ErrorCode is "token_missing" or "token_disconnected" or "token_unreadable" or "wb_401" or "wb_403" or "wb_402")
             return Conflict(new { message = "Сначала исправьте подключение или доступ к данным WB." });
-        if (await db.WbSyncJobs.AnyAsync(x => x.StoreId == storeId && (x.Status == "pending" || x.Status == "running"), cancellationToken))
+        if (await db.WbSyncJobs.AnyAsync(x => x.StoreId == storeId && x.Kind == failed.Kind &&
+            (x.Status == "pending" || x.Status == "running"), cancellationToken))
             return Conflict(new { message = "Дождитесь завершения текущей загрузки." });
-        var lastRequest = await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.LastRequestAtUtc != null)
-            .MaxAsync(x => x.LastRequestAtUtc, cancellationToken);
         var now = DateTime.UtcNow;
         var retry = new WbSyncJob
         {
@@ -93,8 +97,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             CampaignIdsJson = failed.CampaignIdsJson, PairIdsJson = failed.PairIdsJson,
             NextCampaignOffset = failed.NextCampaignOffset, RetriedFromJobId = failed.Id,
             Status = "pending", Stage = "queued", CreatedAtUtc = now, UpdatedAtUtc = now,
-            NextAttemptAtUtc = lastRequest.HasValue && lastRequest.Value.AddHours(1) > now
-                ? lastRequest.Value.AddHours(1) : now
+            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, failed.Kind, now, cancellationToken)
         };
         if (retry.NextAttemptAtUtc > now) { retry.Stage = "waiting"; retry.WaitReason = "rate_limit"; }
         db.WbSyncJobs.Add(retry);
@@ -124,14 +127,16 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
 
     private static object View(WbSyncJob job)
     {
-        var total = job.Kind == "clusters"
-            ? (JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []).Length
-            : (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length;
+        var total = WbSyncJobUnits.Total(job);
+        var remaining = Math.Max(0, total - job.NextCampaignOffset);
+        var requests = (remaining + WbSyncJobUnits.BatchSize(job.Kind) - 1) / WbSyncJobUnits.BatchSize(job.Kind);
+        DateTime? estimatedCompletionAtUtc = (job.Status is "pending" or "running") && requests > 0
+            ? job.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(job.Kind).Ticks * (requests - 1)) : null;
         var stage = job.Stage == "queued" && job.Status == "completed" ? "completed" :
             job.Stage == "queued" && job.Status == "failed" ? "failed" : job.Stage;
         return new { job.Id, job.Kind, job.Status, stage, job.WaitReason, job.StartDate, job.EndDate,
             processedCount = job.NextCampaignOffset, totalCount = total,
-            unit = job.Kind == "clusters" ? "pair" : job.Kind == "jam" ? "product" : "campaign",
+            unit = WbSyncJobUnits.Unit(job.Kind), estimatedCompletionAtUtc,
             job.CreatedAtUtc, job.StartedAtUtc, job.UpdatedAtUtc, job.CompletedAtUtc,
             job.NextAttemptAtUtc, job.ErrorCode, job.RetriedFromJobId,
             canRetry = job.Status == "failed" && job.ErrorCode is not ("token_missing" or "token_disconnected" or "token_unreadable" or "wb_401" or "wb_403" or "wb_402") };

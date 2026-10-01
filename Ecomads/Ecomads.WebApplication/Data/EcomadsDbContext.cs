@@ -146,7 +146,7 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.LastRequestAtUtc).HasColumnName("last_request_at_utc");
             entity.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(80);
             entity.HasIndex(e => new { e.StoreId, e.Status, e.NextAttemptAtUtc });
-            entity.HasIndex(e => e.StoreId).IsUnique().HasFilter("status IN ('pending', 'running')");
+            entity.HasIndex(e => new { e.StoreId, e.Kind }).IsUnique().HasFilter("status IN ('pending', 'running')");
             entity.HasOne<Store>().WithMany().HasForeignKey(e => e.StoreId).OnDelete(DeleteBehavior.Cascade);
         });
 
