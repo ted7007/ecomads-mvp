@@ -106,13 +106,8 @@ export function DashboardPage() {
           </Stack>}
           </Stack>
 
-          <Stack spacing={0.5}>
           <DashboardKpiGrid campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []}
             selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
-          <Typography variant="caption" color="text.secondary" sx={{ px: .5 }}>
-            Сравнение появится после полной загрузки обоих периодов. Все заказы кабинета и ДРР от них пока недоступны; здесь показаны рекламные данные.
-          </Typography>
-          </Stack>
 
           <Card><CardContent>
             {dailyQuery.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :

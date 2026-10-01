@@ -22,7 +22,6 @@ import { RecommendationList } from '../../shared/ui/RecommendationList';
 import { campaignRecommendations, clusterRecommendations } from '../../shared/lib/recommendations';
 import type { MetricKey } from '../../shared/ui/DailyChart';
 import { previousPeriod } from '../../shared/lib/previousPeriod';
-import { completeKpi } from '../../shared/lib/kpiComparison';
 
 export function CampaignPage() {
   const { campaignId } = useParams();
@@ -100,13 +99,8 @@ export function CampaignPage() {
     {!loading && !error ? <>
       {summary.data && summary.data.kpi.coverageDays < summary.data.kpi.expectedDays ?
         <Alert severity="warning" variant="outlined" sx={{ py: 0, '& .MuiAlert-message': { py: 0.5 } }}>Загружено {summary.data.kpi.coverageDays} из {summary.data.kpi.expectedDays} дней. Оценки по этому периоду предварительные.</Alert> : null}
-      <Stack spacing={0.5}>
       <CampaignKpiGrid campaign={summary.data ?? null} priorCampaign={priorSummary.data ?? null}
         selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
-      {!completeKpi(summary.data) || !completeKpi(priorSummary.data) ? <Typography variant="caption" color="text.secondary" sx={{ px: .5 }}>
-        Сравнение KPI появится после полной загрузки обоих периодов.
-      </Typography> : null}
-      </Stack>
       <Card><CardContent>{daily.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
         <DailyChart days={daily.data ?? []} previousDays={priorDaily.data ?? []} selectedMetrics={selectedMetrics} />}
         {trend.isError ? <Alert severity="error">Не удалось загрузить сравнение расходов.</Alert> : null}
