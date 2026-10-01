@@ -18,6 +18,7 @@ export type KpiCardProps = {
   /** Без обработчика карточка показывается как недоступная и не переключает линию. */
   onToggle?: () => void;
   unavailableReason?: string;
+  hint?: string;
 };
 
 export function KpiGrid({ children }: { children: ReactNode }) {
@@ -29,7 +30,7 @@ export function KpiGrid({ children }: { children: ReactNode }) {
 }
 
 export function KpiCard({ label, color, value, valueColor, delta, deltaTone = 'neutral', previous, note, selected = false,
-  onToggle, unavailableReason }: KpiCardProps) {
+  onToggle, unavailableReason, hint }: KpiCardProps) {
   const unavailable = !onToggle;
   const sx = {
     display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: { xs: 0.5, sm: 0.75 },
@@ -66,6 +67,6 @@ export function KpiCard({ label, color, value, valueColor, delta, deltaTone = 'n
 
   return unavailable ?
     <Box role="group" aria-label={`${label}: ${unavailableReason ?? 'нет данных'}`} title={unavailableReason} sx={sx}>{content}</Box> :
-    <ButtonBase onClick={onToggle} aria-pressed={selected} aria-label={`${label}: ${value}. ${selected ? 'Убрать линию с графика' : 'Показать на графике'}`}
+    <ButtonBase onClick={onToggle} aria-pressed={selected} title={hint} aria-label={`${label}: ${value}. ${selected ? 'Убрать линию с графика' : 'Показать на графике'}`}
       sx={sx}>{content}</ButtonBase>;
 }

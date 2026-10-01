@@ -339,6 +339,26 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(1, days[0].GetProperty("loadedCampaigns").GetInt32());
         Assert.Equal(JsonValueKind.Null, days[1].GetProperty("spend").ValueKind);
         Assert.Equal(0, days[1].GetProperty("loadedCampaigns").GetInt32());
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            db.WbStoreDailyOrders.AddRange(
+                new WbStoreDailyOrders { StoreId = storeId, Date = new DateOnly(2026, 7, 1),
+                    OrderCount = 2, OrderSum = 200m, Source = "history", LoadedAtUtc = DateTime.UtcNow },
+                new WbStoreDailyOrders { StoreId = storeId, Date = new DateOnly(2026, 7, 2),
+                    OrderCount = 1, OrderSum = 80m, Source = "history", LoadedAtUtc = DateTime.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        using var dailyWithOrders = await client.GetAsync("/api/statistics/daily?startDate=2026-07-01&endDate=2026-07-03");
+        using var dailyWithOrdersJson = JsonDocument.Parse(await dailyWithOrders.Content.ReadAsStringAsync());
+        var orderDays = dailyWithOrdersJson.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(200m, orderDays[0].GetProperty("totalOrderSum").GetDecimal());
+        Assert.Equal(2, orderDays[0].GetProperty("totalOrderCount").GetInt32());
+        Assert.Equal(80m, orderDays[1].GetProperty("totalOrderSum").GetDecimal());
+        Assert.Equal(JsonValueKind.Null, orderDays[2].GetProperty("totalOrderSum").ValueKind);
+        using var campaignDaily = await client.GetAsync($"/api/statistics/daily?startDate=2026-07-01&endDate=2026-07-03&campaignId={campaignId}");
+        using var campaignDailyJson = JsonDocument.Parse(await campaignDaily.Content.ReadAsStringAsync());
+        Assert.All(campaignDailyJson.RootElement.EnumerateArray(),
+            day => Assert.Equal(JsonValueKind.Null, day.GetProperty("totalOrderSum").ValueKind));
 
         using var normList = await client.GetAsync($"/api/wb/norms/stores/{storeId}/campaigns");
         Assert.Equal(HttpStatusCode.OK, normList.StatusCode);

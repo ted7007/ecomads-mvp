@@ -5,21 +5,23 @@ import type { DailyPoint } from '../../pages/DashboardPage/dashboardApi';
 import { formatMoney } from '../lib/formatMoney';
 import { formatPercent } from '../lib/formatPercent';
 
-export type MetricKey = 'revenue' | 'spend' | 'drr' | 'ctr' | 'clicks' | 'orders' | 'cpc';
+export type MetricKey = 'revenue' | 'spend' | 'drr' | 'ctr' | 'clicks' | 'orders' | 'cpc' | 'drrTotal';
 export const metricColors: Record<MetricKey, string> = {
   revenue: '#A55EEA', spend: '#F08A00', drr: '#14A394', ctr: '#E0457B',
-  clicks: '#1E7BF2', orders: '#1E7BF2', cpc: '#8A94A3'
+  clicks: '#1E7BF2', orders: '#1E7BF2', cpc: '#8A94A3', drrTotal: '#14A394'
 };
 const labels: Record<MetricKey, string> = {
   revenue: 'Заказы с рекламы', spend: 'Расход', drr: 'ДРР от рекламы', ctr: 'CTR',
-  clicks: 'Клики', orders: 'Заказы с рекламы, шт.', cpc: 'CPC'
+  clicks: 'Клики', orders: 'Заказы', cpc: 'CPC', drrTotal: 'ДРР от заказов'
 };
-const moneyMetrics: MetricKey[] = ['revenue', 'spend', 'cpc'];
+const moneyMetrics: MetricKey[] = ['revenue', 'spend', 'cpc', 'orders'];
 const formatValue = (metric: MetricKey, value: number) => metric === 'cpc' ? formatMoney(value, 1) :
   moneyMetrics.includes(metric) ? formatMoney(value) :
-  metric === 'drr' || metric === 'ctr' ? formatPercent(value, 1) : value.toLocaleString('ru-RU');
+  metric === 'drr' || metric === 'drrTotal' || metric === 'ctr' ? formatPercent(value, 1) : value.toLocaleString('ru-RU');
 const read = (day: DailyPoint, metric: MetricKey): number | null =>
-  metric === 'cpc' ? day.spend !== null && day.clicks ? day.spend / day.clicks : null : day[metric];
+  metric === 'cpc' ? day.spend !== null && day.clicks ? day.spend / day.clicks : null :
+  metric === 'orders' ? day.totalOrderSum ?? null :
+  metric === 'drrTotal' ? day.totalDrr ?? null : day[metric];
 const shortDate = (date: string) => date.slice(8, 10) + '.' + date.slice(5, 7);
 const weekdays = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const dayLabel = (date: string) => `${weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()]} ${shortDate(date)}`;
@@ -63,7 +65,8 @@ export function DailyChart({ days, title, selectedMetrics, previousDays = [] }: 
 
   const series = useMemo(() => {
     const allLoaded = (list: DailyPoint[], metric: MetricKey) => list.every((day) =>
-      day.expectedCampaigns > 0 && day.loadedCampaigns >= day.expectedCampaigns && read(day, metric) !== null);
+      (metric === 'orders' || day.expectedCampaigns > 0 && day.loadedCampaigns >= day.expectedCampaigns) &&
+      read(day, metric) !== null);
     const xAt = (index: number) => left + (days.length <= 1 ? .5 : index / (days.length - 1)) * (right - left);
     return selectedMetrics.map((metric) => {
       const current = days.map((day) => read(day, metric));
@@ -133,7 +136,7 @@ export function DailyChart({ days, title, selectedMetrics, previousDays = [] }: 
     const label = moneyMetrics.includes(item.metric) && Math.abs(value) >= 10000 ?
       `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value / 1000)} тыс.` :
       new Intl.NumberFormat('ru-RU', { maximumFractionDigits: Math.abs(value) < 10 ? 1 : 0 }).format(value) +
-      (item.metric === 'drr' || item.metric === 'ctr' ? '%' : '');
+      (item.metric === 'drr' || item.metric === 'drrTotal' || item.metric === 'ctr' ? '%' : '');
     return <text key={tick} x={side === 'left' ? left - 8 : right + 8}
       y={top + tick * (bottom - top) / 3 + 4} textAnchor={side === 'left' ? 'end' : 'start'}
       fontSize={compact ? 11 : 12} fill={metricColors[item.metric]}>{label}</text>;

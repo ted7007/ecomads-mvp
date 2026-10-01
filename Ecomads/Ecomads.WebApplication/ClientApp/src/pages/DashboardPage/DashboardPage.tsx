@@ -107,6 +107,7 @@ export function DashboardPage() {
           </Stack>
 
           <DashboardKpiGrid campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []}
+            days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []}
             selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
 
           <Card><CardContent>

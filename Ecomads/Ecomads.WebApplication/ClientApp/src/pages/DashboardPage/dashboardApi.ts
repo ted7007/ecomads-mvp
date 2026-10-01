@@ -12,6 +12,8 @@ const dailyPointSchema = z.object({
   date: z.string(), spend: z.number().nullable(), revenue: z.number().nullable(),
   clicks: z.number().int().nullable(), impressions: z.number().int().nullable(),
   orders: z.number().int().nullable(), drr: z.number().nullable(), ctr: z.number().nullable(),
+  totalOrderSum: z.number().nullable().optional(), totalOrderCount: z.number().int().nullable().optional(),
+  totalDrr: z.number().nullable().optional(),
   loadedCampaigns: z.number().int(), expectedCampaigns: z.number().int()
 });
 export type DailyPoint = z.infer<typeof dailyPointSchema>;
