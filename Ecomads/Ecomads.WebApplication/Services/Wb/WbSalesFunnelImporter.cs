@@ -6,8 +6,55 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecomads.WebApplication.Services.Wb;
 
+public sealed record WbFunnelPageState(int Offset = 0, decimal OrderSum = 0m, int OrderCount = 0,
+    decimal PastOrderSum = 0m, int PastOrderCount = 0);
+
 public sealed class WbSalesFunnelImporter(EcomadsDbContext db, ILogger<WbSalesFunnelImporter> logger)
 {
+    public static (WbFunnelPageState State, int ProductCount) ReadProductsPage(JsonElement root,
+        WbFunnelPageState previous)
+    {
+        var products = root.GetProperty("data").GetProperty("products");
+        if (products.ValueKind != JsonValueKind.Array) throw new JsonException("Воронка WB не содержит товары.");
+        var selectedSum = previous.OrderSum;
+        var selectedCount = previous.OrderCount;
+        var pastSum = previous.PastOrderSum;
+        var pastCount = previous.PastOrderCount;
+        foreach (var product in products.EnumerateArray())
+        {
+            var statistic = product.GetProperty("statistic");
+            var selected = statistic.GetProperty("selected");
+            var past = statistic.GetProperty("past");
+            selectedSum += Money(selected, "orderSum");
+            selectedCount += Number(selected, "orderCount");
+            pastSum += Money(past, "orderSum");
+            pastCount += Number(past, "orderCount");
+        }
+        return (new WbFunnelPageState(products.GetArrayLength() == 1000
+            ? previous.Offset + 1000 : previous.Offset, selectedSum, selectedCount, pastSum, pastCount),
+            products.GetArrayLength());
+    }
+
+    public async Task ImportProductsAsync(Guid storeId, DateOnly day, DateOnly pastDay,
+        WbFunnelPageState totals, CancellationToken cancellationToken)
+    {
+        var dates = new[] { day, pastDay };
+        var existing = await db.WbStoreDailyOrders.Where(x => x.StoreId == storeId && dates.Contains(x.Date))
+            .Select(x => x.Date).ToListAsync(cancellationToken);
+        var loadedAt = DateTime.UtcNow;
+        if (!existing.Contains(day)) db.WbStoreDailyOrders.Add(new WbStoreDailyOrders
+        {
+            StoreId = storeId, Date = day, OrderCount = totals.OrderCount, OrderSum = totals.OrderSum,
+            Source = "products", LoadedAtUtc = loadedAt
+        });
+        if (!existing.Contains(pastDay)) db.WbStoreDailyOrders.Add(new WbStoreDailyOrders
+        {
+            StoreId = storeId, Date = pastDay, OrderCount = totals.PastOrderCount, OrderSum = totals.PastOrderSum,
+            Source = "products", LoadedAtUtc = loadedAt
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task ImportAsync(Guid storeId, DateOnly start, DateOnly end, JsonElement root,
         CancellationToken cancellationToken)
     {

@@ -8,7 +8,7 @@ public static class WbSyncJobUnits
     public static int Total(WbSyncJob job) => job.Kind switch
     {
         "clusters" => (JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []).Length,
-        "funnel" => 1,
+        "funnel" => 1 + (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length,
         _ => (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length
     };
 

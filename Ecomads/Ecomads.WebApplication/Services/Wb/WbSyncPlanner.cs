@@ -124,7 +124,9 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var active = await ActiveAsync(store.Id, "funnel", ct);
         if (active != null) return new(active);
         var end = Yesterday();
-        return new(await QueueAsync(store.Id, "funnel", end.AddDays(-6), end, "[]", null, runId, ct));
+        var pairIds = await FunnelPairIdsAsync(store.Id, end, ct);
+        return new(await QueueAsync(store.Id, "funnel", end.AddDays(-6), end,
+            JsonSerializer.Serialize(pairIds), null, runId, ct));
     }
 
     public async Task<WbPlanResult> EnqueueFunnelAsync(Store store, CancellationToken ct)
@@ -132,7 +134,25 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var active = await ActiveAsync(store.Id, "funnel", ct);
         if (active != null) return new(active);
         var end = Yesterday();
-        return new(await QueueAsync(store.Id, "funnel", end.AddDays(-6), end, "[]", null, null, ct));
+        var pairIds = await FunnelPairIdsAsync(store.Id, end, ct);
+        return new(await QueueAsync(store.Id, "funnel", end.AddDays(-6), end,
+            JsonSerializer.Serialize(pairIds), null, null, ct));
+    }
+
+    private async Task<long[]> FunnelPairIdsAsync(Guid storeId, DateOnly yesterday, CancellationToken ct)
+    {
+        var olderStart = yesterday.AddDays(-29);
+        var olderEnd = yesterday.AddDays(-7);
+        var loaded = (await db.WbStoreDailyOrders.Where(x => x.StoreId == storeId &&
+            x.Date >= olderStart && x.Date <= olderEnd).Select(x => x.Date).ToListAsync(ct)).ToHashSet();
+        var firstDays = new List<long>();
+        for (var day = olderStart; day <= olderEnd; day = day.AddDays(1))
+        {
+            if (loaded.Contains(day)) continue;
+            firstDays.Add(long.Parse(day.ToString("yyyyMMdd")));
+            if (day < olderEnd && !loaded.Contains(day.AddDays(1))) day = day.AddDays(1);
+        }
+        return firstDays.ToArray();
     }
 
     public async Task<WbPlanResult> EnqueueClustersAsync(Store store, Guid runId, CancellationToken ct)

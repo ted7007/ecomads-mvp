@@ -96,15 +96,39 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             if (job.Kind == "funnel")
             {
                 var funnel = scope.ServiceProvider.GetRequiredService<IWbSalesFunnelClient>();
-                using var response = await funnel.GetGroupedHistoryAsync(token, job.StartDate, job.EndDate,
-                    cancellationToken);
-                job.Stage = "importing";
-                job.UpdatedAtUtc = DateTime.UtcNow;
-                Record(db, job);
-                await db.SaveChangesAsync(cancellationToken);
                 var importer = scope.ServiceProvider.GetRequiredService<WbSalesFunnelImporter>();
-                await importer.ImportAsync(store.Id, job.StartDate, job.EndDate, response.RootElement, cancellationToken);
-                job.NextCampaignOffset = 1;
+                if (job.NextCampaignOffset == 0)
+                {
+                    using var response = await funnel.GetGroupedHistoryAsync(token, job.StartDate, job.EndDate,
+                        cancellationToken);
+                    job.Stage = "importing";
+                    job.UpdatedAtUtc = DateTime.UtcNow;
+                    Record(db, job);
+                    await db.SaveChangesAsync(cancellationToken);
+                    await importer.ImportAsync(store.Id, job.StartDate, job.EndDate, response.RootElement, cancellationToken);
+                    job.NextCampaignOffset = 1;
+                }
+                else
+                {
+                    var pairStart = DateOnly.ParseExact(ids[job.NextCampaignOffset - 1].ToString(), "yyyyMMdd");
+                    var state = JsonSerializer.Deserialize<WbFunnelPageState>(job.PairIdsJson ?? "null") ?? new();
+                    using var response = await funnel.GetProductsAsync(token, pairStart.AddDays(1), pairStart,
+                        state.Offset, cancellationToken);
+                    var page = WbSalesFunnelImporter.ReadProductsPage(response.RootElement, state);
+                    job.Stage = "importing";
+                    job.UpdatedAtUtc = DateTime.UtcNow;
+                    Record(db, job);
+                    await db.SaveChangesAsync(cancellationToken);
+                    if (page.ProductCount == 1000)
+                        job.PairIdsJson = JsonSerializer.Serialize(page.State);
+                    else
+                    {
+                        await importer.ImportProductsAsync(store.Id, pairStart.AddDays(1), pairStart,
+                            page.State, cancellationToken);
+                        job.PairIdsJson = null;
+                        job.NextCampaignOffset++;
+                    }
+                }
             }
             else if (job.Kind == "clusters")
             {

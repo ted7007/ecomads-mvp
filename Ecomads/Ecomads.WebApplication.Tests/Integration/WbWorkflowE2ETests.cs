@@ -60,6 +60,21 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
             second.RootElement, CancellationToken.None);
         Assert.Equal(170m, (await db.WbStoreDailyOrders.SingleAsync(x => x.Date == new DateOnly(2026, 7, 1))).OrderSum);
+        var product = new { statistic = new { selected = new { orderCount = 1, orderSum = 2m },
+            past = new { orderCount = 1, orderSum = 3m } } };
+        using var pageOne = JsonDocument.Parse(JsonSerializer.Serialize(new
+        { data = new { products = Enumerable.Repeat(product, 1000) } }));
+        using var pageTwo = JsonDocument.Parse(JsonSerializer.Serialize(new
+        { data = new { products = new[] { product } } }));
+        var firstPage = WbSalesFunnelImporter.ReadProductsPage(pageOne.RootElement, new WbFunnelPageState());
+        Assert.Equal(1000, firstPage.ProductCount);
+        Assert.Equal(1000, firstPage.State.Offset);
+        var finalPage = WbSalesFunnelImporter.ReadProductsPage(pageTwo.RootElement, firstPage.State);
+        Assert.Equal(1001, finalPage.State.OrderCount);
+        await importer.ImportProductsAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 6, 30),
+            finalPage.State, CancellationToken.None);
+        Assert.Equal(3003m, (await db.WbStoreDailyOrders.SingleAsync(x => x.Date == new DateOnly(2026, 6, 30))).OrderSum);
+        Assert.Equal(170m, (await db.WbStoreDailyOrders.SingleAsync(x => x.Date == new DateOnly(2026, 7, 1))).OrderSum);
     }
 
     [Theory]
@@ -92,13 +107,13 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
                 .Single(x => x.GetProperty("kind").GetString() == "funnel");
             var job = source.GetProperty("lastJob");
             status = job.GetProperty("status").GetString();
-            if (status is "completed" or "failed")
+            if (status == "failed" || !forbidden && job.GetProperty("processedCount").GetInt32() >= 1)
             {
                 if (forbidden) Assert.Equal("wb_403", job.GetProperty("errorCode").GetString());
                 break;
             }
         }
-        Assert.Equal(forbidden ? "failed" : "completed", status);
+        Assert.Equal(forbidden ? "failed" : "running", status);
         await using var check = postgres.CreateDbContext(connection);
         Assert.Equal(forbidden ? 0 : 7, await check.WbStoreDailyOrders.CountAsync(x => x.StoreId == storeId));
     }
@@ -498,6 +513,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
 
     private sealed class FakeFunnelClient(bool forbidden) : IWbSalesFunnelClient
     {
+        public Task<JsonDocument> GetProductsAsync(string token, DateOnly day, DateOnly pastDay, int offset,
+            CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("""{"data":{"products":[]}}"""));
         public Task<JsonDocument> GetGroupedHistoryAsync(string token, DateOnly start, DateOnly end,
             CancellationToken cancellationToken)
         {
