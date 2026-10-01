@@ -1,9 +1,9 @@
-import { Stack, Typography } from '@mui/material';
+import { Box, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
 type PageHeaderProps = {
   title: string;
-  description?: string;
+  description?: ReactNode;
   actions?: ReactNode;
 };
 
@@ -14,11 +14,8 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
         <Typography component="h1" variant="h4" fontWeight={800} color="text.primary">
           {title}
         </Typography>
-        {description ? (
-          <Typography color="text.secondary">
-            {description}
-          </Typography>
-        ) : null}
+        {description ? (typeof description === 'string' ?
+          <Typography color="text.secondary">{description}</Typography> : <Box>{description}</Box>) : null}
       </Stack>
       {actions}
     </Stack>

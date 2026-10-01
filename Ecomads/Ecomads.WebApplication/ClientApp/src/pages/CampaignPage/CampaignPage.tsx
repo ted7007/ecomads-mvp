@@ -73,7 +73,16 @@ export function CampaignPage() {
     <Breadcrumbs aria-label="Навигация"><Link href={`${appRoutes.dashboard}?startDate=${filters.startDate}&endDate=${filters.endDate}`} underline="hover">Сводка</Link>
       <Typography color="text.secondary">Рекламные кампании</Typography><Typography>{summary.data?.name ?? 'Кампания'}</Typography></Breadcrumbs>
     <PageHeader title={summary.data?.name ?? 'Кампания'} description={summary.data ?
-      `Цель: ${summary.data.goal || 'не задана'} · целевой ДРР рекламы ${formatPercent(summary.data.targetDrr, 1)}` : undefined}
+      <Stack spacing={0.5}>
+        <Stack direction="row" gap={0.75} useFlexGap flexWrap="wrap" alignItems="center">
+          {summary.data.wbStatus != null ? <Chip size="small" label={summary.data.wbStatus === 9 ? 'Активна' : summary.data.wbStatus === 11 ? 'Приостановлена' : `Статус WB: ${summary.data.wbStatus}`}
+            color={summary.data.wbStatus === 9 ? 'success' : 'default'} sx={{ borderRadius: '8px' }} /> : null}
+          {summary.data.goal ? <Chip size="small" variant="outlined" label={`Цель: ${summary.data.goal}`} sx={{ borderRadius: '8px' }} /> : null}
+          <Chip size="small" variant="outlined" color="primary" label={`Норма ДРР рекламы ${formatPercent(summary.data.targetDrr, 1)}`}
+            sx={{ borderRadius: '8px' }} />
+        </Stack>
+        <Typography variant="caption" color="text.secondary">Сравнение с {prior.startDate?.slice(5).split('-').reverse().join('.')} – {prior.endDate?.slice(5).split('-').reverse().join('.')} · даты по МСК</Typography>
+      </Stack> : undefined}
       actions={<PeriodFilter draftFilters={draftFilters} periods={periods.data ?? []}
         onDraftChange={setDraftFilters} onApply={(selected) => {
           const next = { startDate: selected.startDate || undefined, endDate: selected.endDate || undefined };
@@ -83,8 +92,6 @@ export function CampaignPage() {
           if (next.endDate) query.set('endDate', next.endDate);
           setSearchParams(query);
         }} />} />
-    {summary.data?.wbStatus != null ? <Chip label={summary.data.wbStatus === 9 ? 'Активна' : summary.data.wbStatus === 11 ? 'Приостановлена' : `Статус WB: ${summary.data.wbStatus}`}
-      color={summary.data.wbStatus === 9 ? 'success' : 'default'} variant="outlined" sx={{ alignSelf: 'flex-start' }} /> : null}
     {loading ? <LoadingState title="Загружаем кампанию" /> : null}
     {error ? <ErrorState title="Не удалось загрузить кампанию"
       description={error instanceof Error ? error.message : 'Проверьте соединение.'}
