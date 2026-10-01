@@ -127,14 +127,14 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
           <TelegramIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText primary="Группа в Telegram" />
+        <ListItemText primary="Группа в Telegram" primaryTypographyProps={{ fontSize: 13, lineHeight: 1.2 }} />
       </ListItemButton>
 
       <ListItemButton onClick={logout} sx={{ minHeight: 42, px: 1.5, borderRadius: '10px', color: 'text.secondary' }}>
         <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
           <LogoutIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText primary="Выход" />
+        <ListItemText primary="Выход" primaryTypographyProps={{ fontSize: 13, lineHeight: 1.2 }} />
       </ListItemButton>
       </Box>
     </Box>

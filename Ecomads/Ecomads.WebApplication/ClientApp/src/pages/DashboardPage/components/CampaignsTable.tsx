@@ -80,7 +80,7 @@ export function CampaignsTable({ campaigns, priorCampaigns, filters }: { campaig
               <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key)}>{label}</TableSortLabel>
             </TableCell>)}
           <TableCell align="right" sx={{ width: '10%' }}>К пред. пер.</TableCell>
-          {([['revenue', 'Заказы с рекл.'], ['drr', 'ДРР от рекл.']] as const).map(([key, label]) =>
+          {([['revenue', 'Заказы с рекламы'], ['drr', 'ДРР рекламы']] as const).map(([key, label]) =>
             <TableCell key={key} align="right" sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
               <TableSortLabel active={sort === key} direction={sort === key && ascending ? 'asc' : 'desc'} onClick={() => selectSort(key)}>{label}</TableSortLabel>
             </TableCell>)}

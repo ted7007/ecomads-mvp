@@ -108,13 +108,13 @@ export function SyncDashboard({ storeId, overview, refresh, error, onStart, star
     refetchIntervalInBackground: false, refetchOnWindowFocus: true });
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   useEffect(() => { if (overview) setCheckedAt(new Date()); }, [overview]);
-  return <Stack spacing={2}>
+  return <Stack spacing={1.5}>
     <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
       <Typography variant="h6" fontWeight={800}>Загрузка данных</Typography>
       <Button size="small" variant="outlined" onClick={() => { refresh(); void history.refetch(); }}>Обновить статус</Button>
     </Stack>
     {error ? <Alert severity="warning">Не удалось обновить статус. Последнее обновление: {checkedAt ? moscowTime(checkedAt.toISOString()) : 'неизвестно'}.</Alert> : null}
-    {overview?.sources.map((source) => <Box key={source.kind} sx={{ py: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+    {overview?.sources.map((source) => <Box key={source.kind} sx={{ py: 1, borderTop: '1px solid', borderColor: 'divider' }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
         <Typography fontWeight={700}>{labels[source.kind]}</Typography>
         <Chip size="small" label={jobStatus(source.lastJob)} color={source.lastJob?.status === 'failed' ? 'error' : source.lastJob?.status === 'completed' ? 'success' : 'default'} />
