@@ -15,7 +15,7 @@ namespace Ecomads.WebApplication.Controllers;
 [Route("api/wb/stores/{storeId:guid}")]
 public sealed class WbSyncVisibilityController(EcomadsDbContext db) : ControllerBase
 {
-    private static readonly string[] Kinds = ["fullstats", "clusters", "jam"];
+    private static readonly string[] Kinds = ["fullstats", "funnel", "clusters", "jam"];
     private static readonly string[] Statuses = ["pending", "running", "completed", "failed"];
 
     [HttpGet("sync-overview")]
@@ -114,7 +114,8 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
 
     private static string BlockedReason(WbSyncJob job)
     {
-        var name = job.Kind switch { "clusters" => "Поисковые кластеры", "jam" => "Поисковые запросы Джема", _ => "Статистика кампаний" };
+        var name = job.Kind switch { "funnel" => "Все заказы (воронка продаж)",
+            "clusters" => "Поисковые кластеры", "jam" => "Поисковые запросы Джема", _ => "Статистика кампаний" };
         if (job.WaitReason is "rate_limit" or "retry")
         {
             var moscow = TimeZoneInfo.ConvertTimeFromUtc(job.NextAttemptAtUtc, TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow"));

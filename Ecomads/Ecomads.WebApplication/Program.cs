@@ -57,6 +57,7 @@ builder.Services.AddSingleton<IWbTokenService, WbTokenService>();
 builder.Services.AddScoped<WbFullStatsImporter>();
 builder.Services.AddScoped<WbNormQueryImporter>();
 builder.Services.AddScoped<WbJamImporter>();
+builder.Services.AddScoped<WbSalesFunnelImporter>();
 builder.Services.AddHostedService<WbSyncWorker>();
 builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();
 builder.Services.AddHostedService<TelegramUpdatesWorker>();
@@ -66,6 +67,11 @@ builder.Services.AddHttpClient<IWbPromotionClient, WbPromotionClient>(client =>
     client.Timeout = TimeSpan.FromMinutes(2);
 });
 builder.Services.AddHttpClient<IWbJamClient, WbJamClient>(client =>
+{
+    client.BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru");
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
+builder.Services.AddHttpClient<IWbSalesFunnelClient, WbSalesFunnelClient>(client =>
 {
     client.BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru");
     client.Timeout = TimeSpan.FromMinutes(2);

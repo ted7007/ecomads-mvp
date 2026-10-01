@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import { getWbSyncDetails, getWbSyncHistory, retryWbSync } from './wbStoresApi';
 import type { WbSyncJob, WbSyncOverview } from './wbStoresApi';
 
-const labels: Record<string, string> = { fullstats: 'Статистика кампаний', clusters: 'Поисковые кластеры', jam: 'Поисковые запросы Джема' };
+const labels: Record<string, string> = { fullstats: 'Статистика кампаний', funnel: 'Все заказы (воронка продаж)',
+  clusters: 'Поисковые кластеры', jam: 'Поисковые запросы Джема' };
 const units: Record<string, [string, string, string]> = {
   campaign: ['кампания', 'кампании', 'кампаний'],
   pair: ['пара «кампания/артикул»', 'пары «кампания/артикул»', 'пар «кампания/артикул»'],
-  product: ['товар', 'товара', 'товаров']
+  product: ['товар', 'товара', 'товаров'],
+  request: ['запрос', 'запроса', 'запросов']
 };
 const stages: Record<string, string> = { queued: 'В очереди', waiting: 'Ожидание', requesting: 'Запрос к WB', importing: 'Сохранение данных', completed: 'Завершено', failed: 'Ошибка' };
 
@@ -49,10 +51,11 @@ export function jobStatus(job: WbSyncJob | null): string {
   return 'В очереди';
 }
 
-export function jobError(code: string | null): string {
+export function jobError(code: string | null, kind?: string): string {
   if (!code) return '';
   if (code === 'wb_401' || code === 'token_missing' || code === 'token_unreadable' || code === 'token_disconnected') return 'Проверьте подключение токена WB.';
-  if (code === 'wb_403') return 'WB отказал в доступе. Проверьте права токена и доступ к отчёту.';
+  if (code === 'wb_403') return kind === 'funnel' ? 'В токене нет доступа к категории «Аналитика».' :
+    'WB отказал в доступе. Проверьте права токена и доступ к отчёту.';
   if (code === 'wb_402') return 'WB запросил оплату доступа к отчёту.';
   if (code === 'wb_429') return 'Достигнут лимит WB. Система повторит запрос после ожидания.';
   if (code === 'invalid_response') return 'WB вернул данные в неожиданном формате. Требуется проверка интеграции.';
@@ -123,13 +126,13 @@ export function SyncDashboard({ storeId, overview, refresh, error, onStart, star
       {source.lastJob ? <>
         <Typography variant="body2" sx={{ mt: 0.4 }}>Период {jobPeriod(source.lastJob)} · обработано {jobProgress(source.lastJob)}</Typography>
         {source.lastJob.status === 'failed' && source.lastJob.processedCount > 0 ? <Typography variant="body2">Сохранённые данные доступны.</Typography> : null}
-        {source.lastJob.errorCode ? <Typography variant="body2" color="error.main">{jobError(source.lastJob.errorCode)}</Typography> : null}
+        {source.lastJob.errorCode ? <Typography variant="body2" color="error.main">{jobError(source.lastJob.errorCode, source.kind)}</Typography> : null}
         {source.lastJob.status !== 'completed' && source.lastJob.status !== 'failed' && source.lastJob.waitReason ?
           <Typography variant="body2">Следующая попытка: {moscowTime(source.lastJob.nextAttemptAtUtc)}.</Typography> : null}
       </> : null}
       <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ mt: 0.5 }}>
-        {onStart ? <Button size="small" variant="outlined" disabled={Boolean(overview.activeJob) || startPending || Boolean(startDisabledReason) || !overview}
-          onClick={() => onStart(source.kind)}>Загрузить</Button> : null}
+        {onStart && source.kind !== 'funnel' ? <Button size="small" variant="outlined" disabled={Boolean(overview.activeJob) || startPending || Boolean(startDisabledReason) || !overview}
+          onClick={() => { if (source.kind !== 'funnel') onStart(source.kind); }}>Загрузить</Button> : null}
         {source.lastJob ? <JobDetails storeId={storeId} job={source.lastJob} /> : null}
       </Stack>
       {overview.activeJob ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.4 }}>{blockingReason(overview)}</Typography> : null}

@@ -91,7 +91,20 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         try
         {
             var token = tokens.Unprotect(store.ApiKey);
-            if (job.Kind == "clusters")
+            if (job.Kind == "funnel")
+            {
+                var funnel = scope.ServiceProvider.GetRequiredService<IWbSalesFunnelClient>();
+                using var response = await funnel.GetGroupedHistoryAsync(token, job.StartDate, job.EndDate,
+                    cancellationToken);
+                job.Stage = "importing";
+                job.UpdatedAtUtc = DateTime.UtcNow;
+                Record(db, job);
+                await db.SaveChangesAsync(cancellationToken);
+                var importer = scope.ServiceProvider.GetRequiredService<WbSalesFunnelImporter>();
+                await importer.ImportAsync(store.Id, job.StartDate, job.EndDate, response.RootElement, cancellationToken);
+                job.NextCampaignOffset = 1;
+            }
+            else if (job.Kind == "clusters")
             {
                 using var response = await wb.GetNormQueryStatsAsync(token, pairBatch,
                     job.StartDate, job.EndDate, cancellationToken);

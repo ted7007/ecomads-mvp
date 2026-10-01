@@ -17,7 +17,7 @@ export type WbStore = z.infer<typeof storeSchema>;
 
 const syncSchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(['fullstats', 'clusters', 'jam']),
+  kind: z.enum(['fullstats', 'funnel', 'clusters', 'jam']),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   startDate: z.string(),
   endDate: z.string(),
@@ -30,12 +30,12 @@ const syncSchema = z.object({
 export type WbSync = z.infer<typeof syncSchema>;
 
 const jobSchema = z.object({
-  id: z.string().uuid(), kind: z.enum(['fullstats', 'clusters', 'jam']),
+  id: z.string().uuid(), kind: z.enum(['fullstats', 'funnel', 'clusters', 'jam']),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   stage: z.string(), waitReason: z.string().nullable(),
   startDate: z.string(), endDate: z.string(),
   processedCount: z.number().int(), totalCount: z.number().int(),
-  unit: z.enum(['campaign', 'pair', 'product']),
+  unit: z.enum(['campaign', 'pair', 'product', 'request']),
   createdAtUtc: z.string(), startedAtUtc: z.string().nullable(),
   updatedAtUtc: z.string(), completedAtUtc: z.string().nullable(),
   nextAttemptAtUtc: z.string(), errorCode: z.string().nullable(),

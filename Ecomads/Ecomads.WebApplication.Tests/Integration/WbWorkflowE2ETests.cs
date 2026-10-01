@@ -25,6 +25,84 @@ namespace Ecomads.WebApplication.Tests.Integration;
 public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
 {
     [Fact]
+    public async Task SalesFunnelImporter_SumsGroupsFillsEmptyDaysAndReplacesValues()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        var seller = TestData.CreateActiveDemoSeller();
+        var storeId = Guid.NewGuid();
+        await using var db = postgres.CreateDbContext(connection);
+        await db.Database.MigrateAsync();
+        db.Sellers.Add(seller);
+        db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Marketplace = "Wildberries",
+            Name = "WB", CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        var importer = new WbSalesFunnelImporter(db,
+            LoggerFactory.Create(_ => { }).CreateLogger<WbSalesFunnelImporter>());
+        using var first = JsonDocument.Parse("""
+            {"data":[
+              {"currency":"RUB","history":[{"date":"2026-07-01","orderCount":2,"orderSum":100,"openCount":5,"cartCount":3,"buyoutCount":1,"buyoutSum":40}]},
+              {"currency":"RUB","history":[{"date":"2026-07-01","orderCount":1,"orderSum":25,"openCount":2,"cartCount":1,"buyoutCount":1,"buyoutSum":20}]}
+            ]}
+            """);
+        await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
+            first.RootElement, CancellationToken.None);
+        var rows = await db.WbStoreDailyOrders.OrderBy(x => x.Date).ToListAsync();
+        Assert.Equal(3, rows.Count);
+        Assert.Equal(125m, rows[0].OrderSum);
+        Assert.Equal(3, rows[0].OrderCount);
+        Assert.Equal(0m, rows[1].OrderSum);
+        Assert.Equal(0m, rows[2].OrderSum);
+
+        using var second = JsonDocument.Parse("""
+            {"data":[{"currency":"RUB","history":[{"date":"2026-07-01","orderCount":4,"orderSum":170}]}]}
+            """);
+        await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
+            second.RootElement, CancellationToken.None);
+        Assert.Equal(170m, (await db.WbStoreDailyOrders.SingleAsync(x => x.Date == new DateOnly(2026, 7, 1))).OrderSum);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SalesFunnelJob_LoadsSevenDaysOrReportsMissingAnalyticsAccess(bool forbidden)
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        using var factory = new WbFactory(connection, forbidden);
+        using var client = factory.CreateClient();
+        var seller = TestData.CreateActiveDemoSeller();
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            db.Sellers.Add(seller);
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Add("X-Test-UserId", seller.Id.ToString());
+        using var connected = await client.PostAsJsonAsync("/api/wb/stores/connect", new { token = FakeToken(Guid.NewGuid()) });
+        using var connectedJson = JsonDocument.Parse(await connected.Content.ReadAsStringAsync());
+        var storeId = connectedJson.RootElement.GetProperty("id").GetGuid();
+        using var started = await client.PostAsync($"/api/wb/stores/{storeId}/funnel/sync", null);
+        Assert.Equal(HttpStatusCode.Accepted, started.StatusCode);
+        string? status = null;
+        for (var attempt = 0; attempt < 25; attempt++)
+        {
+            await Task.Delay(1000);
+            using var response = await client.GetAsync($"/api/wb/stores/{storeId}/sync-overview");
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var source = body.RootElement.GetProperty("sources").EnumerateArray()
+                .Single(x => x.GetProperty("kind").GetString() == "funnel");
+            var job = source.GetProperty("lastJob");
+            status = job.GetProperty("status").GetString();
+            if (status is "completed" or "failed")
+            {
+                if (forbidden) Assert.Equal("wb_403", job.GetProperty("errorCode").GetString());
+                break;
+            }
+        }
+        Assert.Equal(forbidden ? "failed" : "completed", status);
+        await using var check = postgres.CreateDbContext(connection);
+        Assert.Equal(forbidden ? 0 : 7, await check.WbStoreDailyOrders.CountAsync(x => x.StoreId == storeId));
+    }
+
+    [Fact]
     public async Task FailedJobRetry_PreservesOriginalAndAllowsOneActiveJobPerKind()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
@@ -157,7 +235,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
         using var overviewJson = JsonDocument.Parse(await overview.Content.ReadAsStringAsync());
         var sources = overviewJson.RootElement.GetProperty("sources").EnumerateArray().ToArray();
-        Assert.Equal(3, sources.Length);
+        Assert.Equal(4, sources.Length);
         var statsSource = Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "fullstats"));
         var completedJob = statsSource.GetProperty("lastJob");
         Assert.Equal("completed", completedJob.GetProperty("status").GetString());
@@ -315,7 +393,26 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             Task.FromResult(JsonDocument.Parse("""{"items":[]}"""));
     }
 
-    private sealed class WbFactory(string connection) : WebApplicationFactory<Program>
+    private sealed class FakeFunnelClient(bool forbidden) : IWbSalesFunnelClient
+    {
+        public Task<JsonDocument> GetGroupedHistoryAsync(string token, DateOnly start, DateOnly end,
+            CancellationToken cancellationToken)
+        {
+            if (forbidden) throw new WbApiException(HttpStatusCode.Forbidden);
+            return Task.FromResult(JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                data = new[]
+                {
+                    new { currency = "RUB", history = new[] { new { date = start.ToString("yyyy-MM-dd"),
+                        orderCount = 2, orderSum = 100m, openCount = 4, cartCount = 3, buyoutCount = 1, buyoutSum = 40m } } },
+                    new { currency = "RUB", history = new[] { new { date = start.ToString("yyyy-MM-dd"),
+                        orderCount = 1, orderSum = 20m, openCount = 2, cartCount = 1, buyoutCount = 1, buyoutSum = 20m } } }
+                }
+            })));
+        }
+    }
+
+    private sealed class WbFactory(string connection, bool funnelForbidden = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -328,6 +425,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             {
                 services.RemoveAll<IWbPromotionClient>();
                 services.AddSingleton<IWbPromotionClient, FakeWbClient>();
+                services.RemoveAll<IWbSalesFunnelClient>();
+                services.AddSingleton<IWbSalesFunnelClient>(new FakeFunnelClient(funnelForbidden));
                 services.AddAuthentication(options =>
                     {
                         options.DefaultAuthenticateScheme = "Test";

@@ -365,6 +365,35 @@ public sealed class WbStoresController(
         return Accepted(ToSyncResponse(job));
     }
 
+    [HttpPost("{storeId:guid}/funnel/sync")]
+    public async Task<IActionResult> StartFunnelSync(Guid storeId, CancellationToken cancellationToken)
+    {
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
+        if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
+        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId && x.Kind == "funnel" &&
+            (x.Status == "pending" || x.Status == "running"), cancellationToken);
+        if (active != null) return Ok(ToSyncResponse(active));
+
+        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
+        var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
+        var now = DateTime.UtcNow;
+        var job = new WbSyncJob
+        {
+            Id = Guid.NewGuid(), StoreId = storeId, StartDate = yesterday.AddDays(-6), EndDate = yesterday,
+            CampaignIdsJson = "[]", Kind = "funnel", Status = "pending",
+            CreatedAtUtc = now, UpdatedAtUtc = now,
+            NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, storeId, "funnel", now, cancellationToken)
+        };
+        PrepareQueuedJob(job);
+        db.WbSyncJobs.Add(job);
+        RecordQueuedJob(job);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: "23505" })
+        { return Conflict(new { message = "Загрузка заказов уже запущена. Обновите статус." }); }
+        return Accepted(ToSyncResponse(job));
+    }
+
     private static void PrepareQueuedJob(WbSyncJob job)
     {
         if (job.NextAttemptAtUtc > job.CreatedAtUtc.AddSeconds(5))

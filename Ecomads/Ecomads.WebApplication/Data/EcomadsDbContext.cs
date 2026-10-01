@@ -16,6 +16,7 @@ public class EcomadsDbContext : DbContext
     public DbSet<DemoFeedback> DemoFeedbacks { get; set; }
     public DbSet<WbSyncJob> WbSyncJobs { get; set; }
     public DbSet<WbSyncJobEvent> WbSyncJobEvents { get; set; }
+    public DbSet<WbStoreDailyOrders> WbStoreDailyOrders { get; set; }
     public DbSet<WbClusterStatistic> WbClusterStatistics { get; set; }
     public DbSet<WbJamSearchQuery> WbJamSearchQueries { get; set; }
     public DbSet<WbStoreNorms> WbStoreNorms { get; set; }
@@ -210,6 +211,23 @@ public class EcomadsDbContext : DbContext
             entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Nomenclature>().WithMany().HasForeignKey(x => x.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(x => new { x.StoreId, x.NomenclatureId, x.StartDate, x.EndDate, x.SearchText }).IsUnique();
+        });
+
+        modelBuilder.Entity<WbStoreDailyOrders>(entity =>
+        {
+            entity.ToTable("wb_store_daily_orders");
+            entity.HasKey(x => new { x.StoreId, x.Date });
+            entity.Property(x => x.StoreId).HasColumnName("store_id");
+            entity.Property(x => x.Date).HasColumnName("date");
+            entity.Property(x => x.OrderCount).HasColumnName("order_count");
+            entity.Property(x => x.OrderSum).HasColumnName("order_sum").HasColumnType("decimal(18,2)");
+            entity.Property(x => x.OpenCount).HasColumnName("open_count");
+            entity.Property(x => x.CartCount).HasColumnName("cart_count");
+            entity.Property(x => x.BuyoutCount).HasColumnName("buyout_count");
+            entity.Property(x => x.BuyoutSum).HasColumnName("buyout_sum").HasColumnType("decimal(18,2)");
+            entity.Property(x => x.Source).HasColumnName("source").HasMaxLength(20);
+            entity.Property(x => x.LoadedAtUtc).HasColumnName("loaded_at_utc");
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WbStoreNorms>(entity =>
