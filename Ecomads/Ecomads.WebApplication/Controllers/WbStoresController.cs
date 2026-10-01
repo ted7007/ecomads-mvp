@@ -17,7 +17,8 @@ public sealed class WbStoresController(
     EcomadsDbContext db,
     IWbPromotionClient wb,
     IWbTokenService tokens,
-    WbSyncPlanner planner) : ControllerBase
+    WbSyncPlanner planner,
+    IConfiguration configuration) : ControllerBase
 {
     public sealed record ConnectRequest(string Token);
     public sealed record SyncRequest(DateOnly? StartDate, DateOnly? EndDate, long[]? CampaignIds);
@@ -32,13 +33,15 @@ public sealed class WbStoresController(
         DateTime? LastSyncAt,
         int CampaignCount,
         string JamStatus,
-        DateTime? JamCheckedAtUtc);
+        DateTime? JamCheckedAtUtc,
+        bool AutoRefreshEnabled);
     public sealed record CampaignListItem(Guid Id, string Name, string WbCampaignId, int? WbStatus);
 
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
+        var autoRefreshEnabled = configuration.GetValue<bool>("Wb:AutoRefresh:Enabled");
         var stores = await db.Stores.AsNoTracking()
             .Where(x => x.SellerId == sellerId && x.ExternalId != null && x.ApiKey != null)
             .Select(x => new StoreResponse(
@@ -49,7 +52,7 @@ public sealed class WbStoresController(
                 x.TokenExpiresAtUtc ?? DateTime.MinValue,
                 x.LastSyncAt,
                 db.Campaigns.Count(c => c.StoreId == x.Id),
-                x.JamStatus, x.JamCheckedAtUtc))
+                x.JamStatus, x.JamCheckedAtUtc, autoRefreshEnabled))
             .ToListAsync(cancellationToken);
         return Ok(stores);
     }
@@ -116,7 +119,7 @@ public sealed class WbStoresController(
         await planner.UpsertCampaignsAsync(store, adverts, cancellationToken);
         return Ok(new StoreResponse(store.Id, store.Name, store.ExternalId, store.TokenLastFour,
             store.TokenExpiresAtUtc.Value, store.LastSyncAt, adverts.Count,
-            store.JamStatus, store.JamCheckedAtUtc));
+            store.JamStatus, store.JamCheckedAtUtc, configuration.GetValue<bool>("Wb:AutoRefresh:Enabled")));
     }
 
     [HttpGet("{storeId:guid}/campaigns")]

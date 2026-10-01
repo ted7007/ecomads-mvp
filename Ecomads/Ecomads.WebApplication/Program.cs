@@ -60,6 +60,7 @@ builder.Services.AddScoped<WbJamImporter>();
 builder.Services.AddScoped<WbSalesFunnelImporter>();
 builder.Services.AddScoped<WbSyncPlanner>();
 builder.Services.AddHostedService<WbSyncWorker>();
+builder.Services.AddHostedService<WbAutoRefreshWorker>();
 builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();
 builder.Services.AddHostedService<TelegramUpdatesWorker>();
 builder.Services.AddHttpClient<IWbPromotionClient, WbPromotionClient>(client =>

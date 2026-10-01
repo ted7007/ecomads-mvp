@@ -16,6 +16,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -146,6 +147,37 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             if (followedUp) break;
         }
         Assert.True(followedUp, "Fullstats completion did not queue clusters and Jam.");
+    }
+
+    [Fact]
+    public async Task AutoRefresh_RunsOnceAfterSixMoscow()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        using var factory = new WbFactory(connection, autoRefreshEnabled: true);
+        using var client = factory.CreateClient();
+        var seller = TestData.CreateActiveDemoSeller();
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            db.Sellers.Add(seller);
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Add("X-Test-UserId", seller.Id.ToString());
+        using var connected = await client.PostAsJsonAsync("/api/wb/stores/connect", new { token = FakeToken(Guid.NewGuid()) });
+        using var connectedJson = JsonDocument.Parse(await connected.Content.ReadAsStringAsync());
+        var storeId = connectedJson.RootElement.GetProperty("id").GetGuid();
+        var services = factory.Services;
+        var worker = new WbAutoRefreshWorker(services.GetRequiredService<IServiceScopeFactory>(),
+            services.GetRequiredService<IConfiguration>(),
+            services.GetRequiredService<ILogger<WbAutoRefreshWorker>>());
+        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
+        var now = DateTime.UtcNow;
+        if (TimeZoneInfo.ConvertTimeFromUtc(now, moscow).TimeOfDay < TimeSpan.FromHours(6)) now = now.AddDays(-1);
+        await worker.RunOnceAsync(now, CancellationToken.None);
+        await using (var db = postgres.CreateDbContext(connection))
+            Assert.Equal(2, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
+        await worker.RunOnceAsync(now, CancellationToken.None);
+        await using (var db = postgres.CreateDbContext(connection))
+            Assert.Equal(2, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
     }
 
     [Fact]
@@ -491,7 +523,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
     }
 
     private sealed class WbFactory(string connection, bool funnelForbidden = false,
-        bool campaignRefreshRateLimited = false) : WebApplicationFactory<Program>
+        bool campaignRefreshRateLimited = false, bool autoRefreshEnabled = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -499,9 +531,11 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = connection,
+                ["Wb:AutoRefresh:Enabled"] = autoRefreshEnabled.ToString()
             }));
             builder.ConfigureTestServices(services =>
             {
+                if (autoRefreshEnabled) services.RemoveAll<IHostedService>();
                 services.RemoveAll<IWbPromotionClient>();
                 services.AddSingleton<IWbPromotionClient>(new FakeWbClient(campaignRefreshRateLimited));
                 services.RemoveAll<IWbSalesFunnelClient>();

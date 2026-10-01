@@ -10,7 +10,8 @@ const storeSchema = z.object({
   lastSyncAt: z.string().nullable(),
   campaignCount: z.number().int(),
   jamStatus: z.enum(['unknown', 'active', 'access_denied', 'payment_required']),
-  jamCheckedAtUtc: z.string().nullable()
+  jamCheckedAtUtc: z.string().nullable(),
+  autoRefreshEnabled: z.boolean()
 });
 
 export type WbStore = z.infer<typeof storeSchema>;
