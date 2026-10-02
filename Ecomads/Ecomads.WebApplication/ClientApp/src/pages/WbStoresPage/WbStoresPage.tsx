@@ -55,7 +55,7 @@ function StoreCard({ store }: { store: WbStore }) {
           </Stack>
           <Typography variant="body2" color="text.secondary">Кампаний: {store.campaignCount} · токен действует до {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU')}</Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} gap={1.5}>
-            <Button variant="contained" disabled={activeJobs.length > 0 || refreshAll.isPending} onClick={() => refreshAll.mutate()}
+            <Button variant="contained" disabled={activeJobs.some((job) => job.kind === 'fullstats' || job.kind === 'funnel_recent') || refreshAll.isPending} onClick={() => refreshAll.mutate()}
               sx={{ width: { xs: '100%', sm: 'auto' } }}>Загрузить всё из WB</Button>
             {activeJobs.length > 0 ? <Typography variant="body2" color="text.secondary">
               Загрузка идёт{completionTime ? `, завершится примерно в ${completionTime} МСК` : ''}.

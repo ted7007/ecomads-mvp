@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { getWbSyncDetails, getWbSyncHistory, retryWbSync } from './wbStoresApi';
 import type { WbRefreshResult, WbSyncJob, WbSyncOverview } from './wbStoresApi';
 
-const labels: Record<string, string> = { fullstats: 'Статистика кампаний', funnel: 'Все заказы (воронка продаж)',
+const labels: Record<string, string> = { fullstats: 'Текущая реклама', funnel: 'Все заказы (старое задание)',
+  funnel_recent: 'Свежие заказы · 7 дней', funnel_backfill: 'История заказов', archive: 'Архив рекламы',
   clusters: 'Поисковые кластеры', jam: 'Поисковые запросы Джема' };
 const units: Record<string, [string, string, string]> = {
   campaign: ['кампания', 'кампании', 'кампаний'],
@@ -59,7 +60,7 @@ export function jobStatus(job: WbSyncJob | null): string {
 export function jobError(code: string | null, kind?: string): string {
   if (!code) return '';
   if (code === 'wb_401' || code === 'token_missing' || code === 'token_unreadable' || code === 'token_disconnected') return 'Проверьте подключение токена WB.';
-  if (code === 'wb_403') return kind === 'funnel' ? 'В токене нет доступа к категории «Аналитика».' :
+  if (code === 'wb_403') return kind?.startsWith('funnel') ? 'В токене нет доступа к категории «Аналитика».' :
     'WB отказал в доступе. Проверьте права токена и доступ к отчёту.';
   if (code === 'wb_402') return 'WB запросил оплату доступа к отчёту.';
   if (code === 'wb_429') return 'Достигнут лимит WB. Система повторит запрос после ожидания.';
@@ -128,6 +129,8 @@ export function SyncDashboard({ storeId, overview, refresh, error, skipped }: {
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>Последняя успешная загрузка: {moscowTime(source.lastSuccessAtUtc)}</Typography>
       {source.lastJob ? <>
         <Typography variant="body2" sx={{ mt: 0.4 }}>Период {jobPeriod(source.lastJob)} · обработано {jobProgress(source.lastJob)}</Typography>
+        {source.lastJob.importedRows ? <Typography variant="body2" color="text.secondary">Получено строк: {source.lastJob.importedRows}</Typography> : null}
+        {source.lastJob.warning ? <Typography variant="body2" color="warning.main">{source.lastJob.warning}</Typography> : null}
         {source.lastJob.status === 'failed' && source.lastJob.processedCount > 0 ? <Typography variant="body2">Сохранённые данные доступны.</Typography> : null}
         {source.lastJob.errorCode ? <Typography variant="body2" color="error.main">{jobError(source.lastJob.errorCode, source.kind)}</Typography> : null}
         {source.activeJob?.waitReason === 'rate_limit' ? <Typography variant="body2">

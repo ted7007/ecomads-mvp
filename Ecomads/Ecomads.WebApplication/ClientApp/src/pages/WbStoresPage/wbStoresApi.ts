@@ -18,7 +18,7 @@ export type WbStore = z.infer<typeof storeSchema>;
 
 const syncSchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(['fullstats', 'funnel', 'clusters', 'jam']),
+  kind: z.enum(['fullstats', 'funnel', 'funnel_recent', 'funnel_backfill', 'archive', 'clusters', 'jam']),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   startDate: z.string(),
   endDate: z.string(),
@@ -31,7 +31,10 @@ const syncSchema = z.object({
 export type WbSync = z.infer<typeof syncSchema>;
 
 const jobSchema = z.object({
-  id: z.string().uuid(), kind: z.enum(['fullstats', 'funnel', 'clusters', 'jam']),
+  id: z.string().uuid(), kind: syncSchema.shape.kind,
+  role: z.string().optional(), rateMethod: z.string().optional(),
+  importedRows: z.number().int().optional(), itemsWithData: z.number().int().optional(),
+  itemsWithoutData: z.number().int().optional(), warning: z.string().nullable().optional(),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   stage: z.string(), waitReason: z.string().nullable(),
   startDate: z.string(), endDate: z.string(),

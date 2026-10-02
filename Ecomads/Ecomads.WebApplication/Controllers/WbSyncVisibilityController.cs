@@ -15,7 +15,7 @@ namespace Ecomads.WebApplication.Controllers;
 [Route("api/wb/stores/{storeId:guid}")]
 public sealed class WbSyncVisibilityController(EcomadsDbContext db) : ControllerBase
 {
-    private static readonly string[] Kinds = ["fullstats", "funnel", "clusters", "jam"];
+    private static readonly string[] Kinds = ["fullstats", "funnel_recent", "clusters", "jam", "archive", "funnel_backfill", "funnel"];
     private static readonly string[] Statuses = ["pending", "running", "completed", "failed"];
 
     [HttpGet("sync-overview")]
@@ -114,7 +114,8 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
 
     private static string BlockedReason(WbSyncJob job)
     {
-        var name = job.Kind switch { "funnel" => "Все заказы (воронка продаж)",
+        var name = job.Kind switch { "funnel" or "funnel_recent" => "Свежие заказы", "funnel_backfill" => "История заказов",
+            "archive" => "Архив рекламы",
             "clusters" => "Поисковые кластеры", "jam" => "Поисковые запросы Джема", _ => "Статистика кампаний" };
         if (job.WaitReason is "rate_limit" or "retry")
         {
@@ -135,7 +136,10 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             ? job.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(job.Kind).Ticks * (requests - 1)) : null;
         var stage = job.Stage == "queued" && job.Status == "completed" ? "completed" :
             job.Stage == "queued" && job.Status == "failed" ? "failed" : job.Stage;
-        return new { job.Id, job.Kind, job.Status, stage, job.WaitReason, job.StartDate, job.EndDate,
+        return new { job.Id, job.Kind, role = job.Kind, rateMethod = WbRateLimits.MethodFor(job.Kind, job.NextCampaignOffset),
+            job.ImportedRows, job.ItemsWithData, job.ItemsWithoutData,
+            warning = job.ItemsWithoutData > 0 ? "Часть запрошенных кампаний или товаров не вернула данных." : null,
+            job.Status, stage, job.WaitReason, job.StartDate, job.EndDate,
             processedCount = job.NextCampaignOffset, totalCount = total,
             unit = WbSyncJobUnits.Unit(job.Kind), estimatedCompletionAtUtc,
             job.CreatedAtUtc, job.StartedAtUtc, job.UpdatedAtUtc, job.CompletedAtUtc,

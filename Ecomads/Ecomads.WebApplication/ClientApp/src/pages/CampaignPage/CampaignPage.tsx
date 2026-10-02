@@ -22,6 +22,7 @@ import { RecommendationList } from '../../shared/ui/RecommendationList';
 import { campaignRecommendations, clusterRecommendations } from '../../shared/lib/recommendations';
 import type { MetricKey } from '../../shared/ui/DailyChart';
 import { previousPeriod } from '../../shared/lib/previousPeriod';
+import { WbDataFreshness } from '../../shared/ui/WbDataFreshness';
 
 export function CampaignPage() {
   const { campaignId } = useParams();
@@ -92,6 +93,7 @@ export function CampaignPage() {
           if (next.endDate) query.set('endDate', next.endDate);
           setSearchParams(query);
         }} />} />
+    <WbDataFreshness startDate={filters.startDate!} endDate={filters.endDate!} campaignId={id} />
     {loading ? <LoadingState title="Загружаем кампанию" /> : null}
     {error ? <ErrorState title="Не удалось загрузить кампанию"
       description={error instanceof Error ? error.message : 'Проверьте соединение.'}

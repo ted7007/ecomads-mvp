@@ -18,6 +18,7 @@ import { campaignRecommendations } from '../../shared/lib/recommendations';
 import type { MetricKey } from '../../shared/ui/DailyChart';
 import { getWbStores } from '../WbStoresPage/wbStoresApi';
 import { previousPeriod } from '../../shared/lib/previousPeriod';
+import { WbDataFreshness } from '../../shared/ui/WbDataFreshness';
 
 export function DashboardPage() {
   const location = useLocation();
@@ -69,6 +70,7 @@ export function DashboardPage() {
       />
 
       {demoFeedbackSuccess ? <Alert severity="success">{demoFeedbackSuccess}</Alert> : null}
+      <WbDataFreshness startDate={filters.startDate!} endDate={filters.endDate!} />
 
       {campaignsQuery.isLoading ? <LoadingState title="Загружаем обзор рекламы" /> : null}
 
