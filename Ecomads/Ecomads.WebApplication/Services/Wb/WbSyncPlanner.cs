@@ -24,7 +24,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var active = await db.WbSyncJobs.Where(x => x.StoreId == store.Id &&
             (x.Status == "pending" || x.Status == "running")).ToListAsync(ct);
-        if (new[] { "fullstats", "funnel", "clusters", "jam" }.All(kind => active.Any(x => x.Kind == kind)))
+        if (active.Any(x => x.Kind == "fullstats" || x.Kind == "funnel_recent"))
             return new WbRefreshRun(active[0].RunId ?? Guid.NewGuid(), false, active, [], true);
 
         var campaignsRefreshed = false;
@@ -32,9 +32,13 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         {
             try
             {
-                var adverts = await wb.GetCampaignsAsync(tokens.Unprotect(store.ApiKey!), ct);
-                await UpsertCampaignsAsync(store, adverts, ct);
-                campaignsRefreshed = true;
+                var now = DateTime.UtcNow;
+                if (await WbRateLimits.TryReserveAsync(db, store.Id, "campaign_list", 0, now, ct))
+                {
+                    var adverts = await wb.GetCampaignsAsync(tokens.Unprotect(store.ApiKey!), ct);
+                    await UpsertCampaignsAsync(store, adverts, ct);
+                    campaignsRefreshed = true;
+                }
             }
             catch (WbApiException error)
             {
@@ -53,7 +57,9 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             else skipped.Add(new WbSkippedSource(kind, result.Reason ?? "нет данных"));
         }
         await Add("fullstats", EnqueueFullStatsAsync(store, runId, ct));
-        await Add("funnel", EnqueueFunnelAsync(store, runId, ct));
+        await Add("funnel_recent", EnqueueRecentFunnelAsync(store, runId, ct));
+        await Add("archive", EnqueueArchiveAsync(store, runId, ct));
+        await Add("funnel_backfill", EnqueueBackfillAsync(store, runId, ct));
         var end = Yesterday();
         var covered = await db.WbSyncJobs.AnyAsync(x => x.StoreId == store.Id && x.Kind == "fullstats" &&
             x.Status == "completed" && x.StartDate <= end.AddDays(-6) && x.EndDate >= end, ct);
@@ -81,6 +87,10 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             campaign.IsActive = advert.Status == 9;
             campaign.WbStatus = advert.Status;
             campaign.LastSeenAt = now;
+            campaign.WbCreatedAtUtc = advert.CreatedAtUtc;
+            campaign.WbStartedAtUtc = advert.StartedAtUtc;
+            campaign.WbDeletedAtUtc = advert.DeletedAtUtc;
+            campaign.WbUpdatedAtUtc = advert.UpdatedAtUtc;
         }
         store.CampaignsRefreshedAtUtc = now;
         await db.SaveChangesAsync(ct);
@@ -93,10 +103,68 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var ids = (await db.Campaigns.Where(x => x.StoreId == store.Id && (x.WbStatus == 9 || x.WbStatus == 11))
             .OrderBy(x => x.WbStatus == 9 ? 0 : 1).Select(x => x.WbCampaignId).ToListAsync(ct))
             .Select(x => long.TryParse(x, out var id) ? id : 0).Where(x => x > 0).ToArray();
+        var archive = await EligibleArchiveIdsAsync(store.Id, Yesterday(), ct);
+        ids = ids.Concat(archive.Take(Math.Max(0, 50 - ids.Length))).Distinct().ToArray();
         if (ids.Length == 0) return new(null, "нет кампаний");
         var end = Yesterday();
         return new(await QueueAsync(store.Id, "fullstats", end.AddDays(-29), end,
             JsonSerializer.Serialize(ids), null, runId, ct));
+    }
+
+    public async Task<WbPlanResult> EnqueueArchiveAsync(Store store, Guid runId, CancellationToken ct)
+    {
+        var active = await ActiveAsync(store.Id, "archive", ct);
+        if (active != null) return new(active);
+        var currentCount = await db.Campaigns.CountAsync(x => x.StoreId == store.Id &&
+            (x.WbStatus == 9 || x.WbStatus == 11), ct);
+        var ids = (await EligibleArchiveIdsAsync(store.Id, Yesterday(), ct))
+            .Skip(Math.Max(0, 50 - currentCount)).ToArray();
+        if (ids.Length == 0) return new(null, "архив уже проверен");
+        var end = Yesterday();
+        return new(await QueueAsync(store.Id, "archive", end.AddDays(-29), end,
+            JsonSerializer.Serialize(ids), null, runId, ct));
+    }
+
+    private async Task<long[]> EligibleArchiveIdsAsync(Guid storeId, DateOnly end, CancellationToken ct)
+    {
+        var candidates = await db.Campaigns.Where(x => x.StoreId == storeId && x.WbStatus == 7 &&
+                (x.WbCreatedAtUtc == null || x.WbCreatedAtUtc <= DateTime.SpecifyKind(end.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Utc)))
+            .OrderByDescending(x => x.WbUpdatedAtUtc).ToListAsync(ct);
+        var ids = new List<long>();
+        foreach (var campaign in candidates)
+        {
+            var firstDate = campaign.WbCreatedAtUtc is { } created
+                ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(created, TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow")))
+                : end.AddDays(-29);
+            if (firstDate > end) continue;
+            if (firstDate < end.AddDays(-29)) firstDate = end.AddDays(-29);
+            var checks = await db.WbCampaignDailyChecks.Where(x => x.CampaignId == campaign.Id &&
+                    x.Date >= firstDate && x.Date <= end && x.CheckedAtUtc > DateTime.UtcNow.AddDays(-7) &&
+                    x.Result != "unknown")
+                .CountAsync(ct);
+            if (checks == end.DayNumber - firstDate.DayNumber + 1) continue;
+            if (long.TryParse(campaign.WbCampaignId, out var id)) ids.Add(id);
+        }
+        return ids.ToArray();
+    }
+
+    public async Task<WbPlanResult> EnqueueRecentFunnelAsync(Store store, Guid runId, CancellationToken ct)
+    {
+        var active = await ActiveAsync(store.Id, "funnel_recent", ct);
+        if (active != null) return new(active);
+        var end = Yesterday();
+        return new(await QueueAsync(store.Id, "funnel_recent", end.AddDays(-6), end, "[]", null, runId, ct));
+    }
+
+    public async Task<WbPlanResult> EnqueueBackfillAsync(Store store, Guid runId, CancellationToken ct)
+    {
+        var active = await ActiveAsync(store.Id, "funnel_backfill", ct);
+        if (active != null) return new(active);
+        var end = Yesterday();
+        var pairIds = await FunnelPairIdsAsync(store.Id, end, ct);
+        if (pairIds.Length == 0) return new(null, "история заказов уже загружена");
+        return new(await QueueAsync(store.Id, "funnel_backfill", end.AddDays(-29), end.AddDays(-7),
+            JsonSerializer.Serialize(pairIds), null, runId, ct));
     }
 
     public async Task<WbPlanResult> EnqueueFullStatsAsync(Store store, DateOnly start, DateOnly end,
@@ -163,7 +231,10 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var start = end.AddDays(-6);
         var loaded = await LoadedCampaignIdsAsync(store.Id, start, end, ct);
         var observed = await ObservedAsync(store.Id, start, end, ct);
-        var pairs = observed.Where(x => loaded.Contains(x.AdvertId)).ToArray();
+        var already = (await db.WbSyncJobs.Where(x => x.StoreId == store.Id && x.RunId == runId && x.Kind == "clusters")
+            .Select(x => x.PairIdsJson).ToListAsync(ct))
+            .SelectMany(x => JsonSerializer.Deserialize<WbNormQueryPair[]>(x ?? "[]") ?? []).ToHashSet();
+        var pairs = observed.Where(x => loaded.Contains(x.AdvertId) && !already.Contains(x)).ToArray();
         if (pairs.Length == 0) return new(null, "нет данных о товарах");
         return new(await QueueAsync(store.Id, "clusters", start, end, "[]", JsonSerializer.Serialize(pairs), runId, ct));
     }
@@ -192,8 +263,11 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var end = Yesterday();
         var start = end.AddDays(-6);
         var loaded = await LoadedCampaignIdsAsync(store.Id, start, end, ct);
+        var already = (await db.WbSyncJobs.Where(x => x.StoreId == store.Id && x.RunId == runId && x.Kind == "jam")
+            .Select(x => x.CampaignIdsJson).ToListAsync(ct))
+            .SelectMany(x => JsonSerializer.Deserialize<long[]>(x) ?? []).ToHashSet();
         var ids = (await ObservedAsync(store.Id, start, end, ct)).Where(x => loaded.Contains(x.AdvertId))
-            .Select(x => x.NmId).Distinct().Order().ToArray();
+            .Select(x => x.NmId).Where(x => !already.Contains(x)).Distinct().Order().ToArray();
         if (ids.Length == 0) return new(null, "нет данных о товарах");
         return new(await QueueAsync(store.Id, "jam", start, end, JsonSerializer.Serialize(ids), null, runId, ct));
     }
@@ -223,9 +297,10 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     private async Task<HashSet<long>> LoadedCampaignIdsAsync(Guid storeId, DateOnly start, DateOnly end, CancellationToken ct)
     {
         var jobs = await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.Kind == "fullstats" &&
-            x.Status == "completed" && x.StartDate <= start && x.EndDate >= end)
-            .Select(x => x.CampaignIdsJson).ToListAsync(ct);
-        return jobs.SelectMany(x => JsonSerializer.Deserialize<long[]>(x) ?? []).ToHashSet();
+            (x.Status == "completed" || x.Status == "running") && x.StartDate <= start && x.EndDate >= end)
+            .Select(x => new { x.CampaignIdsJson, x.NextCampaignOffset, x.Status }).ToListAsync(ct);
+        return jobs.SelectMany(x => (JsonSerializer.Deserialize<long[]>(x.CampaignIdsJson) ?? [])
+            .Take(x.Status == "completed" ? int.MaxValue : x.NextCampaignOffset)).ToHashSet();
     }
 
     private async Task<WbNormQueryPair[]> ObservedAsync(Guid storeId, DateOnly start, DateOnly end, CancellationToken ct)

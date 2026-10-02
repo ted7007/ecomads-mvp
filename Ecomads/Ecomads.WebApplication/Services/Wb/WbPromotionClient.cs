@@ -24,7 +24,11 @@ public sealed record WbCampaignInfo(
     string Name,
     int Status,
     string? PaymentType,
-    IReadOnlyList<long> NomenclatureIds);
+    IReadOnlyList<long> NomenclatureIds,
+    DateTime? CreatedAtUtc = null,
+    DateTime? StartedAtUtc = null,
+    DateTime? DeletedAtUtc = null,
+    DateTime? UpdatedAtUtc = null);
 
 public sealed record WbNormQueryPair(long AdvertId, long NmId);
 
@@ -132,7 +136,12 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
                     }
                 }
             }
-            result.Add(new WbCampaignInfo(id, name, status, paymentType, nms));
+            DateTime? Timestamp(string property) => advert.TryGetProperty("timestamps", out var timestamps) &&
+                timestamps.ValueKind == JsonValueKind.Object && timestamps.TryGetProperty(property, out var value) &&
+                value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), out var parsed)
+                    ? parsed.UtcDateTime : null;
+            result.Add(new WbCampaignInfo(id, name, status, paymentType, nms,
+                Timestamp("created"), Timestamp("started"), Timestamp("deleted"), Timestamp("updated")));
         }
 
         return result;

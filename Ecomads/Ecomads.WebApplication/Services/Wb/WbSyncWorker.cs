@@ -42,7 +42,9 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
         var job = await db.WbSyncJobs
             .Where(x => (x.Status == "pending" || x.Status == "running") && x.NextAttemptAtUtc <= DateTime.UtcNow)
-            .OrderBy(x => x.NextAttemptAtUtc)
+            .OrderBy(x => x.Kind == "fullstats" || x.Kind == "funnel_recent" ? 0 :
+                x.Kind == "clusters" || x.Kind == "jam" ? 1 : 2)
+            .ThenBy(x => x.NextAttemptAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
         if (job == null) return;
 
@@ -75,6 +77,17 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
 
         var now = DateTime.UtcNow;
+        await using var reservation = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (!await WbRateLimits.TryReserveAsync(db, store.Id, job.Kind, job.NextCampaignOffset, now, cancellationToken))
+        {
+            job.NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, store.Id,
+                WbRateLimits.MethodFor(job.Kind, job.NextCampaignOffset), now, cancellationToken);
+            job.Stage = "waiting";
+            job.WaitReason = "rate_limit";
+            await db.SaveChangesAsync(cancellationToken);
+            await reservation.CommitAsync(cancellationToken);
+            return;
+        }
         job.Status = "running";
         job.Stage = "requesting";
         job.WaitReason = null;
@@ -85,6 +98,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         Record(db, job);
         // Reserve the slot before the HTTP request. A crash may delay a retry but cannot spend the same slot twice.
         await db.SaveChangesAsync(cancellationToken);
+        await reservation.CommitAsync(cancellationToken);
 
         var wb = scope.ServiceProvider.GetRequiredService<IWbPromotionClient>();
         var tokens = scope.ServiceProvider.GetRequiredService<IWbTokenService>();
@@ -93,11 +107,11 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         try
         {
             var token = tokens.Unprotect(store.ApiKey);
-            if (job.Kind == "funnel")
+            if (job.Kind is "funnel" or "funnel_recent" or "funnel_backfill")
             {
                 var funnel = scope.ServiceProvider.GetRequiredService<IWbSalesFunnelClient>();
                 var importer = scope.ServiceProvider.GetRequiredService<WbSalesFunnelImporter>();
-                if (job.NextCampaignOffset == 0)
+                if (job.Kind == "funnel_recent" || (job.Kind == "funnel" && job.NextCampaignOffset == 0))
                 {
                     using var response = await funnel.GetGroupedHistoryAsync(token, job.StartDate, job.EndDate,
                         cancellationToken);
@@ -110,7 +124,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 }
                 else
                 {
-                    var pairStart = DateOnly.ParseExact(ids[job.NextCampaignOffset - 1].ToString(), "yyyyMMdd");
+                    var pairIndex = job.Kind == "funnel" ? job.NextCampaignOffset - 1 : job.NextCampaignOffset;
+                    var pairStart = DateOnly.ParseExact(ids[pairIndex].ToString(), "yyyyMMdd");
                     var state = JsonSerializer.Deserialize<WbFunnelPageState>(job.PairIdsJson ?? "null") ?? new();
                     using var response = await funnel.GetProductsAsync(token, pairStart.AddDays(1), pairStart,
                         state.Offset, cancellationToken);
@@ -178,7 +193,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             else { job.Stage = "waiting"; job.WaitReason = "rate_limit"; }
             Record(db, job);
             await db.SaveChangesAsync(cancellationToken);
-            if (job.Status == "completed")
+            if (job.Kind == "fullstats" || (job.Status == "completed" && (job.Kind is "clusters" or "jam")))
                 await PlanFollowupsAsync(scope.ServiceProvider, job, store, cancellationToken);
         }
         catch (WbApiException error)
@@ -245,12 +260,12 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
     private async Task PlanFollowupsAsync(IServiceProvider services, WbSyncJob job, Store store,
         CancellationToken cancellationToken)
     {
-        if (job.Kind != "fullstats" || job.RunId == null) return;
+        if (job.Kind is not ("fullstats" or "clusters" or "jam") || job.RunId == null) return;
         try
         {
             var planner = services.GetRequiredService<WbSyncPlanner>();
-            await planner.EnqueueClustersAsync(store, job.RunId.Value, cancellationToken);
-            await planner.EnqueueJamAsync(store, job.RunId.Value, cancellationToken);
+            if (job.Kind != "clusters") await planner.EnqueueClustersAsync(store, job.RunId.Value, cancellationToken);
+            if (job.Kind != "jam") await planner.EnqueueJamAsync(store, job.RunId.Value, cancellationToken);
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
