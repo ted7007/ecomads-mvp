@@ -19,6 +19,9 @@ public class EcomadsDbContext : DbContext
     public DbSet<WbStoreDailyOrders> WbStoreDailyOrders { get; set; }
     public DbSet<WbClusterStatistic> WbClusterStatistics { get; set; }
     public DbSet<WbJamSearchQuery> WbJamSearchQueries { get; set; }
+    public DbSet<WbMethodSlot> WbMethodSlots { get; set; }
+    public DbSet<WbCampaignDailyCheck> WbCampaignDailyChecks { get; set; }
+    public DbSet<WbJamArticleCheck> WbJamArticleChecks { get; set; }
     public DbSet<WbStoreNorms> WbStoreNorms { get; set; }
     public DbSet<WbCampaignNorms> WbCampaignNorms { get; set; }
     public DbSet<WbNormRevision> WbNormRevisions { get; set; }
@@ -113,6 +116,10 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(true);
             entity.Property(e => e.WbStatus).HasColumnName("wb_status");
             entity.Property(e => e.LastSeenAt).HasColumnName("last_seen_at");
+            entity.Property(e => e.WbCreatedAtUtc).HasColumnName("wb_created_at_utc");
+            entity.Property(e => e.WbStartedAtUtc).HasColumnName("wb_started_at_utc");
+            entity.Property(e => e.WbDeletedAtUtc).HasColumnName("wb_deleted_at_utc");
+            entity.Property(e => e.WbUpdatedAtUtc).HasColumnName("wb_updated_at_utc");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
             entity.HasOne(e => e.Store)
@@ -148,10 +155,49 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc");
             entity.Property(e => e.LastRequestAtUtc).HasColumnName("last_request_at_utc");
             entity.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(80);
+            entity.Property(e => e.ImportedRows).HasColumnName("imported_rows");
+            entity.Property(e => e.ItemsWithData).HasColumnName("items_with_data");
+            entity.Property(e => e.ItemsWithoutData).HasColumnName("items_without_data");
             entity.HasIndex(e => new { e.StoreId, e.Status, e.NextAttemptAtUtc });
             entity.HasIndex(e => new { e.StoreId, e.Kind }).IsUnique().HasFilter("status IN ('pending', 'running')");
             entity.HasIndex(e => new { e.StoreId, e.RunId });
             entity.HasOne<Store>().WithMany().HasForeignKey(e => e.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WbMethodSlot>(entity =>
+        {
+            entity.ToTable("wb_method_slots");
+            entity.HasKey(x => new { x.StoreId, x.Method });
+            entity.Property(x => x.StoreId).HasColumnName("store_id");
+            entity.Property(x => x.Method).HasColumnName("method").HasMaxLength(40);
+            entity.Property(x => x.LastRequestAtUtc).HasColumnName("last_request_at_utc");
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbCampaignDailyCheck>(entity =>
+        {
+            entity.ToTable("wb_campaign_daily_checks");
+            entity.HasKey(x => new { x.CampaignId, x.Date });
+            entity.Property(x => x.CampaignId).HasColumnName("campaign_id");
+            entity.Property(x => x.Date).HasColumnName("date");
+            entity.Property(x => x.JobId).HasColumnName("job_id");
+            entity.Property(x => x.CheckedAtUtc).HasColumnName("checked_at_utc");
+            entity.Property(x => x.Result).HasColumnName("result").HasMaxLength(24);
+            entity.Property(x => x.Spend).HasColumnName("spend").HasColumnType("decimal(18,2)");
+            entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbJamArticleCheck>(entity =>
+        {
+            entity.ToTable("wb_jam_article_checks");
+            entity.HasKey(x => new { x.StoreId, x.NomenclatureId, x.StartDate, x.EndDate });
+            entity.Property(x => x.StoreId).HasColumnName("store_id");
+            entity.Property(x => x.NomenclatureId).HasColumnName("nomenclature_id");
+            entity.Property(x => x.StartDate).HasColumnName("start_date");
+            entity.Property(x => x.EndDate).HasColumnName("end_date");
+            entity.Property(x => x.JobId).HasColumnName("job_id");
+            entity.Property(x => x.CheckedAtUtc).HasColumnName("checked_at_utc");
+            entity.Property(x => x.HasData).HasColumnName("has_data");
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Nomenclature>().WithMany().HasForeignKey(x => x.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WbSyncJobEvent>(entity =>

@@ -21,6 +21,10 @@ public class Campaign
     public int? WbStatus { get; set; }
 
     public DateTime? LastSeenAt { get; set; }
+    public DateTime? WbCreatedAtUtc { get; set; }
+    public DateTime? WbStartedAtUtc { get; set; }
+    public DateTime? WbDeletedAtUtc { get; set; }
+    public DateTime? WbUpdatedAtUtc { get; set; }
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     
