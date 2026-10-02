@@ -7,7 +7,8 @@ const sourceSchema = z.object({
   startDate: z.string(), endDate: z.string(), covered: z.number().int(), expected: z.number().int(),
   availableStartDate: z.string().nullable(), availableEndDate: z.string().nullable(),
   lastCheckedAtUtc: z.string().nullable(), nextAttemptAtUtc: z.string().nullable(),
-  estimatedCompletionAtUtc: z.string().nullable(), errorCode: z.string().nullable(), version: z.string()
+  estimatedCompletionAtUtc: z.string().nullable(), errorCode: z.string().nullable(),
+  failedJobKind: z.string().nullable(), version: z.string()
 });
 const responseSchema = z.object({ sources: z.array(sourceSchema), active: z.boolean() });
 export type WbDataState = z.infer<typeof responseSchema>;

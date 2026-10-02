@@ -70,7 +70,8 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                     active.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(active.Kind).Ticks *
                         Math.Max(0, (WbSyncJobUnits.Total(active) - active.NextCampaignOffset - 1) /
                             WbSyncJobUnits.BatchSize(active.Kind))),
-                errorCode = latest?.ErrorCode, version };
+                errorCode = latest?.Status == "failed" ? latest.ErrorCode : null,
+                failedJobKind = latest?.Status == "failed" ? latest.Kind : null, version };
         }
 
         var sources = campaignId.HasValue
