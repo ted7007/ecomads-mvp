@@ -35,18 +35,26 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                 x.Date <= endDate && x.CampaignId != Guid.Empty &&
                 db.Campaigns.Any(c => c.Id == x.CampaignId && stores.Contains(c.StoreId) &&
                     (!campaignId.HasValue || c.Id == campaignId.Value)))
-            .Select(x => x.CheckedAtUtc).ToArrayAsync(ct);
+            .Select(x => new { x.Date, x.CheckedAtUtc }).ToArrayAsync(ct);
         var orderChecks = await db.WbStoreDailyOrders.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
-                x.Date >= startDate && x.Date <= endDate).Select(x => x.LoadedAtUtc).ToArrayAsync(ct);
-        var clusterRows = await db.WbClusterStatistics.AsNoTracking().Where(x => x.Date >= startDate &&
+                x.Date >= startDate && x.Date <= endDate)
+            .Select(x => new { x.Date, x.LoadedAtUtc }).ToArrayAsync(ct);
+        var clusterDates = await db.WbClusterStatistics.AsNoTracking().Where(x => x.Date >= startDate &&
                 x.Date <= endDate && db.Campaigns.Any(c => c.Id == x.CampaignId && stores.Contains(c.StoreId) &&
                     (!campaignId.HasValue || c.Id == campaignId.Value)))
-            .CountAsync(ct);
+            .Select(x => x.Date).Distinct().ToArrayAsync(ct);
+        var campaignArticleIds = campaignId.HasValue
+            ? await db.CampaignNomenclatureStatistics.AsNoTracking()
+                .Where(x => x.CampaignId == campaignId.Value)
+                .Select(x => x.NomenclatureId).Distinct().ToArrayAsync(ct)
+            : [];
         var jamChecks = await db.WbJamArticleChecks.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
-                x.StartDate >= startDate && x.EndDate <= endDate)
-            .Select(x => x.CheckedAtUtc).ToArrayAsync(ct);
+                x.StartDate >= startDate && x.EndDate <= endDate &&
+                (!campaignId.HasValue || campaignArticleIds.Contains(x.NomenclatureId)))
+            .Select(x => new { x.StartDate, x.EndDate, x.CheckedAtUtc }).ToArrayAsync(ct);
 
-        object Source(string kind, string[] jobKinds, int covered, int expected, DateTime? verifiedAt)
+        object Source(string kind, string[] jobKinds, int covered, int expected, DateTime? verifiedAt,
+            DateOnly? availableStartDate, DateOnly? availableEndDate)
         {
             var relevant = jobs.Where(x => jobKinds.Contains(x.Kind)).ToArray();
             var active = relevant.FirstOrDefault(x => x.Status is "pending" or "running");
@@ -55,7 +63,8 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                 latest?.Status == "failed" ? "failed" : covered == 0 ? "not_loaded" :
                     covered < expected ? "partial" : "complete";
             var version = Math.Max(verifiedAt?.Ticks ?? 0, latest?.UpdatedAtUtc.Ticks ?? 0).ToString();
-            return new { kind, status, startDate, endDate, covered, expected, lastCheckedAtUtc = verifiedAt,
+            return new { kind, status, startDate, endDate, availableStartDate, availableEndDate,
+                covered, expected, lastCheckedAtUtc = verifiedAt,
                 nextAttemptAtUtc = active?.NextAttemptAtUtc,
                 estimatedCompletionAtUtc = active == null ? (DateTime?)null :
                     active.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(active.Kind).Ticks *
@@ -67,16 +76,26 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
         var sources = campaignId.HasValue
             ? new[] {
                 Source("fullstats", ["fullstats", "archive"], spendDays, allDays,
-                    checks.Length == 0 ? null : checks.Max()),
-                Source("clusters", ["clusters"], clusterRows > 0 ? 1 : 0, 1,
-                    jobs.FirstOrDefault(x => x.Kind == "clusters" && x.Status == "completed")?.CompletedAtUtc),
+                    checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc),
+                    checks.Length == 0 ? null : checks.Min(x => x.Date),
+                    checks.Length == 0 ? null : checks.Max(x => x.Date)),
+                Source("clusters", ["clusters"], clusterDates.Length > 0 ? 1 : 0, 1,
+                    jobs.FirstOrDefault(x => x.Kind == "clusters" && x.Status == "completed")?.CompletedAtUtc,
+                    clusterDates.Length == 0 ? null : clusterDates.Min(),
+                    clusterDates.Length == 0 ? null : clusterDates.Max()),
                 Source("jam", ["jam"], jamChecks.Length > 0 ? 1 : 0, 1,
-                    jamChecks.Length == 0 ? null : jamChecks.Max()) }
+                    jamChecks.Length == 0 ? null : jamChecks.Max(x => x.CheckedAtUtc),
+                    jamChecks.Length == 0 ? null : jamChecks.Min(x => x.StartDate),
+                    jamChecks.Length == 0 ? null : jamChecks.Max(x => x.EndDate)) }
             : new[] {
                 Source("fullstats", ["fullstats", "archive"], spendDays, allDays,
-                    checks.Length == 0 ? null : checks.Max()),
+                    checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc),
+                    checks.Length == 0 ? null : checks.Min(x => x.Date),
+                    checks.Length == 0 ? null : checks.Max(x => x.Date)),
                 Source("orders", ["funnel_recent", "funnel_backfill", "funnel"], orderDays, allDays,
-                    orderChecks.Length == 0 ? null : orderChecks.Max()) };
+                    orderChecks.Length == 0 ? null : orderChecks.Max(x => x.LoadedAtUtc),
+                    orderChecks.Length == 0 ? null : orderChecks.Min(x => x.Date),
+                    orderChecks.Length == 0 ? null : orderChecks.Max(x => x.Date)) };
         return Ok(new { sources, active = jobs.Any(x => x.Status is "pending" or "running") });
     }
 }

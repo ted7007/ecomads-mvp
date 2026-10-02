@@ -5,6 +5,7 @@ const sourceSchema = z.object({
   kind: z.enum(['fullstats', 'orders', 'clusters', 'jam']),
   status: z.enum(['waiting', 'loading', 'failed', 'not_loaded', 'partial', 'complete']),
   startDate: z.string(), endDate: z.string(), covered: z.number().int(), expected: z.number().int(),
+  availableStartDate: z.string().nullable(), availableEndDate: z.string().nullable(),
   lastCheckedAtUtc: z.string().nullable(), nextAttemptAtUtc: z.string().nullable(),
   estimatedCompletionAtUtc: z.string().nullable(), errorCode: z.string().nullable(), version: z.string()
 });

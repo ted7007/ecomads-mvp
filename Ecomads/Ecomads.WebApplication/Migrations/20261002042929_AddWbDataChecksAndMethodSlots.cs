@@ -134,14 +134,18 @@ namespace Ecomads.WebApplication.Migrations
             migrationBuilder.Sql(@"
                 INSERT INTO wb_method_slots (store_id, method, last_request_at_utc)
                 SELECT store_id,
-                    CASE WHEN kind = 'funnel' AND next_campaign_offset > 1 THEN 'funnel_products'
-                         WHEN kind = 'funnel' THEN 'funnel_history'
+                    CASE WHEN kind = 'funnel' AND next_campaign_offset > 0 THEN 'funnel_products'
+                         WHEN kind IN ('funnel', 'funnel_recent') THEN 'funnel_history'
+                         WHEN kind = 'funnel_backfill' THEN 'funnel_products'
+                         WHEN kind = 'archive' THEN 'fullstats'
                          ELSE kind END,
                     MAX(last_request_at_utc)
                 FROM wb_sync_jobs
                 WHERE last_request_at_utc IS NOT NULL
-                GROUP BY store_id, CASE WHEN kind = 'funnel' AND next_campaign_offset > 1 THEN 'funnel_products'
-                                        WHEN kind = 'funnel' THEN 'funnel_history' ELSE kind END
+                GROUP BY store_id, CASE WHEN kind = 'funnel' AND next_campaign_offset > 0 THEN 'funnel_products'
+                                        WHEN kind IN ('funnel', 'funnel_recent') THEN 'funnel_history'
+                                        WHEN kind = 'funnel_backfill' THEN 'funnel_products'
+                                        WHEN kind = 'archive' THEN 'fullstats' ELSE kind END
                 ON CONFLICT (store_id, method) DO UPDATE
                 SET last_request_at_utc = GREATEST(wb_method_slots.last_request_at_utc, EXCLUDED.last_request_at_utc);");
         }

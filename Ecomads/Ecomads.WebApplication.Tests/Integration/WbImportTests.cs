@@ -2,6 +2,8 @@ using System.Text.Json;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Services.Wb;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Xunit;
 
 namespace Ecomads.WebApplication.Tests.Integration;
@@ -9,6 +11,46 @@ namespace Ecomads.WebApplication.Tests.Integration;
 [Collection(PostgresCollection.Name)]
 public sealed class WbImportTests(PostgresFixture postgres)
 {
+    [Fact]
+    public async Task MethodSlotMigration_PreservesFunnelProductPageAndRequestHistory()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        var storeId = Guid.NewGuid();
+        var jobId = Guid.NewGuid();
+        var requestedAt = DateTime.UtcNow.AddMinutes(-5);
+        const string pageState = "{\"Offset\":1000,\"OrderCount\":11,\"OrderSum\":220}";
+        const string campaignIds = "[20260701]";
+        const string kind = "funnel";
+        const string status = "running";
+        await using var db = postgres.CreateDbContext(connection);
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261001145315_AddWbRefreshRuns");
+        var seller = TestData.CreateRegularSeller();
+        db.Sellers.Add(seller);
+        db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Name = "WB" });
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($@"
+            INSERT INTO wb_sync_jobs (id, store_id, start_date, end_date, campaign_ids_json,
+                pair_ids_json, kind, next_campaign_offset, attempt_count, status, created_at_utc,
+                updated_at_utc, next_attempt_at_utc, last_request_at_utc)
+            VALUES ({jobId}, {storeId}, {new DateOnly(2026, 7, 1)}, {new DateOnly(2026, 7, 7)},
+                {campaignIds}::jsonb, {pageState}::jsonb, {kind}, {1}, {0}, {status},
+                {requestedAt}, {requestedAt}, {requestedAt.AddMinutes(30)}, {requestedAt})");
+        await migrator.MigrateAsync();
+        var job = await db.WbSyncJobs.AsNoTracking().SingleAsync(x => x.Id == jobId);
+        Assert.Equal(1, job.NextCampaignOffset);
+        using (var restored = JsonDocument.Parse(job.PairIdsJson!))
+        {
+            Assert.Equal(1000, restored.RootElement.GetProperty("Offset").GetInt32());
+            Assert.Equal(11, restored.RootElement.GetProperty("OrderCount").GetInt32());
+            Assert.Equal(220m, restored.RootElement.GetProperty("OrderSum").GetDecimal());
+        }
+        Assert.Equal("running", job.Status);
+        var slot = await db.WbMethodSlots.AsNoTracking().SingleAsync(x => x.StoreId == storeId);
+        Assert.Equal("funnel_products", slot.Method);
+        Assert.InRange(slot.LastRequestAtUtc, requestedAt.AddMilliseconds(-1), requestedAt.AddMilliseconds(1));
+    }
+
     [Fact]
     public async Task FullStatsAndClusters_ReplaceSameDayWithoutInventingClusterRevenue()
     {

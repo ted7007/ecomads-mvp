@@ -241,6 +241,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 {
                     var retryAt = DateTime.UtcNow.Add(error.RetryAfter.Value);
                     if (retryAt > job.NextAttemptAtUtc) job.NextAttemptAtUtc = retryAt;
+                    await WbRateLimits.DeferUntilAsync(db, store.Id, job.Kind,
+                        job.NextCampaignOffset, retryAt, cancellationToken);
                 }
             }
             Record(db, job);

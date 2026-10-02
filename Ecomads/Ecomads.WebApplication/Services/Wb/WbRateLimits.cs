@@ -44,4 +44,17 @@ public static class WbRateLimits
             WHERE wb_method_slots.last_request_at_utc <= {threshold}", cancellationToken);
         return changed == 1;
     }
+
+    public static Task DeferUntilAsync(EcomadsDbContext db, Guid storeId, string kind,
+        int offset, DateTime retryAt, CancellationToken cancellationToken)
+    {
+        var method = MethodFor(kind, offset);
+        var lastRequest = retryAt.Subtract(IntervalFor(kind));
+        return db.Database.ExecuteSqlInterpolatedAsync($@"
+            INSERT INTO wb_method_slots (store_id, method, last_request_at_utc)
+            VALUES ({storeId}, {method}, {lastRequest})
+            ON CONFLICT (store_id, method) DO UPDATE
+            SET last_request_at_utc = GREATEST(wb_method_slots.last_request_at_utc,
+                EXCLUDED.last_request_at_utc)", cancellationToken);
+    }
 }

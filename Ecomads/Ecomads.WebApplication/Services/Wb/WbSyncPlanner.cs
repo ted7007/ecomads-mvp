@@ -42,6 +42,9 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             }
             catch (WbApiException error)
             {
+                if (error.RetryAfter.HasValue)
+                    await WbRateLimits.DeferUntilAsync(db, store.Id, "campaign_list", 0,
+                        DateTime.UtcNow.Add(error.RetryAfter.Value), ct);
                 logger.LogWarning("WB campaign list refresh returned {StatusCode} for store {StoreId}; using saved list",
                     (int)error.StatusCode, store.Id);
             }
