@@ -3,13 +3,14 @@ using Ecomads.WebApplication.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Ecomads.WebApplication.Services.Wb;
 
 namespace Ecomads.WebApplication.Controllers;
 
 [ApiController]
 [Authorize]
 [Route("api/statistics/daily")]
-public sealed class WbDailySeriesController(EcomadsDbContext db) : ControllerBase
+public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageService coverage) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get([FromQuery] DateOnly startDate, [FromQuery] DateOnly endDate,
@@ -54,6 +55,9 @@ public sealed class WbDailySeriesController(EcomadsDbContext db) : ControllerBas
             StoreCount = x.Select(row => row.StoreId).Distinct().Count(),
             Sum = x.Sum(row => row.OrderSum), Count = x.Sum(row => row.OrderCount)
         });
+        var verifiedPeriod = campaignId.HasValue ? null : await coverage.GetAsync(sellerId, startDate, endDate,
+            null, cancellationToken);
+        var verifiedDays = verifiedPeriod?.Days.ToDictionary(x => x.Date);
         var expectedCampaigns = campaignId.HasValue ? 1 : campaigns.Count(x => x.IsActive || x.WbStatus == 11);
         var days = Enumerable.Range(0, endDate.DayNumber - startDate.DayNumber + 1)
             .Select(offset =>
@@ -74,7 +78,7 @@ public sealed class WbDailySeriesController(EcomadsDbContext db) : ControllerBas
                     Orders = found ? (int?)value!.Orders : null,
                     TotalOrderSum = totalOrderSum,
                     TotalOrderCount = completeOrders ? (int?)order!.Count : null,
-                    TotalDrr = spend.HasValue && totalOrderSum > 0 ? spend.Value / totalOrderSum.Value * 100m : (decimal?)null,
+                    TotalDrr = verifiedDays?.GetValueOrDefault(date)?.Drr,
                     Drr = found && value!.Revenue > 0 ? (decimal?)(value.Spend / value.Revenue * 100m) : null,
                     Ctr = found && value!.Impressions > 0 ? (decimal?)(value.Clicks * 100m / value.Impressions) : null,
                     LoadedCampaigns = found ? value!.LoadedCampaigns : 0,

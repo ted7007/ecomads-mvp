@@ -183,13 +183,24 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 Record(db, job);
                 await db.SaveChangesAsync(cancellationToken);
                 var importer = scope.ServiceProvider.GetRequiredService<WbFullStatsImporter>();
-                await importer.ImportAsync(store.Id, response.RootElement, cancellationToken);
+                var imported = await importer.ImportAsync(store.Id, response.RootElement, cancellationToken,
+                    batch, job.Id);
+                job.ImportedRows += imported.Rows;
+                job.ItemsWithData += batch.Length - imported.MissingCampaignIds.Length;
+                job.ItemsWithoutData += imported.MissingCampaignIds.Length;
+                var retried = JsonSerializer.Deserialize<long[]>(job.PairIdsJson ?? "[]")?.ToHashSet() ?? [];
+                var retryIds = imported.MissingCampaignIds.Where(x => retried.Add(x)).ToArray();
+                if (retryIds.Length > 0)
+                {
+                    job.CampaignIdsJson = JsonSerializer.Serialize(ids.Concat(retryIds).ToArray());
+                    job.PairIdsJson = JsonSerializer.Serialize(retried.ToArray());
+                }
                 job.NextCampaignOffset += batch.Length;
             }
             job.AttemptCount = 0;
             job.ErrorCode = null;
             job.UpdatedAtUtc = DateTime.UtcNow;
-            if (job.NextCampaignOffset >= total) Complete(job, store);
+            if (job.NextCampaignOffset >= WbSyncJobUnits.Total(job)) Complete(job, store);
             else { job.Stage = "waiting"; job.WaitReason = "rate_limit"; }
             Record(db, job);
             await db.SaveChangesAsync(cancellationToken);

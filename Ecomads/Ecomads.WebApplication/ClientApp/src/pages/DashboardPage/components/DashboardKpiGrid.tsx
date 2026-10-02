@@ -1,6 +1,6 @@
 import { Stack, Typography } from '@mui/material';
 import type { ProjectDashboard } from '../../../shared/api/apiTypes';
-import type { DailyPoint } from '../dashboardApi';
+import type { CoveragePeriod, DailyPoint } from '../dashboardApi';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
 import { compareKpi, completeKpi } from '../../../shared/lib/kpiComparison';
@@ -23,9 +23,10 @@ const orderTotal = (days: DailyPoint[]): number | null => days.length > 0 &&
   days.every((day) => day.totalOrderSum != null)
     ? days.reduce((sum, day) => sum + day.totalOrderSum!, 0) : null;
 
-export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays, selectedMetrics, onSelect }: { campaigns: ProjectDashboard[];
+export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays, coverage, previousCoverage, selectedMetrics, onSelect }: { campaigns: ProjectDashboard[];
   priorCampaigns: ProjectDashboard[];
   days: DailyPoint[]; previousDays: DailyPoint[];
+  coverage: CoveragePeriod | null; previousCoverage: CoveragePeriod | null;
   selectedMetrics: MetricKey[]; onSelect: (metric: MetricKey) => void }) {
   const totals = calculateTotals(campaigns);
   const hasData = campaigns.some((campaign) => campaign.kpi.coverageDays > 0);
@@ -37,10 +38,9 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
   const priorOrders = orderTotal(previousDays);
   const loadedOrderDays = days.filter((day) => day.totalOrderSum != null).length;
   const ordersNote = currentOrders === null ? `загружено ${loadedOrderDays} из ${days.length} дней` : undefined;
-  const drrTotal = currentOrders && campaigns.length > 0 && campaigns.every(completeKpi)
-    ? totals.spend / currentOrders * 100 : null;
-  const priorDrrTotal = priorOrders && previous && previousDays.length === days.length
-    ? previous.spend / priorOrders * 100 : null;
+  const drrTotal = coverage?.drr ?? null;
+  const priorDrrTotal = coverage?.status === 'complete' && previousCoverage?.status === 'complete'
+    ? previousCoverage.drr : null;
   const orderComparison = currentOrders !== null && priorOrders !== null && previousDays.length === days.length
     ? compareKpi(currentOrders, priorOrders, 'money', 1) : null;
   const drrTotalComparison = drrTotal !== null && priorDrrTotal !== null
@@ -63,8 +63,10 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
         <KpiCard label="Расход" value={hasData ? formatMoney(totals.spend) : '—'} {...toggle('spend')}
           {...comparison(totals.spend, previous?.spend, 'money', 0)} />
         <KpiCard label="ДРР от заказов" value={drrTotal === null ? '—' : formatPercent(drrTotal, 1)}
-          note={drrTotal === null ? ordersNote ?? 'рекламная статистика загружена не полностью' : undefined}
-          hint={drrTotal === null ? ordersHint : undefined} {...toggle('drrTotal')}
+          note={coverage?.status === 'preliminary' ? `Предварительно · по ${coverage.confirmedDays} из ${coverage.days.length} дней` :
+            drrTotal === null ? coverage?.reason ?? 'Проверяем расход и заказы' : undefined}
+          hint={coverage?.status === 'preliminary' ? `Учтены: ${coverage.days.filter((day) => day.spend != null && day.orders != null).map((day) => day.date).join(', ')}` : undefined}
+          {...toggle('drrTotal')}
           delta={drrTotalComparison?.delta} deltaTone={drrTotalComparison?.tone} previous={drrTotalComparison?.previous} />
         <KpiCard label="Заказы с рекламы" value={hasData ? formatMoney(totals.revenue) : '—'} {...toggle('revenue')}
           {...comparison(totals.revenue, previous?.revenue, 'money', 1)} />

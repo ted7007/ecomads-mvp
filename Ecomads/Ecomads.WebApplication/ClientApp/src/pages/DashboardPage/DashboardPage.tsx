@@ -5,7 +5,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { appRoutes } from '../../app/routes';
 import { queryKeys } from '../../shared/api/queryKeys';
 import type { DashboardFilters } from './dashboardApi';
-import { getCampaigns, getDailySeries, getLoadedPeriods } from './dashboardApi';
+import { getCampaigns, getCoverage, getDailySeries, getLoadedPeriods } from './dashboardApi';
 import { CampaignsTable } from './components/CampaignsTable';
 import { DashboardKpiGrid } from './components/DashboardKpiGrid';
 import { PeriodFilter, defaultPeriod } from './components/PeriodFilter';
@@ -38,8 +38,10 @@ export function DashboardPage() {
   const storesQuery = useQuery({ queryKey: ['wb-stores'], queryFn: getWbStores });
   const loadedPeriods = useQuery({ queryKey: ['loaded-periods'], queryFn: getLoadedPeriods });
   const dailyQuery = useQuery({ queryKey: ['dashboard-daily', filters], queryFn: () => getDailySeries(filters) });
+  const coverageQuery = useQuery({ queryKey: ['wb-coverage', filters], queryFn: () => getCoverage(filters) });
   const prior = previousPeriod(filters);
   const priorQuery = useQuery({ queryKey: ['dashboard-daily', prior], queryFn: () => getDailySeries(prior) });
+  const priorCoverageQuery = useQuery({ queryKey: ['wb-coverage', prior], queryFn: () => getCoverage(prior) });
   const priorCampaignsQuery = useQuery({ queryKey: queryKeys.projects.list(prior), queryFn: () => getCampaigns(prior) });
 
   const campaigns = campaignsQuery.data ?? [];
@@ -108,6 +110,7 @@ export function DashboardPage() {
 
           <DashboardKpiGrid campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []}
             days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []}
+            coverage={coverageQuery.data ?? null} previousCoverage={priorCoverageQuery.data ?? null}
             selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
 
           <Card><CardContent>

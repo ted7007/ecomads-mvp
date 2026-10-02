@@ -299,8 +299,14 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var jobs = await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.Kind == "fullstats" &&
             (x.Status == "completed" || x.Status == "running") && x.StartDate <= start && x.EndDate >= end)
             .Select(x => new { x.CampaignIdsJson, x.NextCampaignOffset, x.Status }).ToListAsync(ct);
-        return jobs.SelectMany(x => (JsonSerializer.Deserialize<long[]>(x.CampaignIdsJson) ?? [])
+        var candidates = jobs.SelectMany(x => (JsonSerializer.Deserialize<long[]>(x.CampaignIdsJson) ?? [])
             .Take(x.Status == "completed" ? int.MaxValue : x.NextCampaignOffset)).ToHashSet();
+        var checkedIds = await (from check in db.WbCampaignDailyChecks
+            join campaign in db.Campaigns on check.CampaignId equals campaign.Id
+            where campaign.StoreId == storeId && check.Date >= start && check.Date <= end
+            select campaign.WbCampaignId).Distinct().ToListAsync(ct);
+        return checkedIds.Where(x => long.TryParse(x, out var id) && candidates.Contains(id))
+            .Select(long.Parse).ToHashSet();
     }
 
     private async Task<WbNormQueryPair[]> ObservedAsync(Guid storeId, DateOnly start, DateOnly end, CancellationToken ct)

@@ -18,6 +18,24 @@ const dailyPointSchema = z.object({
 });
 export type DailyPoint = z.infer<typeof dailyPointSchema>;
 
+const coverageSchema = z.object({
+  days: z.array(z.object({ date: z.string(), spend: z.number().nullable(), orders: z.number().nullable(),
+    drr: z.number().nullable(), checkedCampaigns: z.number().int(), expectedCampaigns: z.number().int(),
+    checkedStores: z.number().int(), expectedStores: z.number().int() })),
+  confirmedDays: z.number().int(), drr: z.number().nullable(),
+  status: z.enum(['complete', 'preliminary', 'unavailable']), reason: z.string().nullable(),
+  lastCheckedAtUtc: z.string().nullable()
+});
+export type CoveragePeriod = z.infer<typeof coverageSchema>;
+
+export async function getCoverage(filters: DashboardFilters, campaignId?: string): Promise<CoveragePeriod> {
+  const query = new URLSearchParams();
+  if (filters.startDate) query.set('startDate', filters.startDate);
+  if (filters.endDate) query.set('endDate', filters.endDate);
+  if (campaignId) query.set('campaignId', campaignId);
+  return coverageSchema.parse(await httpClient<unknown>(`/api/statistics/coverage?${query}`));
+}
+
 export async function getDailySeries(filters: DashboardFilters, campaignId?: string): Promise<DailyPoint[]> {
   const query = new URLSearchParams();
   if (filters.startDate) query.set('startDate', filters.startDate);

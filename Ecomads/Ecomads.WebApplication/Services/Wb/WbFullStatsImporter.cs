@@ -5,21 +5,30 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecomads.WebApplication.Services.Wb;
 
+public sealed record WbFullStatsImportResult(int Rows, long[] MissingCampaignIds);
+
 public sealed class WbFullStatsImporter(EcomadsDbContext db)
 {
-    public async Task ImportAsync(Guid storeId, JsonElement root, CancellationToken cancellationToken)
+    public async Task<WbFullStatsImportResult> ImportAsync(Guid storeId, JsonElement root, CancellationToken cancellationToken,
+        IReadOnlyList<long>? requestedIds = null, Guid? jobId = null)
     {
         var campaigns = await db.Campaigns.Where(c => c.StoreId == storeId)
             .ToDictionaryAsync(c => c.WbCampaignId, cancellationToken);
         var nomenclatures = await db.Nomenclatures.Where(n => n.StoreId == storeId)
             .ToDictionaryAsync(n => n.WbNomenclatureId, cancellationToken);
 
-        await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var seenCampaigns = new HashSet<long>();
+            var rows = 0;
             foreach (var advert in root.EnumerateArray())
             {
-            var wbId = advert.GetProperty("advertId").GetInt64().ToString();
+            var wbNumber = advert.GetProperty("advertId").GetInt64();
+            if (requestedIds != null && !requestedIds.Contains(wbNumber))
+                throw new JsonException("WB вернул незапрошенную кампанию в fullstats.");
+            seenCampaigns.Add(wbNumber);
+            var wbId = wbNumber.ToString();
             if (!campaigns.TryGetValue(wbId, out var campaign))
             {
                 throw new JsonException("WB вернул неизвестную кампанию в fullstats.");
@@ -34,6 +43,7 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db)
                     .ExecuteDeleteAsync(cancellationToken);
 
                 var spend = Number(day, "sum");
+                if (spend < 0) throw new JsonException("WB вернул отрицательный расход.");
                 var revenue = Number(day, "sum_price");
                 var views = Whole(day, "views");
                 var clicks = Whole(day, "clicks");
@@ -51,6 +61,19 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db)
                     Ctr = views > 0 ? clicks * 100m / views : 0,
                     Drr = revenue > 0 ? spend * 100m / revenue : 0
                 });
+                var checkDate = DateOnly.FromDateTime(date);
+                var check = await db.WbCampaignDailyChecks.SingleOrDefaultAsync(x =>
+                    x.CampaignId == campaign.Id && x.Date == checkDate, cancellationToken);
+                if (check == null)
+                {
+                    check = new WbCampaignDailyCheck { CampaignId = campaign.Id, Date = checkDate };
+                    db.WbCampaignDailyChecks.Add(check);
+                }
+                check.Result = spend == 0 ? "zero" : "data";
+                check.Spend = spend;
+                check.JobId = jobId;
+                check.CheckedAtUtc = DateTime.UtcNow;
+                rows++;
 
                 var articleStats = new Dictionary<string, CampaignNomenclatureStatistics>(StringComparer.Ordinal);
                 if (day.TryGetProperty("apps", out var apps) && apps.ValueKind == JsonValueKind.Array)
@@ -108,6 +131,7 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db)
 
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            return new WbFullStatsImportResult(rows, requestedIds?.Where(x => !seenCampaigns.Contains(x)).ToArray() ?? []);
         });
     }
 
