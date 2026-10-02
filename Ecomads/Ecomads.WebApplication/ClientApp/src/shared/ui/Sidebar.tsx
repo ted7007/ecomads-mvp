@@ -84,7 +84,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
               {demoState.timeLeftText}
             </Typography>
           </Box>
-          {demoState.shouldWarn ? <Typography variant="caption" color="warning.main">Подробнее о доступе — в профиле</Typography> : null}
+          {demoState.shouldWarn ? <Typography variant="caption" color="warning.main">После окончания демо для продления доступа потребуется отзыв.</Typography> : null}
         </Stack>
       ) : null}
 
