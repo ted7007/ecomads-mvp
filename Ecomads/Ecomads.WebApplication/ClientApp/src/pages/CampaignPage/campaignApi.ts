@@ -63,7 +63,10 @@ const jamRowSchema = z.object({
 const jamResponseSchema = z.object({
   jamStatus: z.enum(['unknown', 'active', 'access_denied', 'payment_required']),
   jamCheckedAtUtc: z.string().nullable(), startDate: z.string(), endDate: z.string(),
-  articleCount: z.number().int(), articlesWithQueries: z.number().int(), rows: z.array(jamRowSchema)
+  articleCount: z.number().int(), articlesWithQueries: z.number().int(), rows: z.array(jamRowSchema),
+  reportStatus: z.enum(['complete', 'empty', 'partial', 'legacy', 'not_loaded', 'access_denied']),
+  checkedArticleCount: z.number().int(), emptyArticleCount: z.number().int(),
+  availableReports: z.array(z.object({ startDate: z.string(), endDate: z.string(), loadedAtUtc: z.string() }))
 });
 export type WbJamRow = z.infer<typeof jamRowSchema>;
 export type WbJamResponse = z.infer<typeof jamResponseSchema>;

@@ -1,4 +1,4 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, MenuItem, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { appRoutes } from '../../../app/routes';
@@ -10,16 +10,30 @@ const position = (value: number | null) => value === null ? '—' : new Intl.Num
 const shortDate = (date: string) => date.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3.$2.$1');
 const jamCell = { bgcolor: '#F7F0FF', color: '#6841A1' };
 
-export function WbJamTable({ report }: { report: WbJamResponse }) {
+export function WbJamTable({ report, onSelectPeriod }: { report: WbJamResponse;
+  onSelectPeriod: (startDate: string, endDate: string) => void }) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   useEffect(() => { setPage(0); }, [report.rows]);
-  if (!report.rows.length) {
-    return <Alert severity="info" action={<Button size="small" component={Link} to={appRoutes.wbStores}>Проверить загрузку</Button>}>
-      Запросов Джема за выбранный период пока нет. {report.jamStatus === 'access_denied' ? 'WB отклонил последний запрос: проверьте права токена и доступ к отчёту.' : ''}
-    </Alert>;
-  }
+  const chooser = report.availableReports.length ? <Select size="small" value={`${report.startDate}/${report.endDate}`}
+    aria-label="Период отчёта Джема" onChange={(event) => {
+      const [start, end] = event.target.value.split('/'); onSelectPeriod(start, end);
+    }} sx={{ minWidth: 220 }}>
+    {report.availableReports.map((period) => <MenuItem key={`${period.startDate}/${period.endDate}`}
+      value={`${period.startDate}/${period.endDate}`}>
+      {shortDate(period.startDate)}–{shortDate(period.endDate)}
+    </MenuItem>)}
+  </Select> : null;
   return <>
+    <Box sx={{ mb: 1.5 }}>{chooser}</Box>
+    {report.reportStatus === 'access_denied' ? <Alert severity="warning">Нет доступа к Джему. Проверьте права токена и подписку.</Alert> : null}
+    {report.reportStatus === 'partial' ? <Alert severity="warning">Загрузка частичная: проверено {report.checkedArticleCount} из {report.articleCount} товаров.</Alert> : null}
+    {report.reportStatus === 'legacy' ? <Alert severity="info">Старый отчёт сохранён без сведений о товарах с пустым ответом.</Alert> : null}
+    {!report.rows.length ? <Alert severity="info" action={<Button size="small" component={Link} to={appRoutes.wbStores}>Проверить загрузку</Button>}>
+      {report.reportStatus === 'empty' ? 'WB не вернул поисковые запросы по товарам этого отчёта.' :
+        report.reportStatus === 'not_loaded' ? 'Отчёт Джема ещё не загружен.' :
+        report.reportStatus === 'partial' ? 'В обработанной части отчёта запросов нет.' : 'Запросов Джема за этот период нет.'}
+    </Alert> : <>
     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
       За {shortDate(report.startDate)}–{shortDate(report.endDate)}: запросы есть по {report.articlesWithQueries} из {report.articleCount} товаров кампании.
     </Typography>
@@ -51,5 +65,6 @@ export function WbJamTable({ report }: { report: WbJamResponse }) {
       </Table>
     </TableContainer>
     <PaginationBar count={report.rows.length} page={page} rowsPerPage={rowsPerPage} onPageChange={setPage} onRowsPerPageChange={(size) => { setRowsPerPage(size); setPage(0); }} />
+    </>}
   </>;
 }

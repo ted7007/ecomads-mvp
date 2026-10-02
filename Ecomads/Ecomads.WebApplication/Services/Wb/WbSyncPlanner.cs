@@ -24,7 +24,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var active = await db.WbSyncJobs.Where(x => x.StoreId == store.Id &&
             (x.Status == "pending" || x.Status == "running")).ToListAsync(ct);
-        if (active.Any(x => x.Kind == "fullstats" || x.Kind == "funnel_recent"))
+        if (active.Any(x => x.Kind == "fullstats") && active.Any(x => x.Kind == "funnel_recent"))
             return new WbRefreshRun(active[0].RunId ?? Guid.NewGuid(), false, active, [], true);
 
         var campaignsRefreshed = false;
@@ -47,7 +47,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             }
         }
 
-        var runId = active.FirstOrDefault(x => x.Kind == "fullstats")?.RunId ?? Guid.NewGuid();
+        var runId = active.FirstOrDefault(x => x.Kind == "fullstats" || x.Kind == "funnel_recent")?.RunId ?? Guid.NewGuid();
         var jobs = new List<WbSyncJob>();
         var skipped = new List<WbSkippedSource>();
         async Task Add(string kind, Task<WbPlanResult> task)
@@ -103,7 +103,8 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var ids = (await db.Campaigns.Where(x => x.StoreId == store.Id && (x.WbStatus == 9 || x.WbStatus == 11))
             .OrderBy(x => x.WbStatus == 9 ? 0 : 1).Select(x => x.WbCampaignId).ToListAsync(ct))
             .Select(x => long.TryParse(x, out var id) ? id : 0).Where(x => x > 0).ToArray();
-        var archive = await EligibleArchiveIdsAsync(store.Id, Yesterday(), ct);
+        var archive = await ActiveAsync(store.Id, "archive", ct) == null
+            ? await EligibleArchiveIdsAsync(store.Id, Yesterday(), ct) : [];
         ids = ids.Concat(archive.Take(Math.Max(0, 50 - ids.Length))).Distinct().ToArray();
         if (ids.Length == 0) return new(null, "нет кампаний");
         var end = Yesterday();

@@ -77,28 +77,33 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
 
         var now = DateTime.UtcNow;
-        await using var reservation = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (!await WbRateLimits.TryReserveAsync(db, store.Id, job.Kind, job.NextCampaignOffset, now, cancellationToken))
+        var reserved = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            job.NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, store.Id,
-                WbRateLimits.MethodFor(job.Kind, job.NextCampaignOffset), now, cancellationToken);
-            job.Stage = "waiting";
-            job.WaitReason = "rate_limit";
+            await using var reservation = await db.Database.BeginTransactionAsync(cancellationToken);
+            if (!await WbRateLimits.TryReserveAsync(db, store.Id, job.Kind, job.NextCampaignOffset, now, cancellationToken))
+            {
+                job.NextAttemptAtUtc = await WbRateLimits.NextSlotAsync(db, store.Id,
+                    WbRateLimits.MethodFor(job.Kind, job.NextCampaignOffset), now, cancellationToken);
+                job.Stage = "waiting";
+                job.WaitReason = "rate_limit";
+                await db.SaveChangesAsync(cancellationToken);
+                await reservation.CommitAsync(cancellationToken);
+                return false;
+            }
+            job.Status = "running";
+            job.Stage = "requesting";
+            job.WaitReason = null;
+            job.StartedAtUtc ??= now;
+            job.NextAttemptAtUtc = now.Add(WbRateLimits.IntervalFor(job.Kind));
+            job.LastRequestAtUtc = now;
+            job.UpdatedAtUtc = now;
+            Record(db, job);
+            // Reserve the slot before the HTTP request. A crash may delay a retry but cannot spend the same slot twice.
             await db.SaveChangesAsync(cancellationToken);
             await reservation.CommitAsync(cancellationToken);
-            return;
-        }
-        job.Status = "running";
-        job.Stage = "requesting";
-        job.WaitReason = null;
-        job.StartedAtUtc ??= now;
-        job.NextAttemptAtUtc = now.Add(WbRateLimits.IntervalFor(job.Kind));
-        job.LastRequestAtUtc = now;
-        job.UpdatedAtUtc = now;
-        Record(db, job);
-        // Reserve the slot before the HTTP request. A crash may delay a retry but cannot spend the same slot twice.
-        await db.SaveChangesAsync(cancellationToken);
-        await reservation.CommitAsync(cancellationToken);
+            return true;
+        });
+        if (!reserved) return;
 
         var wb = scope.ServiceProvider.GetRequiredService<IWbPromotionClient>();
         var tokens = scope.ServiceProvider.GetRequiredService<IWbTokenService>();
@@ -168,8 +173,11 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 Record(db, job);
                 await db.SaveChangesAsync(cancellationToken);
                 var importer = scope.ServiceProvider.GetRequiredService<WbJamImporter>();
-                await importer.ImportAsync(store.Id, batch, job.StartDate, job.EndDate,
-                    response.RootElement, cancellationToken);
+                var imported = await importer.ImportAsync(store.Id, batch, job.StartDate, job.EndDate,
+                    response.RootElement, cancellationToken, job.Id);
+                job.ImportedRows += imported.Rows;
+                job.ItemsWithData += imported.WithData;
+                job.ItemsWithoutData += imported.WithoutData;
                 job.NextCampaignOffset += batch.Length;
                 store.JamStatus = "active";
                 store.JamCheckedAtUtc = DateTime.UtcNow;

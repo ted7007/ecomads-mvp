@@ -116,6 +116,23 @@ public sealed class WbImportTests(PostgresFixture postgres)
             Assert.Equal(5.4m, row.AveragePosition);
             Assert.Null(row.MedianPosition);
             Assert.Equal(3, row.Orders);
+            var check = Assert.Single(await db.WbJamArticleChecks.Where(x => x.StoreId == storeId).ToListAsync());
+            Assert.True(check.HasData);
+        }
+
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            using var document = JsonDocument.Parse("""{"data":{"items":[]}}""");
+            var imported = await new WbJamImporter(db).ImportAsync(storeId, [123], start, end,
+                document.RootElement, CancellationToken.None);
+            Assert.Equal(0, imported.Rows);
+            Assert.Equal(1, imported.WithoutData);
+        }
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            Assert.Empty(await db.WbJamSearchQueries.Where(x => x.StoreId == storeId).ToListAsync());
+            var check = Assert.Single(await db.WbJamArticleChecks.Where(x => x.StoreId == storeId).ToListAsync());
+            Assert.False(check.HasData);
         }
     }
 }

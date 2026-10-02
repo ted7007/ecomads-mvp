@@ -40,6 +40,7 @@ export function CampaignPage() {
     setDraftFilters(next);
   }, [searchParams]);
   const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['revenue']);
+  const [jamPeriod, setJamPeriod] = useState<DashboardFilters | null>(null);
   const toggleMetric = (metric: MetricKey) => setSelectedMetrics((current) =>
     current.includes(metric) ? current.filter((item) => item !== metric) : [...current, metric]);
   const id = campaignId ?? '';
@@ -47,8 +48,9 @@ export function CampaignPage() {
     queryFn: () => getCampaignSummary(id, filters), enabled: Boolean(id) });
   const clusters = useQuery({ queryKey: ['wb-clusters', id, filters],
     queryFn: () => getWbClusters(id, filters), enabled: Boolean(id) });
-  const jam = useQuery({ queryKey: ['wb-jam', id, filters],
-    queryFn: () => getWbJam(id, filters), enabled: Boolean(id) });
+  const jam = useQuery({ queryKey: ['wb-jam', id, jamPeriod],
+    queryFn: () => getWbJam(id, jamPeriod ?? {}), enabled: Boolean(id),
+    placeholderData: (previous) => previous });
   const articles = useQuery({ queryKey: ['campaign-nomenclatures', id, filters],
     queryFn: () => getNomenclatureStatistics(id, filters), enabled: Boolean(id) });
   const trend = useQuery({ queryKey: ['wb-spend-trend', id, filters.endDate],
@@ -123,7 +125,12 @@ export function CampaignPage() {
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
         {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete ?
           <Alert severity="info" sx={{ mb: 2 }}>Сбор кластеров за весь выбранный период ещё не завершён. Строки ниже могут быть неполными; рекомендации по ним пока скрыты.</Alert> : null}
-        {clusters.data?.isWbConnected ? <WbClusterTable rows={clusters.data.rows} jamRows={jam.data?.rows} />
+        {clusters.data?.isWbConnected ? <>
+          <WbClusterTable rows={clusters.data.rows} jamRows={jam.data &&
+            jam.data.startDate === filters.startDate && jam.data.endDate === filters.endDate ? jam.data.rows : []} />
+          {jam.data?.rows.length && (jam.data.startDate !== filters.startDate || jam.data.endDate !== filters.endDate) ?
+            <Typography variant="caption" color="text.secondary">Джем загружен за другой период; его показатели показаны ниже отдельно.</Typography> : null}
+        </>
           : <Alert severity="info">Подключите кабинет WB для просмотра кластеров.</Alert>}
       </CardContent></Card>
       {recommendations.length ? <Card><CardContent>
@@ -136,7 +143,8 @@ export function CampaignPage() {
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые запросы Джема</Typography>
         {jam.isLoading ? <LoadingState title="Загружаем запросы Джема" /> :
           jam.isError ? <Alert severity="error">Не удалось загрузить отчёт Джема.</Alert> :
-          jam.data ? <WbJamTable report={jam.data} /> : null}
+          jam.data ? <WbJamTable report={jam.data} onSelectPeriod={(startDate, endDate) =>
+            setJamPeriod({ startDate, endDate })} /> : null}
       </CardContent></Card>
     </> : null}
   </Stack>;

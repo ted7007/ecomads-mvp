@@ -147,7 +147,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         var runId = response.RootElement.GetProperty("runId").GetGuid();
         var jobs = response.RootElement.GetProperty("jobs").EnumerateArray().ToArray();
         Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "fullstats" && x.GetProperty("runId").GetGuid() == runId);
-        Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "funnel" && x.GetProperty("runId").GetGuid() == runId);
+        Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "funnel_recent" && x.GetProperty("runId").GetGuid() == runId);
+        Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "funnel_backfill" && x.GetProperty("runId").GetGuid() == runId);
         using var duplicate = await client.PostAsync($"/api/wb/stores/{storeId}/refresh", null);
         Assert.True(duplicate.IsSuccessStatusCode);
         await using (var db = postgres.CreateDbContext(connection))
@@ -189,10 +190,10 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         if (TimeZoneInfo.ConvertTimeFromUtc(now, moscow).TimeOfDay < TimeSpan.FromHours(6)) now = now.AddDays(-1);
         await worker.RunOnceAsync(now, CancellationToken.None);
         await using (var db = postgres.CreateDbContext(connection))
-            Assert.Equal(2, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
+            Assert.Equal(3, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
         await worker.RunOnceAsync(now, CancellationToken.None);
         await using (var db = postgres.CreateDbContext(connection))
-            Assert.Equal(2, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
+            Assert.Equal(3, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
     }
 
     [Fact]
@@ -224,6 +225,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
                 CreatedAtUtc = now.AddMinutes(-5), UpdatedAtUtc = now, CompletedAtUtc = now,
                 LastRequestAtUtc = now, NextAttemptAtUtc = now, ErrorCode = "transport_error"
             });
+            db.WbMethodSlots.Add(new WbMethodSlot { StoreId = storeId, Method = "fullstats",
+                LastRequestAtUtc = now });
             await db.SaveChangesAsync();
         }
 
@@ -237,6 +240,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         await using (var db = postgres.CreateDbContext(connection))
         {
             var clusterLastRequest = now.AddMinutes(-10);
+            db.WbMethodSlots.Add(new WbMethodSlot { StoreId = storeId, Method = "clusters",
+                LastRequestAtUtc = clusterLastRequest });
             db.WbSyncJobs.Add(new WbSyncJob
             {
                 Id = Guid.NewGuid(), StoreId = storeId, Kind = "clusters", Status = "completed", Stage = "completed",
@@ -328,7 +333,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
         using var overviewJson = JsonDocument.Parse(await overview.Content.ReadAsStringAsync());
         var sources = overviewJson.RootElement.GetProperty("sources").EnumerateArray().ToArray();
-        Assert.Equal(4, sources.Length);
+        Assert.Equal(7, sources.Length);
         var statsSource = Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "fullstats"));
         var completedJob = statsSource.GetProperty("lastJob");
         Assert.Equal("completed", completedJob.GetProperty("status").GetString());

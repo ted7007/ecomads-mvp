@@ -7,8 +7,8 @@ namespace Ecomads.WebApplication.Services.Wb;
 
 public sealed class WbJamImporter(EcomadsDbContext db)
 {
-    public async Task ImportAsync(Guid storeId, IReadOnlyList<long> nmIds,
-        DateOnly startDate, DateOnly endDate, JsonElement root, CancellationToken cancellationToken)
+    public async Task<(int Rows, int WithData, int WithoutData)> ImportAsync(Guid storeId, IReadOnlyList<long> nmIds,
+        DateOnly startDate, DateOnly endDate, JsonElement root, CancellationToken cancellationToken, Guid? jobId = null)
     {
         var articles = await db.Nomenclatures.Where(x => x.StoreId == storeId)
             .ToDictionaryAsync(x => x.WbNomenclatureId, cancellationToken);
@@ -43,9 +43,27 @@ public sealed class WbJamImporter(EcomadsDbContext db)
                 articleIds.Contains(x.NomenclatureId) && x.StartDate == startDate && x.EndDate == endDate)
                 .ExecuteDeleteAsync(cancellationToken);
             db.WbJamSearchQueries.AddRange(rows);
+            var existingChecks = await db.WbJamArticleChecks.Where(x => x.StoreId == storeId &&
+                articleIds.Contains(x.NomenclatureId) && x.StartDate == startDate && x.EndDate == endDate)
+                .ToDictionaryAsync(x => x.NomenclatureId, cancellationToken);
+            var withData = rows.Select(x => x.NomenclatureId).ToHashSet();
+            foreach (var articleId in articleIds)
+            {
+                if (!existingChecks.TryGetValue(articleId, out var check))
+                {
+                    check = new WbJamArticleCheck { StoreId = storeId, NomenclatureId = articleId,
+                        StartDate = startDate, EndDate = endDate };
+                    db.WbJamArticleChecks.Add(check);
+                }
+                check.JobId = jobId;
+                check.CheckedAtUtc = loadedAt;
+                check.HasData = withData.Contains(articleId);
+            }
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
+        var countWithData = rows.Select(x => x.NomenclatureId).Distinct().Count();
+        return (rows.Count, countWithData, articleIds.Length - countWithData);
     }
 
     private static long? CurrentLong(JsonElement item, string property) =>

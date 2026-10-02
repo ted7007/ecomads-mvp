@@ -16,7 +16,9 @@ public sealed class WbCampaignJamController(EcomadsDbContext db) : ControllerBas
         long? OpenCard, long? AddToCart, long? Orders, bool MatchingLoadedAdCluster);
     public sealed record JamResponse(string JamStatus, DateTime? JamCheckedAtUtc,
         DateOnly StartDate, DateOnly EndDate, int ArticleCount, int ArticlesWithQueries,
-        IReadOnlyList<JamRow> Rows);
+        IReadOnlyList<JamRow> Rows, string ReportStatus, int CheckedArticleCount, int EmptyArticleCount,
+        IReadOnlyList<JamReportOption> AvailableReports);
+    public sealed record JamReportOption(DateOnly StartDate, DateOnly EndDate, DateTime LoadedAtUtc);
 
     [HttpGet("{campaignId:guid}/jam")]
     public async Task<IActionResult> Get(Guid campaignId, [FromQuery] DateOnly? startDate,
@@ -32,8 +34,21 @@ public sealed class WbCampaignJamController(EcomadsDbContext db) : ControllerBas
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
-        var end = endDate ?? yesterday;
-        var start = startDate ?? end.AddDays(-6);
+        var allArticleIds = await db.CampaignNomenclatureStatistics.AsNoTracking()
+            .Where(x => x.CampaignId == campaignId).Select(x => x.NomenclatureId).Distinct().ToArrayAsync(cancellationToken);
+        var checkPeriods = await db.WbJamArticleChecks.AsNoTracking()
+            .Where(x => x.StoreId == campaign.StoreId && allArticleIds.Contains(x.NomenclatureId))
+            .Select(x => new JamReportOption(x.StartDate, x.EndDate, x.CheckedAtUtc)).ToListAsync(cancellationToken);
+        var legacyPeriods = await db.WbJamSearchQueries.AsNoTracking()
+            .Where(x => x.StoreId == campaign.StoreId && allArticleIds.Contains(x.NomenclatureId))
+            .Select(x => new JamReportOption(x.StartDate, x.EndDate, x.LoadedAtUtc)).ToListAsync(cancellationToken);
+        var reports = checkPeriods.Concat(legacyPeriods)
+            .GroupBy(x => (x.StartDate, x.EndDate))
+            .Select(x => new JamReportOption(x.Key.StartDate, x.Key.EndDate, x.Max(y => y.LoadedAtUtc)))
+            .OrderByDescending(x => x.EndDate).ThenByDescending(x => x.LoadedAtUtc).ToArray();
+        var selected = !startDate.HasValue ? reports.FirstOrDefault() : null;
+        var end = endDate ?? selected?.EndDate ?? yesterday;
+        var start = startDate ?? selected?.StartDate ?? end.AddDays(-6);
         if (start > end) return BadRequest(new { message = "Некорректный период." });
         var fromUtc = DateTime.SpecifyKind(start.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
         var throughUtc = DateTime.SpecifyKind(end.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
@@ -46,6 +61,9 @@ public sealed class WbCampaignJamController(EcomadsDbContext db) : ControllerBas
                 query.StartDate == start && query.EndDate == end
             select new { query, article.WbNomenclatureId, article.Name })
             .ToListAsync(cancellationToken);
+        var articleChecks = await db.WbJamArticleChecks.AsNoTracking().Where(x => x.StoreId == campaign.StoreId &&
+                articleIds.Contains(x.NomenclatureId) && x.StartDate == start && x.EndDate == end)
+            .ToArrayAsync(cancellationToken);
         var clusterNames = await db.WbClusterStatistics.AsNoTracking()
             .Where(x => x.CampaignId == campaignId && articleIds.Contains(x.NomenclatureId) &&
                 x.Date >= start && x.Date <= end)
@@ -58,7 +76,12 @@ public sealed class WbCampaignJamController(EcomadsDbContext db) : ControllerBas
                 x.query.OpenCard, x.query.AddToCart, x.query.Orders,
                 loadedClusterKeys.Contains((x.query.NomenclatureId, x.query.SearchText.Trim().ToLowerInvariant()))))
             .OrderByDescending(x => x.Orders).ThenByDescending(x => x.Frequency).ToList();
+        var reportStatus = campaign.JamStatus is "access_denied" or "payment_required" ? "access_denied" :
+            articleIds.Length > 0 && articleChecks.Length == articleIds.Length ?
+                raw.Count == 0 ? "empty" : "complete" :
+            articleChecks.Length > 0 ? "partial" : raw.Count > 0 ? "legacy" : "not_loaded";
         return Ok(new JamResponse(campaign.JamStatus, campaign.JamCheckedAtUtc, start, end,
-            articleIds.Length, raw.Select(x => x.query.NomenclatureId).Distinct().Count(), rows));
+            articleIds.Length, raw.Select(x => x.query.NomenclatureId).Distinct().Count(), rows,
+            reportStatus, articleChecks.Length, articleChecks.Count(x => !x.HasData), reports));
     }
 }
