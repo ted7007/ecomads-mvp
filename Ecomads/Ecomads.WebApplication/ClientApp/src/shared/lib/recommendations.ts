@@ -8,12 +8,22 @@ export type Recommendation = { id: string; severity: 'warning' | 'info'; title: 
 export function campaignRecommendations(campaigns: ProjectDashboard[]): Recommendation[] {
   return campaigns.flatMap((campaign) => {
     const kpi = campaign.kpi;
-    if (!kpi.coverageDays || kpi.coverageDays < kpi.expectedDays || kpi.revenue <= 0 ||
-      kpi.drr <= campaign.targetDrr) return [];
-    return [{ id: `drr:${campaign.id}`, severity: 'warning' as const,
-      title: campaign.name,
-      detail: `ДРР ${formatPercent(kpi.drr, 1)} при норме ${formatPercent(campaign.targetDrr, 1)} · расход ${formatMoney(kpi.spend)}.`,
-      action: 'Проверьте ставки и состав кампании.' }];
+    if (!kpi.coverageDays) return [];
+    const partial = kpi.coverageDays < kpi.expectedDays;
+    const qualifier = partial ? ` Вывод предварительный: загружено ${kpi.coverageDays} из ${kpi.expectedDays} дней.` : '';
+    const items: Recommendation[] = [];
+    if (kpi.revenue > 0 && kpi.drr > campaign.targetDrr) items.push({
+      id: `drr:${campaign.id}`, severity: 'warning', title: campaign.name,
+      detail: `ДРР от рекламы ${formatPercent(kpi.drr, 1)} при норме ${formatPercent(campaign.targetDrr, 1)} · расход ${formatMoney(kpi.spend)}.${qualifier}`,
+      action: partial ? 'Проверьте ставки и состав кампании после завершения загрузки периода.' :
+        'Проверьте ставки и состав кампании.'
+    });
+    if (kpi.impressions > 0 && kpi.ctr < campaign.minCtr) items.push({
+      id: `ctr:${campaign.id}`, severity: 'warning', title: campaign.name,
+      detail: `CTR ${formatPercent(kpi.ctr, 1)} при норме ${formatPercent(campaign.minCtr, 1)}.${qualifier}`,
+      action: 'Проверьте объявления и соответствие запросам.'
+    });
+    return items;
   }).sort((left, right) => left.title.localeCompare(right.title, 'ru'));
 }
 

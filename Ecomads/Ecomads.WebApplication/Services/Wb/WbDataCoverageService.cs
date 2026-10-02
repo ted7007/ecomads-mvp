@@ -61,8 +61,11 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
         var drrTotal = denominator > 0 ? confirmed.Sum(x => x.Spend!.Value) / denominator * 100m : (decimal?)null;
         var status = confirmed.Length == days.Count && drrTotal.HasValue ? "complete" :
             drrTotal.HasValue ? "preliminary" : "unavailable";
+        var missingSpend = days.Count(x => !x.Spend.HasValue);
+        var missingOrders = days.Count(x => !x.Orders.HasValue);
         var reason = status == "complete" ? null : confirmed.Length == 0
-            ? "Нет дней с подтверждёнными расходом и заказами." : denominator == 0
+            ? $"Нет дней с одновременно подтверждёнными расходом и заказами. " +
+              $"Расход не подтверждён за {missingSpend} из {days.Count} дней, заказы — за {missingOrders}." : denominator == 0
                 ? "За подтверждённые дни сумма заказов равна нулю." :
                 $"Подтверждено {confirmed.Length} из {days.Count} дней.";
         return new WbCoveragePeriod(days, confirmed.Length, drrTotal, status, reason,

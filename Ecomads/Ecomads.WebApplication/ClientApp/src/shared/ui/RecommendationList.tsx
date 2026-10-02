@@ -35,7 +35,7 @@ export function RecommendationList({ items, emptyText, startDate, endDate, maxVi
       </Stack>
       <Typography variant="body2" sx={{ fontSize: 13, lineHeight: 1.35 }}>{item.detail}</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mt: .5, fontSize: 13, lineHeight: 1.35 }}>Рекомендуем: {item.action}</Typography>
-      {item.id.startsWith('drr:') ? <Button size="small" component={Link} sx={{ px: 0, minWidth: 0 }} to={`${appRoutes.campaignPath(item.id.slice(4))}?startDate=${startDate}&endDate=${endDate}`}>Открыть</Button> : null}
+      {item.id.startsWith('drr:') || item.id.startsWith('ctr:') ? <Button size="small" component={Link} sx={{ px: 0, minWidth: 0 }} to={`${appRoutes.campaignPath(item.id.slice(4))}?startDate=${startDate}&endDate=${endDate}`}>Открыть</Button> : null}
       {startDate && endDate ? <Stack direction="row" gap={.5} flexWrap="wrap" sx={{ mt: 1 }}>
         {status === 'open' ? <>
           <Button size="small" variant="contained" disabled={mutation.isPending} onClick={() => mutation.mutate({ key: item.id, status: 'accepted' })}>Принял</Button>

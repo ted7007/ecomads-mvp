@@ -39,7 +39,7 @@ export function CampaignPage() {
     setFilters(next);
     setDraftFilters(next);
   }, [searchParams]);
-  const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['revenue']);
+  const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['spend', 'drr']);
   const [jamPeriod, setJamPeriod] = useState<DashboardFilters | null>(null);
   const toggleMetric = (metric: MetricKey) => setSelectedMetrics((current) =>
     current.includes(metric) ? current.filter((item) => item !== metric) : [...current, metric]);

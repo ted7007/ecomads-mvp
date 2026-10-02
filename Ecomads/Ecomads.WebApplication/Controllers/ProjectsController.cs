@@ -84,6 +84,8 @@ public class ProjectsController : ControllerBase
                     Goal = _context.WbCampaignNorms.Where(n => n.CampaignId == x.Id)
                         .Select(n => n.Goal).FirstOrDefault(),
                     x.WbStatus,
+                    x.WbCreatedAtUtc,
+                    x.WbDeletedAtUtc,
                     StoreTarget = _context.WbStoreNorms.Where(n => n.StoreId == x.StoreId)
                         .Select(n => (decimal?)n.TargetDrr).FirstOrDefault(),
                     StoreMinCtr = _context.WbStoreNorms.Where(n => n.StoreId == x.StoreId)
@@ -92,6 +94,11 @@ public class ProjectsController : ControllerBase
                 .ToDictionaryAsync(x => x.Id);
             campaigns = campaigns.Select(x => x with
             {
+                Kpi = x.Kpi with
+                {
+                    ExpectedDays = ApplicableDays(start, end, targets[x.Id].WbCreatedAtUtc,
+                        targets[x.Id].WbStatus == 7 ? targets[x.Id].WbDeletedAtUtc : null, moscow)
+                },
                 TargetDrr = targets[x.Id].CampaignTarget ?? targets[x.Id].StoreTarget ?? 30m,
                 MinCtr = targets[x.Id].CampaignMinCtr ?? targets[x.Id].StoreMinCtr ?? 3m,
                 Goal = targets[x.Id].Goal,
@@ -100,5 +107,17 @@ public class ProjectsController : ControllerBase
         }
 
         return Ok(campaigns);
+    }
+
+    private static int ApplicableDays(DateOnly start, DateOnly end, DateTime? createdAtUtc,
+        DateTime? deletedAtUtc, TimeZoneInfo moscow)
+    {
+        var first = createdAtUtc.HasValue
+            ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(createdAtUtc.Value, moscow)) : start;
+        var last = deletedAtUtc.HasValue
+            ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(deletedAtUtc.Value, moscow)) : end;
+        if (first < start) first = start;
+        if (last > end) last = end;
+        return last < first ? 0 : last.DayNumber - first.DayNumber + 1;
     }
 }

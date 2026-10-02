@@ -26,7 +26,7 @@ export function DashboardPage() {
   const filters: DashboardFilters = { startDate: searchParams.get('startDate') ?? defaultPeriod().startDate,
     endDate: searchParams.get('endDate') ?? defaultPeriod().endDate };
   const [draftFilters, setDraftFilters] = useState<DashboardFilters>(filters);
-  const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['revenue']);
+  const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['spend', 'drrTotal']);
   const toggleMetric = (metric: MetricKey) => setSelectedMetrics((current) =>
     current.includes(metric) ? current.filter((item) => item !== metric) : [...current, metric]);
   useEffect(() => { setDraftFilters(filters); }, [filters.startDate, filters.endDate]);
