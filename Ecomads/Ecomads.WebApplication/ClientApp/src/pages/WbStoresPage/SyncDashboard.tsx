@@ -25,6 +25,11 @@ function shortDate(value: string): string {
 }
 
 function jobPeriod(job: WbSyncJob): string {
+  if (job.kind === 'funnel' && job.totalCount > 1) {
+    const end = new Date(`${job.endDate}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() - 29);
+    return `${shortDate(end.toISOString().slice(0, 10))}–${shortDate(job.endDate)}`;
+  }
   return `${shortDate(job.startDate)}–${shortDate(job.endDate)}`;
 }
 

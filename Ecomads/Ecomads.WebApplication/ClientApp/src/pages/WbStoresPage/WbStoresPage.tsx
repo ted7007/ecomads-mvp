@@ -61,7 +61,7 @@ function StoreCard({ store }: { store: WbStore }) {
               Загрузка идёт{completionTime ? `, завершится примерно в ${completionTime} МСК` : ''}.
             </Typography> : null}
           </Stack>
-          <Typography variant="body2" color="text.secondary">Период выбирается автоматически: статистика кампаний — 30 дней, заказы, кластеры и Джем — 7 дней. Запросы идут в пределах лимитов WB.</Typography>
+          <Typography variant="body2" color="text.secondary">Период выбирается автоматически: статистика кампаний и все заказы — 30 дней, кластеры и Джем — 7 дней. Заказы за последние 7 дней загружаются сразу, более ранние — постепенно в пределах лимита WB.</Typography>
           {store.autoRefreshEnabled ? <Typography variant="body2" color="text.secondary">Автообновление каждый день после 06:00 МСК.</Typography> : null}
           <SyncDashboard storeId={store.id} overview={sync.data} refresh={() => { void sync.refetch(); }} error={sync.isError}
             skipped={refreshAll.data?.skipped ?? []} />
