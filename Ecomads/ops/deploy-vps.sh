@@ -43,6 +43,9 @@ fi
 echo "Building $new_image"
 docker build -t "$new_image" -f "$SOURCE_DIR/Ecomads.WebApplication/Dockerfile" "$SOURCE_DIR"
 
+# Container replacement removes its json-file log. Preserve it before compose up.
+"$ROOT/archive-logs.sh" predeploy
+
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"

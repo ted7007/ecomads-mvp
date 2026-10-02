@@ -12,6 +12,8 @@ previous_image="$(<"$PREVIOUS_FILE")"
 current_image="$(<"$CURRENT_FILE")"
 docker image inspect "$previous_image" >/dev/null
 
+"$ROOT/archive-logs.sh" prerollback
+
 temp="$(mktemp "$ROOT/.env.XXXXXX")"
 awk -v image="$previous_image" '
   BEGIN { replaced = 0 }

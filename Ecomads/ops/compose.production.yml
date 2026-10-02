@@ -3,6 +3,11 @@ services:
     image: postgres:15-alpine
     container_name: ecomads-db
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -23,6 +28,11 @@ services:
     pull_policy: never
     container_name: ecomads-web
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +60,11 @@ services:
     image: caddy:2-alpine
     container_name: ecomads-caddy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     depends_on:
       - web
     ports:

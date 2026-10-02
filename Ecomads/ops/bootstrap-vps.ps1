@@ -9,7 +9,8 @@ $files = @(
     "Caddyfile",
     "bootstrap-vps.sh",
     "deploy-vps.sh",
-    "rollback-vps.sh"
+    "rollback-vps.sh",
+    "archive-logs.sh"
 )
 
 try {

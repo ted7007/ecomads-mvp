@@ -9,7 +9,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
-for required in compose.production.yml Caddyfile deploy-vps.sh rollback-vps.sh; do
+for required in compose.production.yml Caddyfile deploy-vps.sh rollback-vps.sh archive-logs.sh; do
   test -f "$SOURCE_DIR/$required" || { echo "Missing $SOURCE_DIR/$required" >&2; exit 1; }
 done
 
@@ -24,6 +24,7 @@ fi
 
 install -d -m 0755 "$ROOT" "$ROOT/releases"
 install -d -m 0700 "$ROOT/backups"
+install -d -m 0700 "$ROOT/logs"
 install -m 0644 "$SOURCE_DIR/compose.production.yml" "$ROOT/compose.production.yml"
 if [[ -f "$ROOT/Caddyfile" ]]; then
   cat "$SOURCE_DIR/Caddyfile" > "$ROOT/Caddyfile"
@@ -34,6 +35,32 @@ fi
 install -m 0755 "$SOURCE_DIR/bootstrap-vps.sh" "$ROOT/bootstrap-vps.sh"
 install -m 0755 "$SOURCE_DIR/deploy-vps.sh" "$ROOT/deploy-vps.sh"
 install -m 0755 "$SOURCE_DIR/rollback-vps.sh" "$ROOT/rollback-vps.sh"
+install -m 0755 "$SOURCE_DIR/archive-logs.sh" "$ROOT/archive-logs.sh"
+
+cat > /etc/systemd/system/ecomads-log-archive.service <<'EOF'
+[Unit]
+Description=Archive Ecomads container logs
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ecomads/archive-logs.sh daily
+EOF
+cat > /etc/systemd/system/ecomads-log-archive.timer <<'EOF'
+[Unit]
+Description=Archive Ecomads container logs daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now ecomads-log-archive.timer
 
 if [[ ! -f "$ROOT/.env" ]]; then
   umask 077

@@ -48,6 +48,19 @@ application version. The deployment keeps the five newest source releases and
 the ten newest database backups. The one-time Excel-era dump is
 `/opt/ecomads/backups/ecomads-old-schema-20260929T231538Z.dump`.
 
+Container logs are archived on the VPS under `/opt/ecomads/logs` before each
+deployment or rollback and daily by `ecomads-log-archive.timer`. Daily archives
+cover the previous 48 hours and overlap. Archives are compressed, readable only
+by root, and retained for up to 14 days within a 1 GB total cap. Docker rotates each live container log at
+20 MB across five files. These archives survive container replacement, but they
+remain on the same VPS and are not an offsite backup.
+
+```powershell
+ssh my-vps "sudo systemctl status ecomads-log-archive.timer --no-pager"
+ssh my-vps "sudo ls -lh /opt/ecomads/logs"
+ssh my-vps "sudo gzip -cd /opt/ecomads/logs/NAME.log.gz | tail -100"
+```
+
 ## Operations
 
 ```powershell
