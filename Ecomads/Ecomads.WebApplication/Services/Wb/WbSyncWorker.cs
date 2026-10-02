@@ -256,7 +256,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 : error is CryptographicException ? "token_unreadable"
                 : error is InvalidOperationException ? "internal_error" : "transport_error";
             job.UpdatedAtUtc = DateTime.UtcNow;
-            if (job.AttemptCount >= 3 || error is JsonException or CryptographicException)
+            if (job.AttemptCount >= 3 || error is CryptographicException ||
+                (error is JsonException && job.AttemptCount >= 2))
             {
                 job.Status = "failed";
                 job.Stage = "failed";

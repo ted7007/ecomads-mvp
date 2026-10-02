@@ -92,8 +92,12 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         if (document.RootElement.ValueKind != JsonValueKind.Array)
         {
+            var shape = document.RootElement.ValueKind == JsonValueKind.Object
+                ? "object fields: " + string.Join(", ", document.RootElement.EnumerateObject()
+                    .Select(property => property.Name).Take(12))
+                : document.RootElement.ValueKind.ToString();
             document.Dispose();
-            throw new JsonException("Статистика WB имеет неожиданный формат.");
+            throw new JsonException($"Статистика WB имеет неожиданный формат ({shape}).");
         }
         return document;
     }

@@ -78,6 +78,21 @@ public sealed class WbConnectionTests
     }
 
     [Fact]
+    public async Task FullStatsClient_ReportsUnexpectedResponseShapeWithoutPayloadValues()
+    {
+        var handler = new RecordingHandler(responseBody: """{"detail":"private WB message","data":null}""");
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://advert-api.wildberries.ru") };
+
+        var error = await Assert.ThrowsAsync<JsonException>(() =>
+            new WbPromotionClient(http).GetFullStatsAsync("secret-token", [35174765],
+                new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7), CancellationToken.None));
+
+        Assert.Contains("object fields: detail, data", error.Message);
+        Assert.DoesNotContain("private WB message", error.Message);
+        Assert.DoesNotContain("secret-token", error.Message);
+    }
+
+    [Fact]
     public async Task NormQueryClient_SendsObservedPairContract()
     {
         var handler = new RecordingHandler(responseBody: """{"items":[]}""");
