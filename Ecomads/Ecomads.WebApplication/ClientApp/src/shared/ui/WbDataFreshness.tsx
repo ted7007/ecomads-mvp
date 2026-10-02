@@ -54,18 +54,18 @@ export function WbDataFreshness({ startDate, endDate, campaignId }: {
         source.status === 'failed' ? source.availableStartDate ? 'часть данных сохранена' : 'нет подтверждённых данных' :
         source.status === 'not_loaded' ? 'нет подтверждённых данных' :
         source.status === 'partial' ? 'частично' : 'загружено';
-      const failure = source.status === 'failed' ?
+      const failure = source.failedJobKind ?
         ` · последнее обновление ${jobNames[source.failedJobKind ?? ''] ?? 'данных'} не удалось: ${errorNames[source.errorCode ?? ''] ?? 'ошибка загрузки'}` : '';
       const checked = source.lastCheckedAtUtc ? moscowTime(source.lastCheckedAtUtc) : null;
       const estimate = source.estimatedCompletionAtUtc && (source.status === 'waiting' || source.status === 'loading') ?
         ` · оценка завершения ${moscowTime(source.estimatedCompletionAtUtc)} МСК` : '';
-      return <Typography key={source.kind} variant="caption" color={source.status === 'failed' ? 'error.main' : 'text.secondary'}>
+      return <Typography key={source.kind} variant="caption" color={source.failedJobKind ? 'error.main' : 'text.secondary'}>
         {names[source.kind]}: {status}{progress}{available}{checked ? ` · проверено ${checked} МСК` : ''}
         {age !== null && age > 86_400_000 ? ' · более суток назад' : ''}{wait}{estimate}{failure}
         {source.kind === 'orders' && source.status === 'waiting' ? ' · может потребоваться больше времени' : ''}
       </Typography>;
     })}
-    {state.data.sources.some((source) => source.status === 'failed') ?
+    {state.data.sources.some((source) => source.failedJobKind) ?
       <Button size="small" component={Link} to={appRoutes.wbStores} sx={{ py: 0, minWidth: 0 }}>
         Проверить загрузку
       </Button> : null}

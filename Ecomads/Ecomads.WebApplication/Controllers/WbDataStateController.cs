@@ -59,8 +59,11 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
             var relevant = jobs.Where(x => jobKinds.Contains(x.Kind)).ToArray();
             var active = relevant.FirstOrDefault(x => x.Status is "pending" or "running");
             var latest = relevant.FirstOrDefault();
+            var unresolvedFailure = relevant.FirstOrDefault(x => x.Status == "failed" &&
+                !relevant.Any(next => next.Kind == x.Kind && next.Status == "completed" &&
+                    next.UpdatedAtUtc > x.UpdatedAtUtc));
             var status = active != null ? active.WaitReason == "rate_limit" ? "waiting" : "loading" :
-                latest?.Status == "failed" ? "failed" : covered == 0 ? "not_loaded" :
+                unresolvedFailure != null ? "failed" : covered == 0 ? "not_loaded" :
                     covered < expected ? "partial" : "complete";
             var version = Math.Max(verifiedAt?.Ticks ?? 0, latest?.UpdatedAtUtc.Ticks ?? 0).ToString();
             return new { kind, status, startDate, endDate, availableStartDate, availableEndDate,
@@ -70,8 +73,8 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                     active.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(active.Kind).Ticks *
                         Math.Max(0, (WbSyncJobUnits.Total(active) - active.NextCampaignOffset - 1) /
                             WbSyncJobUnits.BatchSize(active.Kind))),
-                errorCode = latest?.Status == "failed" ? latest.ErrorCode : null,
-                failedJobKind = latest?.Status == "failed" ? latest.Kind : null, version };
+                errorCode = unresolvedFailure?.ErrorCode,
+                failedJobKind = unresolvedFailure?.Kind, version };
         }
 
         var sources = campaignId.HasValue
