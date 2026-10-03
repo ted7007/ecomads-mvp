@@ -12,6 +12,11 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db)
     public async Task<WbFullStatsImportResult> ImportAsync(Guid storeId, JsonElement root, CancellationToken cancellationToken,
         IReadOnlyList<long>? requestedIds = null, Guid? jobId = null)
     {
+        if (root.ValueKind == JsonValueKind.Null)
+            return new WbFullStatsImportResult(0, requestedIds?.ToArray() ?? []);
+        if (root.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Статистика WB имеет неожиданный формат.");
+
         var campaigns = await db.Campaigns.Where(c => c.StoreId == storeId)
             .ToDictionaryAsync(c => c.WbCampaignId, cancellationToken);
         var nomenclatures = await db.Nomenclatures.Where(n => n.StoreId == storeId)

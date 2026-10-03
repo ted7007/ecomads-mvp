@@ -93,6 +93,29 @@ public sealed class WbConnectionTests
     }
 
     [Fact]
+    public async Task FullStatsClient_PreservesNullResponseForUnverifiedCampaigns()
+    {
+        var handler = new RecordingHandler(responseBody: "null");
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://advert-api.wildberries.ru") };
+
+        using var response = await new WbPromotionClient(http).GetFullStatsAsync("secret-token", [35174765],
+            new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7), CancellationToken.None);
+
+        Assert.Equal(JsonValueKind.Null, response.RootElement.ValueKind);
+    }
+
+    [Fact]
+    public async Task FullStatsImporter_TreatsNullAsMissingNotZero()
+    {
+        using var response = JsonDocument.Parse("null");
+        var imported = await new WbFullStatsImporter(null!).ImportAsync(Guid.NewGuid(),
+            response.RootElement, CancellationToken.None, [35174765, 35736322]);
+
+        Assert.Equal(0, imported.Rows);
+        Assert.Equal(new long[] { 35174765, 35736322 }, imported.MissingCampaignIds);
+    }
+
+    [Fact]
     public async Task NormQueryClient_SendsObservedPairContract()
     {
         var handler = new RecordingHandler(responseBody: """{"items":[]}""");

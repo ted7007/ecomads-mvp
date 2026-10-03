@@ -122,6 +122,36 @@ public sealed class WbImportTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task FullStatsNull_KeepsExistingDataAndLeavesRequestedCampaignsUnverified()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        var storeId = Guid.NewGuid();
+        var campaignId = Guid.NewGuid();
+        await using var db = postgres.CreateDbContext(connection);
+        await db.Database.MigrateAsync();
+        var seller = TestData.CreateRegularSeller();
+        db.Sellers.Add(seller);
+        db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Name = "WB" });
+        db.Campaigns.Add(new Campaign { Id = campaignId, StoreId = storeId,
+            WbCampaignId = "35174765", Name = "Campaign" });
+        db.CampaignStatistics.Add(new CampaignStatistics
+        {
+            CampaignId = campaignId, Date = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+            Spend = 12, Revenue = 100
+        });
+        await db.SaveChangesAsync();
+
+        using var document = JsonDocument.Parse("null");
+        var result = await new WbFullStatsImporter(db).ImportAsync(storeId, document.RootElement,
+            CancellationToken.None, [35174765], Guid.NewGuid());
+
+        Assert.Equal(0, result.Rows);
+        Assert.Equal(new long[] { 35174765L }, result.MissingCampaignIds);
+        Assert.Equal(12m, (await db.CampaignStatistics.SingleAsync()).Spend);
+        Assert.Empty(await db.WbCampaignDailyChecks.ToListAsync());
+    }
+
+    [Fact]
     public async Task JamImport_ReplacesSamePeriodAndPreservesMissingMetrics()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();

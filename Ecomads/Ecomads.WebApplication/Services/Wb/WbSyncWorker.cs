@@ -193,6 +193,14 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 var importer = scope.ServiceProvider.GetRequiredService<WbFullStatsImporter>();
                 var imported = await importer.ImportAsync(store.Id, response.RootElement, cancellationToken,
                     batch, job.Id);
+                if (response.RootElement.ValueKind == JsonValueKind.Null)
+                {
+                    logger.LogWarning("WB fullstats returned JSON null for job {JobId}, batch size {BatchSize}",
+                        job.Id, batch.Length);
+                    job.ErrorCode = "wb_null_response";
+                    job.UpdatedAtUtc = DateTime.UtcNow;
+                    Record(db, job);
+                }
                 job.ImportedRows += imported.Rows;
                 job.ItemsWithData += batch.Length - imported.MissingCampaignIds.Length;
                 job.ItemsWithoutData += imported.MissingCampaignIds.Length;

@@ -90,7 +90,9 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         }
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        // WB sometimes returns HTTP 200 with JSON null. Keep it distinct from an empty
+        // array so the importer can retry every requested campaign without confirming zeroes.
+        if (document.RootElement.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null))
         {
             var shape = document.RootElement.ValueKind == JsonValueKind.Object
                 ? "object fields: " + string.Join(", ", document.RootElement.EnumerateObject()
