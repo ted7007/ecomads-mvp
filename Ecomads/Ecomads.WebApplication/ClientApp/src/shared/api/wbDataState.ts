@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { httpClient } from './httpClient';
 
 const sourceSchema = z.object({
-  kind: z.enum(['fullstats', 'orders', 'clusters', 'jam']),
+  kind: z.enum(['fullstats', 'expenses', 'orders', 'clusters', 'jam']),
   status: z.enum(['waiting', 'loading', 'failed', 'not_loaded', 'partial', 'complete']),
   startDate: z.string(), endDate: z.string(), covered: z.number().int(), expected: z.number().int(),
   availableStartDate: z.string().nullable(), availableEndDate: z.string().nullable(),

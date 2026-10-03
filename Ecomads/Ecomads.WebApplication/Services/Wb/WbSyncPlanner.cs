@@ -24,7 +24,8 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var active = await db.WbSyncJobs.Where(x => x.StoreId == store.Id &&
             (x.Status == "pending" || x.Status == "running")).ToListAsync(ct);
-        if (active.Any(x => x.Kind == "fullstats") && active.Any(x => x.Kind == "funnel_recent"))
+        if (active.Any(x => x.Kind == "fullstats") && active.Any(x => x.Kind == "funnel_recent") &&
+            active.Any(x => x.Kind == "expenses"))
             return new WbRefreshRun(active[0].RunId ?? Guid.NewGuid(), false, active, [], true);
 
         var campaignsRefreshed = false;
@@ -61,6 +62,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         }
         await Add("fullstats", EnqueueFullStatsAsync(store, runId, ct));
         await Add("funnel_recent", EnqueueRecentFunnelAsync(store, runId, ct));
+        await Add("expenses", EnqueueExpensesAsync(store, runId, ct));
         await Add("archive", EnqueueArchiveAsync(store, runId, ct));
         await Add("funnel_backfill", EnqueueBackfillAsync(store, runId, ct));
         var end = Yesterday();
@@ -150,6 +152,14 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             if (long.TryParse(campaign.WbCampaignId, out var id)) ids.Add(id);
         }
         return ids.ToArray();
+    }
+
+    public async Task<WbPlanResult> EnqueueExpensesAsync(Store store, Guid runId, CancellationToken ct)
+    {
+        var active = await ActiveAsync(store.Id, "expenses", ct);
+        if (active != null) return new(active);
+        var end = Yesterday();
+        return new(await QueueAsync(store.Id, "expenses", end.AddDays(-29), end, "[]", null, runId, ct));
     }
 
     public async Task<WbPlanResult> EnqueueRecentFunnelAsync(Store store, Guid runId, CancellationToken ct)

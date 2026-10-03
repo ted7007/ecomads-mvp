@@ -29,7 +29,8 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
             .OrderByDescending(x => x.UpdatedAtUtc).ToListAsync(ct);
         var checkedPeriod = await coverage.GetAsync(sellerId, startDate, endDate, campaignId, ct);
         var allDays = checkedPeriod.Days.Count;
-        var spendDays = checkedPeriod.Days.Count(x => x.Spend.HasValue);
+        var spendDays = checkedPeriod.Days.Count(x => x.CheckedCampaigns == x.ExpectedCampaigns && x.ExpectedCampaigns > 0);
+        var expenseDays = checkedPeriod.Days.Count(x => x.Spend.HasValue);
         var orderDays = checkedPeriod.Days.Count(x => x.Orders.HasValue);
         var checks = await db.WbCampaignDailyChecks.AsNoTracking().Where(x => x.Date >= startDate &&
                 x.Date <= endDate && x.CampaignId != Guid.Empty &&
@@ -38,6 +39,9 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
             .Select(x => new { x.Date, x.CheckedAtUtc }).ToArrayAsync(ct);
         var orderChecks = await db.WbStoreDailyOrders.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
                 x.Date >= startDate && x.Date <= endDate)
+            .Select(x => new { x.Date, x.LoadedAtUtc }).ToArrayAsync(ct);
+        var expenseChecks = campaignId.HasValue ? [] : await db.WbStoreDailySpends.AsNoTracking()
+            .Where(x => stores.Contains(x.StoreId) && x.Date >= startDate && x.Date <= endDate)
             .Select(x => new { x.Date, x.LoadedAtUtc }).ToArrayAsync(ct);
         var clusterDates = await db.WbClusterStatistics.AsNoTracking().Where(x => x.Date >= startDate &&
                 x.Date <= endDate && db.Campaigns.Any(c => c.Id == x.CampaignId && stores.Contains(c.StoreId) &&
@@ -96,6 +100,10 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                     checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc),
                     checks.Length == 0 ? null : checks.Min(x => x.Date),
                     checks.Length == 0 ? null : checks.Max(x => x.Date)),
+                Source("expenses", ["expenses"], expenseDays, allDays,
+                    expenseChecks.Length == 0 ? null : expenseChecks.Max(x => x.LoadedAtUtc),
+                    expenseChecks.Length == 0 ? null : expenseChecks.Min(x => x.Date),
+                    expenseChecks.Length == 0 ? null : expenseChecks.Max(x => x.Date)),
                 Source("orders", ["funnel_recent", "funnel_backfill", "funnel"], orderDays, allDays,
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.LoadedAtUtc),
                     orderChecks.Length == 0 ? null : orderChecks.Min(x => x.Date),

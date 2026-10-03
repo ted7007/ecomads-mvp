@@ -5,9 +5,9 @@ import { Link } from 'react-router-dom';
 import { appRoutes } from '../../app/routes';
 import { getWbDataState } from '../api/wbDataState';
 
-const names: Record<string, string> = { fullstats: 'Реклама', orders: 'Все заказы',
+const names: Record<string, string> = { fullstats: 'Статистика кампаний', expenses: 'Расход кабинета', orders: 'Все заказы',
   clusters: 'Кластеры', jam: 'Джем' };
-const jobNames: Record<string, string> = { fullstats: 'текущей рекламы', archive: 'архива рекламы',
+const jobNames: Record<string, string> = { fullstats: 'текущей рекламы', archive: 'архива рекламы', expenses: 'расхода кабинета',
   funnel_recent: 'свежих заказов', funnel_backfill: 'истории заказов', funnel: 'заказов',
   clusters: 'кластеров', jam: 'Джема' };
 const errorNames: Record<string, string> = { invalid_response: 'не удалось обработать ответ WB',
@@ -33,7 +33,7 @@ export function WbDataFreshness({ startDate, endDate, campaignId }: {
       if (!before || before === source.version) continue;
       const keys = source.kind === 'fullstats' ? ['projects', 'dashboard-daily', 'campaign-daily',
         'campaign-summary', 'campaign-nomenclatures', 'wb-spend-trend', 'wb-coverage', 'loaded-periods'] :
-        source.kind === 'orders' ? ['dashboard-daily', 'wb-coverage'] :
+        source.kind === 'orders' || source.kind === 'expenses' ? ['dashboard-daily', 'wb-coverage'] :
         source.kind === 'clusters' ? ['wb-clusters'] : ['wb-jam'];
       for (const key of keys) void client.invalidateQueries({ queryKey: [key] });
     }

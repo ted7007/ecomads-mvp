@@ -29,6 +29,10 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
             .Select(x => new { x.CampaignId, x.Date, x.Result, x.Spend, x.CheckedAtUtc })
             .ToArrayAsync(ct);
         var checkMap = checks.ToDictionary(x => (x.CampaignId, x.Date));
+        var expenses = campaignId.HasValue ? [] : await db.WbStoreDailySpends.AsNoTracking().Where(x =>
+                stores.Contains(x.StoreId) && x.Date >= start && x.Date <= end)
+            .Select(x => new { x.StoreId, x.Date, x.Spend, x.LoadedAtUtc }).ToArrayAsync(ct);
+        var expenseMap = expenses.GroupBy(x => x.Date).ToDictionary(x => x.Key, x => x.ToArray());
         var orders = campaignId.HasValue ? [] : await db.WbStoreDailyOrders.AsNoTracking().Where(x =>
                 stores.Contains(x.StoreId) && x.Date >= start && x.Date <= end)
             .Select(x => new { x.StoreId, x.Date, x.OrderSum }).ToArrayAsync(ct);
@@ -46,8 +50,17 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
             }).ToArray();
             var verified = expected.Select(x => checkMap.GetValueOrDefault((x.Id, date)))
                 .Where(x => x != null && (x.Result is "data" or "zero") && x.Spend.HasValue).ToArray();
-            var completeSpend = stores.Length > 0 && verified.Length == expected.Length;
-            decimal? spend = completeSpend ? verified.Sum(x => x!.Spend!.Value) : null;
+            decimal? spend;
+            if (campaignId.HasValue)
+                spend = stores.Length > 0 && verified.Length == expected.Length
+                    ? verified.Sum(x => x!.Spend!.Value) : null;
+            else
+            {
+                var expenseRows = expenseMap.GetValueOrDefault(date) ?? [];
+                spend = stores.Length > 0 &&
+                    expenseRows.Select(x => x.StoreId).Distinct().Count() == stores.Length
+                        ? expenseRows.Sum(x => x.Spend) : null;
+            }
             var orderRows = orderMap.GetValueOrDefault(date) ?? [];
             decimal? orderSum = !campaignId.HasValue && stores.Length > 0 &&
                 orderRows.Select(x => x.StoreId).Distinct().Count() == stores.Length
@@ -65,10 +78,11 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
         var missingOrders = days.Count(x => !x.Orders.HasValue);
         var reason = status == "complete" ? null : confirmed.Length == 0
             ? $"Нет дней с одновременно подтверждёнными расходом и заказами. " +
-              $"Расход не подтверждён за {missingSpend} из {days.Count} дней, заказы — за {missingOrders}." : denominator == 0
+              $"Расход по истории затрат WB не загружен за {missingSpend} из {days.Count} дней, заказы — за {missingOrders}." : denominator == 0
                 ? "За подтверждённые дни сумма заказов равна нулю." :
                 $"Подтверждено {confirmed.Length} из {days.Count} дней.";
         return new WbCoveragePeriod(days, confirmed.Length, drrTotal, status, reason,
-            checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc));
+            campaignId.HasValue ? checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc) :
+                expenses.Length == 0 ? null : expenses.Max(x => x.LoadedAtUtc));
     }
 }

@@ -42,7 +42,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
         var job = await db.WbSyncJobs
             .Where(x => (x.Status == "pending" || x.Status == "running") && x.NextAttemptAtUtc <= DateTime.UtcNow)
-            .OrderBy(x => x.Kind == "fullstats" || x.Kind == "funnel_recent" ? 0 :
+            .OrderBy(x => x.Kind == "fullstats" || x.Kind == "funnel_recent" || x.Kind == "expenses" ? 0 :
                 x.Kind == "clusters" || x.Kind == "jam" ? 1 : 2)
             .ThenBy(x => x.NextAttemptAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
@@ -112,7 +112,19 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         try
         {
             var token = tokens.Unprotect(store.ApiKey);
-            if (job.Kind is "funnel" or "funnel_recent" or "funnel_backfill")
+            if (job.Kind == "expenses")
+            {
+                using var response = await wb.GetCostsAsync(token, job.StartDate, job.EndDate, cancellationToken);
+                job.Stage = "importing";
+                job.UpdatedAtUtc = DateTime.UtcNow;
+                Record(db, job);
+                await db.SaveChangesAsync(cancellationToken);
+                var importer = scope.ServiceProvider.GetRequiredService<WbCostsImporter>();
+                job.ImportedRows += await importer.ImportAsync(store.Id, job.StartDate, job.EndDate,
+                    response.RootElement, cancellationToken);
+                job.NextCampaignOffset = 1;
+            }
+            else if (job.Kind is "funnel" or "funnel_recent" or "funnel_backfill")
             {
                 var funnel = scope.ServiceProvider.GetRequiredService<IWbSalesFunnelClient>();
                 var importer = scope.ServiceProvider.GetRequiredService<WbSalesFunnelImporter>();

@@ -37,12 +37,35 @@ public interface IWbPromotionClient
     Task<IReadOnlyList<WbCampaignInfo>> GetCampaignsAsync(string token, CancellationToken cancellationToken);
     Task<JsonDocument> GetFullStatsAsync(string token, IReadOnlyList<long> campaignIds,
         DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken);
+    Task<JsonDocument> GetCostsAsync(string token, DateOnly startDate, DateOnly endDate,
+        CancellationToken cancellationToken);
     Task<JsonDocument> GetNormQueryStatsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs,
         DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken);
 }
 
 public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClient
 {
+    public async Task<JsonDocument> GetCostsAsync(string token, DateOnly startDate, DateOnly endDate,
+        CancellationToken cancellationToken)
+    {
+        if (endDate < startDate || endDate.DayNumber - startDate.DayNumber > 30)
+            throw new ArgumentException("История затрат WB: период от 1 до 31 дня.");
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"/adv/v1/upd?from={startDate:yyyy-MM-dd}&to={endDate:yyyy-MM-dd}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response));
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            document.Dispose();
+            throw new JsonException("История затрат WB имеет неожиданный формат.");
+        }
+        return document;
+    }
+
     public async Task<JsonDocument> GetNormQueryStatsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs,
         DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken)
     {

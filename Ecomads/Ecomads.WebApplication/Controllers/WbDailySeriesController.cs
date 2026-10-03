@@ -66,7 +66,8 @@ public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageS
                 var found = grouped.TryGetValue(date, out var value);
                 var completeOrders = dailyOrders.TryGetValue(date, out var order) &&
                     storeIds.Length > 0 && order!.StoreCount == storeIds.Length;
-                decimal? spend = found ? value!.Spend : null;
+                decimal? spend = campaignId.HasValue ? found ? value!.Spend : null :
+                    verifiedDays?.GetValueOrDefault(date)?.Spend;
                 decimal? totalOrderSum = completeOrders ? order!.Sum : null;
                 return new
                 {

@@ -77,6 +77,68 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(170m, (await db.WbStoreDailyOrders.SingleAsync(x => x.Date == new DateOnly(2026, 7, 1))).OrderSum);
     }
 
+    [Fact]
+    public async Task CostsImporter_ConfirmsZeroDaysAndCoverageIgnoresSilentArchivedCampaigns()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        var seller = TestData.CreateActiveDemoSeller();
+        var storeId = Guid.NewGuid();
+        await using var db = postgres.CreateDbContext(connection);
+        await db.Database.MigrateAsync();
+        db.Sellers.Add(seller);
+        db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Marketplace = "Wildberries",
+            Name = "WB", ApiKey = "test", CreatedAt = DateTime.UtcNow });
+        db.Campaigns.Add(new Campaign { Id = Guid.NewGuid(), StoreId = storeId,
+            WbCampaignId = "123", Name = "Old campaign", WbStatus = 7,
+            WbCreatedAtUtc = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            WbDeletedAtUtc = new DateTime(2099, 12, 31, 0, 0, 0, DateTimeKind.Utc) });
+        db.WbStoreDailyOrders.AddRange(new[] { 1, 2, 3 }.Select(day => new WbStoreDailyOrders
+        { StoreId = storeId, Date = new DateOnly(2026, 7, day), OrderSum = 100m,
+            LoadedAtUtc = DateTime.UtcNow }));
+        await db.SaveChangesAsync();
+
+        var importer = new WbCostsImporter(db);
+        using var response = JsonDocument.Parse("""
+            [{"advertId":456,"updTime":"2026-07-01T10:00:00+03:00","updSum":10},
+             {"advertId":789,"updTime":"2026-07-01T12:00:00+03:00","updSum":5},
+             {"advertId":456,"updTime":"2026-07-03T09:00:00+03:00","updSum":15}]
+            """);
+        await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
+            response.RootElement, CancellationToken.None);
+        await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
+            response.RootElement, CancellationToken.None);
+        var spends = await db.WbStoreDailySpends.OrderBy(x => x.Date).ToListAsync();
+        Assert.Equal(new[] { 15m, 0m, 15m }, spends.Select(x => x.Spend));
+
+        var coverage = await new WbDataCoverageService(db).GetAsync(seller.Id,
+            new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3), null, CancellationToken.None);
+        Assert.Equal("complete", coverage.Status);
+        Assert.Equal(10m, coverage.Drr);
+        Assert.All(coverage.Days, day => Assert.Equal(0, day.CheckedCampaigns));
+    }
+
+    [Fact]
+    public async Task CostsImporter_RejectsUndatedCostsWithoutReplacingSavedDays()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        var seller = TestData.CreateActiveDemoSeller();
+        var storeId = Guid.NewGuid();
+        await using var db = postgres.CreateDbContext(connection);
+        await db.Database.MigrateAsync();
+        db.Sellers.Add(seller);
+        db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Name = "WB",
+            CreatedAt = DateTime.UtcNow });
+        db.WbStoreDailySpends.Add(new WbStoreDailySpend { StoreId = storeId,
+            Date = new DateOnly(2026, 7, 1), Spend = 8m, LoadedAtUtc = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        using var response = JsonDocument.Parse("""[{"updTime":null,"updSum":12}]""");
+        await Assert.ThrowsAsync<JsonException>(() => new WbCostsImporter(db).ImportAsync(storeId,
+            new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 2), response.RootElement,
+            CancellationToken.None));
+        Assert.Equal(8m, (await db.WbStoreDailySpends.SingleAsync()).Spend);
+        Assert.Equal(1, await db.WbStoreDailySpends.CountAsync());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -510,6 +572,9 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
                 "apps":[{"nms":[{"nmId":123,"name":"Item","sum":10.25,"sum_price":100,
                 "views":100,"clicks":10,"atbs":2,"orders":1,"canceled":0}]}]}]}]
                 """.Replace("2026-07-01", endDate.ToString("yyyy-MM-dd"))));
+
+        public Task<JsonDocument> GetCostsAsync(string token, DateOnly startDate, DateOnly endDate,
+            CancellationToken cancellationToken) => Task.FromResult(JsonDocument.Parse("[]"));
 
         public Task<JsonDocument> GetNormQueryStatsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs,
             DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken) =>

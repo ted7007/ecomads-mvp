@@ -11,6 +11,7 @@ public static class WbRateLimits
         "funnel" => offset == 0 ? "funnel_history" : "funnel_products",
         "funnel_recent" => "funnel_history",
         "funnel_backfill" => "funnel_products",
+        "expenses" => "expenses",
         "campaign_list" => "campaign_list",
         _ => kind
     };

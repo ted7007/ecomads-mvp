@@ -39,6 +39,14 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
   const loadedOrderDays = days.filter((day) => day.totalOrderSum != null).length;
   const ordersNote = currentOrders === null ? `загружено ${loadedOrderDays} из ${days.length} дней` : undefined;
   const drrTotal = coverage?.drr ?? null;
+  const expenseDays = coverage?.days ?? [];
+  const spendTotal = days.length > 0 && expenseDays.length === days.length &&
+    expenseDays.every((day) => day.spend != null)
+      ? expenseDays.reduce((sum, day) => sum + day.spend!, 0) : null;
+  const previousSpendDays = previousCoverage?.days ?? [];
+  const priorSpendTotal = previousDays.length > 0 && previousSpendDays.length === previousDays.length &&
+    previousSpendDays.every((day) => day.spend != null)
+      ? previousSpendDays.reduce((sum, day) => sum + day.spend!, 0) : null;
   const priorDrrTotal = coverage?.status === 'complete' && previousCoverage?.status === 'complete'
     ? previousCoverage.drr : null;
   const orderComparison = currentOrders !== null && priorOrders !== null && previousDays.length === days.length
@@ -60,8 +68,11 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
         <KpiCard label="Заказы" value={currentOrders === null ? '—' : formatMoney(currentOrders)}
           note={ordersNote} hint={currentOrders === null ? ordersHint : undefined} {...toggle('orders')}
           delta={orderComparison?.delta} deltaTone={orderComparison?.tone} previous={orderComparison?.previous} />
-        <KpiCard label="Расход" value={hasData ? formatMoney(totals.spend) : '—'} {...toggle('spend')}
-          {...comparison(totals.spend, previous?.spend, 'money', 0)} />
+        <KpiCard label="Расход" value={spendTotal === null ? '—' : formatMoney(spendTotal)}
+          note={spendTotal === null ? 'Ожидаем историю затрат WB' : undefined} {...toggle('spend')}
+          {...(spendTotal !== null && priorSpendTotal !== null && previousDays.length === days.length
+            ? (() => { const value = compareKpi(spendTotal, priorSpendTotal, 'money', 0);
+              return { delta: value.delta, deltaTone: value.tone, previous: value.previous }; })() : {})} />
         <KpiCard label="ДРР от заказов" value={drrTotal === null ? '—' : formatPercent(drrTotal, 1)}
           note={coverage?.status === 'preliminary' ? `Предварительно · по ${coverage.confirmedDays} из ${coverage.days.length} дней` :
             drrTotal === null ? coverage?.reason ?? 'Проверяем расход и заказы' : undefined}

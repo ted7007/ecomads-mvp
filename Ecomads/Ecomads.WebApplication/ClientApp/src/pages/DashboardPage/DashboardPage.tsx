@@ -117,7 +117,7 @@ export function DashboardPage() {
 
           <Card><CardContent>
             {dailyQuery.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
-              <DailyChart days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []} selectedMetrics={selectedMetrics} />}
+              <DailyChart days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []} selectedMetrics={selectedMetrics} storeLevel />}
           </CardContent></Card>
 
           <Card>

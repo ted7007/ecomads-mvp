@@ -18,7 +18,7 @@ export type WbStore = z.infer<typeof storeSchema>;
 
 const syncSchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(['fullstats', 'funnel', 'funnel_recent', 'funnel_backfill', 'archive', 'clusters', 'jam']),
+  kind: z.enum(['fullstats', 'funnel', 'funnel_recent', 'funnel_backfill', 'expenses', 'archive', 'clusters', 'jam']),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   startDate: z.string(),
   endDate: z.string(),

@@ -10,6 +10,7 @@ public static class WbSyncJobUnits
         "clusters" => (JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []).Length,
         "funnel" => 1 + (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length,
         "funnel_recent" => 1,
+        "expenses" => 1,
         "funnel_backfill" => (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length,
         _ => (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length
     };
@@ -17,7 +18,7 @@ public static class WbSyncJobUnits
     public static int BatchSize(string kind) => kind switch
     {
         "clusters" => 100,
-        "funnel" or "funnel_recent" or "funnel_backfill" => 1,
+        "funnel" or "funnel_recent" or "funnel_backfill" or "expenses" => 1,
         _ => 50
     };
 
@@ -25,7 +26,7 @@ public static class WbSyncJobUnits
     {
         "clusters" => "pair",
         "jam" => "product",
-        "funnel" or "funnel_recent" or "funnel_backfill" => "request",
+        "funnel" or "funnel_recent" or "funnel_backfill" or "expenses" => "request",
         _ => "campaign"
     };
 }

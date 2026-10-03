@@ -15,7 +15,7 @@ namespace Ecomads.WebApplication.Controllers;
 [Route("api/wb/stores/{storeId:guid}")]
 public sealed class WbSyncVisibilityController(EcomadsDbContext db) : ControllerBase
 {
-    private static readonly string[] Kinds = ["fullstats", "funnel_recent", "clusters", "jam", "archive", "funnel_backfill", "funnel"];
+    private static readonly string[] Kinds = ["fullstats", "funnel_recent", "expenses", "clusters", "jam", "archive", "funnel_backfill", "funnel"];
     private static readonly string[] Statuses = ["pending", "running", "completed", "failed"];
 
     [HttpGet("sync-overview")]

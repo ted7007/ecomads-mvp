@@ -50,8 +50,9 @@ function paths(values: (number | null)[], x: (index: number) => number, y: (valu
 
 type Hover = { index: number; x: number; y: number };
 
-export function DailyChart({ days, title, selectedMetrics, previousDays = [] }: {
+export function DailyChart({ days, title, selectedMetrics, previousDays = [], storeLevel = false }: {
   days: DailyPoint[]; title?: string; selectedMetrics: MetricKey[]; previousDays?: DailyPoint[];
+  storeLevel?: boolean;
 }) {
   const [showPrevious, setShowPrevious] = useState(true);
   const [hover, setHover] = useState<Hover | null>(null);
@@ -65,7 +66,8 @@ export function DailyChart({ days, title, selectedMetrics, previousDays = [] }: 
 
   const series = useMemo(() => {
     const allLoaded = (list: DailyPoint[], metric: MetricKey) => list.every((day) =>
-      (metric === 'orders' || day.expectedCampaigns > 0 && day.loadedCampaigns >= day.expectedCampaigns) &&
+      (metric === 'orders' || metric === 'drrTotal' || storeLevel && metric === 'spend' ||
+        day.expectedCampaigns > 0 && day.loadedCampaigns >= day.expectedCampaigns) &&
       read(day, metric) !== null);
     const xAt = (index: number) => left + (days.length <= 1 ? .5 : index / (days.length - 1)) * (right - left);
     return selectedMetrics.map((metric) => {
@@ -80,7 +82,7 @@ export function DailyChart({ days, title, selectedMetrics, previousDays = [] }: 
       const y = (value: number) => bottom - (value - lo) / (hi - lo) * (bottom - top);
       return { metric, current, previous, comparable, lo, hi, currentPaths: paths(current, xAt, y), previousPaths: paths(previous, xAt, y) };
     });
-  }, [days, previousDays, selectedMetrics, showPrevious, left, right, bottom]);
+  }, [days, previousDays, selectedMetrics, showPrevious, left, right, bottom, storeLevel]);
 
   const active = hover && hover.index < days.length && selectedMetrics.length ? hover.index : null;
   const hasPrevious = series.some((item) => item.previous.length > 0);

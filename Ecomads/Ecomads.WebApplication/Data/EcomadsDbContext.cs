@@ -17,6 +17,7 @@ public class EcomadsDbContext : DbContext
     public DbSet<WbSyncJob> WbSyncJobs { get; set; }
     public DbSet<WbSyncJobEvent> WbSyncJobEvents { get; set; }
     public DbSet<WbStoreDailyOrders> WbStoreDailyOrders { get; set; }
+    public DbSet<WbStoreDailySpend> WbStoreDailySpends { get; set; }
     public DbSet<WbClusterStatistic> WbClusterStatistics { get; set; }
     public DbSet<WbJamSearchQuery> WbJamSearchQueries { get; set; }
     public DbSet<WbMethodSlot> WbMethodSlots { get; set; }
@@ -275,6 +276,17 @@ public class EcomadsDbContext : DbContext
             entity.Property(x => x.BuyoutCount).HasColumnName("buyout_count");
             entity.Property(x => x.BuyoutSum).HasColumnName("buyout_sum").HasColumnType("decimal(18,2)");
             entity.Property(x => x.Source).HasColumnName("source").HasMaxLength(20);
+            entity.Property(x => x.LoadedAtUtc).HasColumnName("loaded_at_utc");
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WbStoreDailySpend>(entity =>
+        {
+            entity.ToTable("wb_store_daily_spend");
+            entity.HasKey(x => new { x.StoreId, x.Date });
+            entity.Property(x => x.StoreId).HasColumnName("store_id");
+            entity.Property(x => x.Date).HasColumnName("date");
+            entity.Property(x => x.Spend).HasColumnName("spend").HasColumnType("decimal(18,2)");
             entity.Property(x => x.LoadedAtUtc).HasColumnName("loaded_at_utc");
             entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
         });

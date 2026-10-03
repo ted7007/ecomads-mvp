@@ -5,7 +5,7 @@ import { getWbSyncDetails, getWbSyncHistory, retryWbSync } from './wbStoresApi';
 import type { WbRefreshResult, WbSyncJob, WbSyncOverview } from './wbStoresApi';
 
 const labels: Record<string, string> = { fullstats: 'Текущая реклама', funnel: 'Все заказы (старое задание)',
-  funnel_recent: 'Свежие заказы · 7 дней', funnel_backfill: 'История заказов', archive: 'Архив рекламы',
+  funnel_recent: 'Свежие заказы · 7 дней', funnel_backfill: 'История заказов', expenses: 'Расход кабинета', archive: 'Архив рекламы',
   clusters: 'Поисковые кластеры', jam: 'Поисковые запросы Джема' };
 const units: Record<string, [string, string, string]> = {
   campaign: ['кампания', 'кампании', 'кампаний'],
