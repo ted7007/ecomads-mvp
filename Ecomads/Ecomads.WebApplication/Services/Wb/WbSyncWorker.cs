@@ -62,6 +62,28 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
 
         var ids = JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? [];
+        if (job.Kind is "fullstats" or "archive" && job.NextCampaignOffset < ids.Length)
+        {
+            var remaining = ids.Skip(job.NextCampaignOffset).ToHashSet();
+            var campaigns = await db.Campaigns.Where(x => x.StoreId == job.StoreId)
+                .ToListAsync(cancellationToken);
+            var finished = campaigns.Where(x => long.TryParse(x.WbCampaignId, out var id) &&
+                    remaining.Contains(id) && WbCampaignEligibility.FinishedBefore(x, job.StartDate))
+                .Select(x => long.Parse(x.WbCampaignId)).ToHashSet();
+            if (finished.Count > 0)
+            {
+                ids = ids.Take(job.NextCampaignOffset)
+                    .Concat(ids.Skip(job.NextCampaignOffset).Where(x => !finished.Contains(x))).ToArray();
+                job.CampaignIdsJson = JsonSerializer.Serialize(ids);
+                if (job.PairIdsJson != null)
+                {
+                    var retryIds = JsonSerializer.Deserialize<long[]>(job.PairIdsJson) ?? [];
+                    job.PairIdsJson = JsonSerializer.Serialize(retryIds.Where(x => !finished.Contains(x)));
+                }
+                job.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+        }
         var pairs = job.Kind == "clusters"
             ? JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []
             : [];

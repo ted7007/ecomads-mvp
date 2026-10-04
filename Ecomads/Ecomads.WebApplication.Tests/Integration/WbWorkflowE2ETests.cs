@@ -211,6 +211,13 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "fullstats" && x.GetProperty("runId").GetGuid() == runId);
         Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "funnel_recent" && x.GetProperty("runId").GetGuid() == runId);
         Assert.Contains(jobs, x => x.GetProperty("kind").GetString() == "funnel_backfill" && x.GetProperty("runId").GetGuid() == runId);
+        foreach (var kind in new[] { "fullstats", "expenses" })
+        {
+            var job = Assert.Single(jobs.Where(x => x.GetProperty("kind").GetString() == kind));
+            var start = DateOnly.Parse(job.GetProperty("startDate").GetString()!);
+            var end = DateOnly.Parse(job.GetProperty("endDate").GetString()!);
+            Assert.Equal(30, end.DayNumber - start.DayNumber);
+        }
         using var duplicate = await client.PostAsync($"/api/wb/stores/{storeId}/refresh", null);
         Assert.True(duplicate.IsSuccessStatusCode);
         await using (var db = postgres.CreateDbContext(connection))
@@ -252,10 +259,12 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         if (TimeZoneInfo.ConvertTimeFromUtc(now, moscow).TimeOfDay < TimeSpan.FromHours(6)) now = now.AddDays(-1);
         await worker.RunOnceAsync(now, CancellationToken.None);
         await using (var db = postgres.CreateDbContext(connection))
-            Assert.Equal(3, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
+            Assert.Single(await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.RunId != null)
+                .Select(x => x.RunId).Distinct().ToListAsync());
         await worker.RunOnceAsync(now, CancellationToken.None);
         await using (var db = postgres.CreateDbContext(connection))
-            Assert.Equal(3, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId && x.RunId != null));
+            Assert.Single(await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.RunId != null)
+                .Select(x => x.RunId).Distinct().ToListAsync());
     }
 
     [Fact]
@@ -395,7 +404,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
         using var overviewJson = JsonDocument.Parse(await overview.Content.ReadAsStringAsync());
         var sources = overviewJson.RootElement.GetProperty("sources").EnumerateArray().ToArray();
-        Assert.Equal(7, sources.Length);
+        Assert.Equal(8, sources.Length);
         var statsSource = Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "fullstats"));
         var completedJob = statsSource.GetProperty("lastJob");
         Assert.Equal("completed", completedJob.GetProperty("status").GetString());
@@ -495,7 +504,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         using var dailyJson = JsonDocument.Parse(await daily.Content.ReadAsStringAsync());
         var days = dailyJson.RootElement.EnumerateArray().ToArray();
         Assert.Equal(3, days.Length);
-        Assert.Equal(10.25m, days[0].GetProperty("spend").GetDecimal());
+        // Cabinet spend requires a separate verified expenses response.
+        Assert.Equal(JsonValueKind.Null, days[0].GetProperty("spend").ValueKind);
         Assert.Equal(1, days[0].GetProperty("loadedCampaigns").GetInt32());
         Assert.Equal(JsonValueKind.Null, days[1].GetProperty("spend").ValueKind);
         Assert.Equal(0, days[1].GetProperty("loadedCampaigns").GetInt32());
@@ -517,6 +527,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(JsonValueKind.Null, orderDays[2].GetProperty("totalOrderSum").ValueKind);
         using var campaignDaily = await client.GetAsync($"/api/statistics/daily?startDate=2026-07-01&endDate=2026-07-03&campaignId={campaignId}");
         using var campaignDailyJson = JsonDocument.Parse(await campaignDaily.Content.ReadAsStringAsync());
+        Assert.Equal(10.25m, campaignDailyJson.RootElement[0].GetProperty("spend").GetDecimal());
         Assert.All(campaignDailyJson.RootElement.EnumerateArray(),
             day => Assert.Equal(JsonValueKind.Null, day.GetProperty("totalOrderSum").ValueKind));
 

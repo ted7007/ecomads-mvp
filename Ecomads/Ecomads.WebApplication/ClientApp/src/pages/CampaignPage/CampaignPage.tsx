@@ -69,7 +69,7 @@ export function CampaignPage() {
   const error = summary.error ?? clusters.error ?? articles.error;
   const recommendations = [
     ...campaignRecommendations(summary.data ? [summary.data] : []),
-    ...clusterRecommendations(id, clusters.data?.isPeriodComplete ? clusters.data.rows : [])
+    ...clusterRecommendations(id, summary.data?.wbStatus === 9 && clusters.data?.isPeriodComplete ? clusters.data.rows : [])
   ];
 
   return <Stack spacing={2.5}>
@@ -137,7 +137,9 @@ export function CampaignPage() {
         <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>Рекомендации</Typography>
         <RecommendationList startDate={filters.startDate} endDate={filters.endDate} items={recommendations} emptyText="" />
       </CardContent></Card> : <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>
-        Рекомендаций пока нет: подтверждённых отклонений по выбранному периоду не найдено или данных недостаточно.
+        {summary.data?.wbStatus === 9 ?
+          'Рекомендаций пока нет: подтверждённых отклонений по выбранному периоду не найдено или данных недостаточно.' :
+          'Рекомендации формируются только для активных кампаний.'}
       </Typography>}
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые запросы Джема</Typography>

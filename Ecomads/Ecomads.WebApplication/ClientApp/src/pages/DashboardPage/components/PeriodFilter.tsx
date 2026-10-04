@@ -13,13 +13,14 @@ type Props = {
 export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
   const [customOpen, setCustomOpen] = useState(false);
   const end = moscowYesterday();
-  const presets = [7, 14, 30].map((days) => ({
+  const presets = [7, 14, 30, 365].map((days) => ({
     days, filters: { startDate: addDays(end, 1 - days), endDate: end }
   }));
   const selected = customOpen ? 'custom' : presets.find(({ filters }) => filters.startDate === draftFilters.startDate &&
     filters.endDate === draftFilters.endDate)?.days ?? 'custom';
   const invalid = !draftFilters.startDate || !draftFilters.endDate ||
-    draftFilters.startDate > draftFilters.endDate || draftFilters.endDate > end;
+    draftFilters.startDate > draftFilters.endDate || draftFilters.endDate > end ||
+    (Date.parse(`${draftFilters.endDate}T00:00:00Z`) - Date.parse(`${draftFilters.startDate}T00:00:00Z`)) / 86400000 > 365;
 
   return <Stack spacing={1}>
     <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }} justifyContent="space-between">
@@ -33,9 +34,10 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
           onDraftChange(next);
           onApply(next);
         }} sx={{ bgcolor: 'rgba(118,118,140,.10)', borderRadius: '999px', p: .4,
+          maxWidth: '100%', overflowX: 'auto',
           '& .MuiToggleButton-root': { border: 0, borderRadius: '999px!important', px: { xs: 1, sm: 2.5 },
             fontSize: { xs: 12, sm: 13 }, whiteSpace: 'nowrap', textTransform: 'none' } }}>
-        {presets.map(({ days }) => <ToggleButton key={days} value={days}>{days} дней</ToggleButton>)}
+        {presets.map(({ days }) => <ToggleButton key={days} value={days}>{days === 365 ? 'Год' : `${days} дней`}</ToggleButton>)}
         <ToggleButton value="custom" onClick={() => setCustomOpen(true)}>Свой период</ToggleButton>
       </ToggleButtonGroup>
     </Stack>
@@ -47,6 +49,8 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
         onChange={(event) => onDraftChange({ ...draftFilters, endDate: event.target.value })}
         InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
       <Button variant="contained" disabled={invalid} onClick={() => { onApply(draftFilters); setCustomOpen(false); }}>Показать</Button>
+      {invalid && draftFilters.startDate && draftFilters.endDate ?
+        <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>Период должен быть завершённым и не длиннее 366 дней.</span> : null}
     </Stack> : null}
   </Stack>;
 }

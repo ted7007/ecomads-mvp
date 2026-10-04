@@ -113,7 +113,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         ids = ids.Concat(archive.Take(Math.Max(0, 50 - ids.Length))).Distinct().ToArray();
         if (ids.Length == 0) return new(null, "нет кампаний");
         var end = Yesterday();
-        return new(await QueueAsync(store.Id, "fullstats", end.AddDays(-29), end,
+        return new(await QueueAsync(store.Id, "fullstats", end.AddDays(-30), end,
             JsonSerializer.Serialize(ids), null, runId, ct));
     }
 
@@ -127,7 +127,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             .Skip(Math.Max(0, 50 - currentCount)).ToArray();
         if (ids.Length == 0) return new(null, "архив уже проверен");
         var end = Yesterday();
-        return new(await QueueAsync(store.Id, "archive", end.AddDays(-29), end,
+        return new(await QueueAsync(store.Id, "archive", end.AddDays(-30), end,
             JsonSerializer.Serialize(ids), null, runId, ct));
     }
 
@@ -139,11 +139,12 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var ids = new List<long>();
         foreach (var campaign in candidates)
         {
+            if (WbCampaignEligibility.FinishedBefore(campaign, end.AddDays(-30))) continue;
             var firstDate = campaign.WbCreatedAtUtc is { } created
                 ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(created, TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow")))
-                : end.AddDays(-29);
+                : end.AddDays(-30);
             if (firstDate > end) continue;
-            if (firstDate < end.AddDays(-29)) firstDate = end.AddDays(-29);
+            if (firstDate < end.AddDays(-30)) firstDate = end.AddDays(-30);
             var checks = await db.WbCampaignDailyChecks.Where(x => x.CampaignId == campaign.Id &&
                     x.Date >= firstDate && x.Date <= end && x.CheckedAtUtc > DateTime.UtcNow.AddDays(-7) &&
                     x.Result != "unknown")
@@ -159,7 +160,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var active = await ActiveAsync(store.Id, "expenses", ct);
         if (active != null) return new(active);
         var end = Yesterday();
-        return new(await QueueAsync(store.Id, "expenses", end.AddDays(-29), end, "[]", null, runId, ct));
+        return new(await QueueAsync(store.Id, "expenses", end.AddDays(-30), end, "[]", null, runId, ct));
     }
 
     public async Task<WbPlanResult> EnqueueRecentFunnelAsync(Store store, Guid runId, CancellationToken ct)

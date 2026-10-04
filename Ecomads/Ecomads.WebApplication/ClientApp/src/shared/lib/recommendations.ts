@@ -8,7 +8,7 @@ export type Recommendation = { id: string; severity: 'warning' | 'info'; title: 
 export function campaignRecommendations(campaigns: ProjectDashboard[]): Recommendation[] {
   return campaigns.flatMap((campaign) => {
     const kpi = campaign.kpi;
-    if (!kpi.coverageDays) return [];
+    if (campaign.wbStatus !== 9 || !kpi.coverageDays) return [];
     const partial = kpi.coverageDays < kpi.expectedDays;
     const qualifier = partial ? ` Вывод предварительный: загружено ${kpi.coverageDays} из ${kpi.expectedDays} дней.` : '';
     const items: Recommendation[] = [];

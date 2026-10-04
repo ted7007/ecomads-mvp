@@ -136,8 +136,11 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             ? job.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(job.Kind).Ticks * (requests - 1)) : null;
         var stage = job.Stage == "queued" && job.Status == "completed" ? "completed" :
             job.Stage == "queued" && job.Status == "failed" ? "failed" : job.Stage;
+        var retryCount = job.Kind is "fullstats" or "archive"
+            ? (JsonSerializer.Deserialize<long[]>(job.PairIdsJson ?? "[]") ?? []).Length : 0;
         return new { job.Id, job.Kind, role = job.Kind, rateMethod = WbRateLimits.MethodFor(job.Kind, job.NextCampaignOffset),
             job.ImportedRows, job.ItemsWithData, job.ItemsWithoutData,
+            retryCount,
             warning = job.ItemsWithoutData > 0 ? "Часть запрошенных кампаний или товаров не вернула данных." : null,
             job.Status, stage, job.WaitReason, job.StartDate, job.EndDate,
             processedCount = job.NextCampaignOffset, totalCount = total,

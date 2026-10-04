@@ -35,6 +35,12 @@ function jobPeriod(job: WbSyncJob): string {
 }
 
 function jobProgress(job: WbSyncJob): string {
+  if ((job.kind === 'fullstats' || job.kind === 'archive') && job.retryCount) {
+    const initialCount = job.totalCount - job.retryCount;
+    const checked = Math.min(job.processedCount, initialCount);
+    const repeated = Math.max(0, job.processedCount - initialCount);
+    return `${checked} из ${initialCount} кампаний · повторно ${repeated} из ${job.retryCount}`;
+  }
   const count = new Intl.NumberFormat('ru-RU').format(job.processedCount);
   const total = job.totalCount > 0 ? ` из ${new Intl.NumberFormat('ru-RU').format(job.totalCount)}` : '';
   const quantity = job.totalCount > 0 ? job.totalCount : job.processedCount;

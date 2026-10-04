@@ -8,6 +8,8 @@ public static class WbRateLimits
     public static string MethodFor(string kind, int offset = 0) => kind switch
     {
         "archive" => "fullstats",
+        "fullstats_history" => "fullstats",
+        "expenses_history" => "expenses",
         "funnel" => offset == 0 ? "funnel_history" : "funnel_products",
         "funnel_recent" => "funnel_history",
         "funnel_backfill" => "funnel_products",

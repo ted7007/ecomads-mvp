@@ -198,7 +198,7 @@ public sealed class WbStoresController(
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
         var end = request?.EndDate ?? yesterday;
-        var start = request?.StartDate ?? end.AddDays(-29);
+        var start = request?.StartDate ?? end.AddDays(-30);
         if (start > end || end > yesterday || end.DayNumber - start.DayNumber > 30)
         {
             return BadRequest(new { message = "Выберите завершённый период не более 31 дня." });
