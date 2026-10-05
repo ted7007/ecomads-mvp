@@ -4,16 +4,11 @@ user='ecomadsops'
 if sp.run(['id',user],stdout=sp.DEVNULL,stderr=sp.DEVNULL).returncode==0: raise SystemExit('Account exists; refusing overwrite')
 helper=P.Path('/usr/local/sbin/ecomadsctl')
 if helper.exists(): raise SystemExit('Helper exists; refusing overwrite')
-secret_helper=P.Path('/usr/local/lib/ecomads-set-secret.py')
-if secret_helper.exists(): raise SystemExit('Secret helper exists; refusing overwrite')
-secret_source=P.Path(__file__).with_name('vps-set-secret.py').read_text()
 run(['groupadd','--force','ecomads-access'])
 run(['useradd','-m','-s','/bin/bash','-c','Ecomads application operator',user])
 run(['usermod','-aG','ecomads-access',user])
 password=''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(28))
 run(['chpasswd'],input=user+':'+password+'\n')
-secret_helper.write_text(secret_source)
-os.chmod(secret_helper,0o755)
 helper.write_text("""#!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT=/opt/ecomads
@@ -36,8 +31,6 @@ case "$action" in
   status) [[ $# == 0 ]] || exit 2; compose ps ;;
   logs) [[ $# == 0 ]] || exit 2; compose logs --tail=200 web caddy db ;;
   restart) [[ $# == 0 ]] || exit 2; compose restart web ;;
-  apply) [[ $# == 0 ]] || exit 2; "$ROOT/archive-logs.sh" operator-apply; compose up -d --no-deps web ;;
-  secret) [[ $# == 1 ]] || exit 2; /usr/bin/python3 /usr/local/lib/ecomads-set-secret.py "$1" ;;
   deploy)
     [[ $# == 1 && "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$ ]] || exit 2
     [[ -d "$ROOT/releases/$1" && ! -L "$ROOT/releases/$1" ]] || exit 2
@@ -47,7 +40,7 @@ case "$action" in
   rollback) [[ $# == 0 ]] || exit 2; trap access EXIT; bash "$ROOT/rollback-vps.sh" ;;
   access) [[ $# == 0 ]] || exit 2; access ;;
   env) [[ $# == 0 ]] || exit 2; cat "$ROOT/.env" ;;
-  *) echo "Usage: sudo ecomadsctl {status|logs|restart|apply|secret NAME|deploy VERSION|rollback|access|env}"; [[ "$action" == help ]] ;;
+  *) echo "Usage: sudo ecomadsctl {status|logs|restart|deploy VERSION|rollback|access|env}"; [[ "$action" == help ]] ;;
 esac
 """)
 os.chmod(helper,0o755)
