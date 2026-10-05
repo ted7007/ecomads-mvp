@@ -13,6 +13,7 @@ public static class WbRateLimits
         "funnel" => offset == 0 ? "funnel_history" : "funnel_products",
         "funnel_recent" => "funnel_history",
         "funnel_backfill" => "funnel_products",
+        "funnel_year" => "funnel_products",
         "expenses" => "expenses",
         "campaign_list" => "campaign_list",
         _ => kind
@@ -20,7 +21,7 @@ public static class WbRateLimits
 
     public static TimeSpan IntervalFor(string kind) => kind switch
     {
-        "clusters" or "funnel" or "funnel_recent" or "funnel_backfill" or
+        "clusters" or "funnel" or "funnel_recent" or "funnel_backfill" or "funnel_year" or
             "funnel_history" or "funnel_products" => TimeSpan.FromMinutes(30),
         _ => TimeSpan.FromHours(1)
     };

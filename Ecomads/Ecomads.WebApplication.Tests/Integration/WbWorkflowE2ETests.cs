@@ -139,6 +139,39 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(1, await db.WbStoreDailySpends.CountAsync());
     }
 
+    [Fact]
+    public async Task CostsImporter_YearHistoryKeepsOnlyCoreDaysAndRejectsDistantDates()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        var seller = TestData.CreateActiveDemoSeller();
+        var storeId = Guid.NewGuid();
+        await using var db = postgres.CreateDbContext(connection);
+        await db.Database.MigrateAsync();
+        db.Sellers.Add(seller);
+        db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Name = "WB",
+            CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+
+        using var response = JsonDocument.Parse("""
+            [{"updTime":"2026-06-30T23:00:00+03:00","updSum":3},
+             {"updTime":"2026-07-01T10:00:00+03:00","updSum":10},
+             {"updTime":"2026-07-02T11:00:00+03:00","updSum":20},
+             {"updTime":"2026-07-03T00:30:00+03:00","updSum":4}]
+            """);
+        var imported = await new WbCostsImporter(db).ImportAsync(storeId,
+            new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 2), response.RootElement,
+            CancellationToken.None, allowAdjacentDays: true);
+        Assert.Equal(2, imported);
+        var spends = await db.WbStoreDailySpends.OrderBy(x => x.Date).ToListAsync();
+        Assert.Equal(new[] { 10m, 20m }, spends.Select(x => x.Spend));
+
+        using var distant = JsonDocument.Parse("""[{"updTime":"2026-07-10T10:00:00+03:00","updSum":9}]""");
+        await Assert.ThrowsAsync<JsonException>(() => new WbCostsImporter(db).ImportAsync(storeId,
+            new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 2), distant.RootElement,
+            CancellationToken.None, allowAdjacentDays: true));
+        Assert.Equal(2, await db.WbStoreDailySpends.CountAsync());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -404,7 +437,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
         using var overviewJson = JsonDocument.Parse(await overview.Content.ReadAsStringAsync());
         var sources = overviewJson.RootElement.GetProperty("sources").EnumerateArray().ToArray();
-        Assert.Equal(8, sources.Length);
+        Assert.Equal(11, sources.Length);
         var statsSource = Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "fullstats"));
         var completedJob = statsSource.GetProperty("lastJob");
         Assert.Equal("completed", completedJob.GetProperty("status").GetString());

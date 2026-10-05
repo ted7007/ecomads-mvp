@@ -15,7 +15,7 @@ namespace Ecomads.WebApplication.Controllers;
 [Route("api/wb/stores/{storeId:guid}")]
 public sealed class WbSyncVisibilityController(EcomadsDbContext db) : ControllerBase
 {
-    private static readonly string[] Kinds = ["fullstats", "funnel_recent", "expenses", "clusters", "jam", "archive", "funnel_backfill", "funnel"];
+    private static readonly string[] Kinds = ["fullstats", "funnel_recent", "expenses", "fullstats_history", "expenses_history", "funnel_year", "clusters", "jam", "archive", "funnel_backfill", "funnel"];
     private static readonly string[] Statuses = ["pending", "running", "completed", "failed"];
 
     [HttpGet("sync-overview")]
@@ -31,6 +31,15 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         {
             var last = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId && x.Kind == kind)
                 .OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
+            if (kind == "funnel_backfill" && last == null)
+            {
+                var end = WbSyncPlanner.Yesterday();
+                var start = end.AddDays(-29);
+                var olderEnd = end.AddDays(-7);
+                var loadedDays = await db.WbStoreDailyOrders.AsNoTracking().CountAsync(x =>
+                    x.StoreId == storeId && x.Date >= start && x.Date <= olderEnd, cancellationToken);
+                if (loadedDays == olderEnd.DayNumber - start.DayNumber + 1) continue;
+            }
             var success = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
                 x.Kind == kind && x.Status == "completed")
                 .OrderByDescending(x => x.CompletedAtUtc).FirstOrDefaultAsync(cancellationToken);
@@ -108,15 +117,58 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         return Accepted(View(retry));
     }
 
+    [HttpPost("sync-jobs/{jobId:guid}/pause")]
+    public async Task<IActionResult> Pause(Guid storeId, Guid jobId, CancellationToken cancellationToken)
+    {
+        if (!await Owns(storeId, cancellationToken)) return NotFound();
+        var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId,
+            cancellationToken);
+        if (job == null) return NotFound();
+        if (!WbSyncJobUnits.IsYearHistory(job.Kind)) return BadRequest(new { message = "Пауза доступна только для годовой истории." });
+        if (job.Status is not ("pending" or "running"))
+            return Conflict(new { message = "Это задание уже завершилось." });
+        if (job.PauseRequestedAtUtc == null)
+        {
+            job.PauseRequestedAtUtc = DateTime.UtcNow;
+            db.WbSyncJobEvents.Add(new WbSyncJobEvent { JobId = job.Id, OccurredAtUtc = job.PauseRequestedAtUtc.Value,
+                Stage = "paused", ProcessedCount = job.NextCampaignOffset });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        return Ok(View(job));
+    }
+
+    [HttpPost("sync-jobs/{jobId:guid}/resume")]
+    public async Task<IActionResult> Resume(Guid storeId, Guid jobId, CancellationToken cancellationToken)
+    {
+        if (!await Owns(storeId, cancellationToken)) return NotFound();
+        var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId,
+            cancellationToken);
+        if (job == null) return NotFound();
+        if (!WbSyncJobUnits.IsYearHistory(job.Kind)) return BadRequest(new { message = "Продолжение доступно только для годовой истории." });
+        if (job.Status is not ("pending" or "running"))
+            return Conflict(new { message = "Это задание уже завершилось." });
+        if (job.PauseRequestedAtUtc != null)
+        {
+            job.PauseRequestedAtUtc = null;
+            db.WbSyncJobEvents.Add(new WbSyncJobEvent { JobId = job.Id, OccurredAtUtc = DateTime.UtcNow,
+                Stage = "resumed", ProcessedCount = job.NextCampaignOffset });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        return Ok(View(job));
+    }
+
     private async Task<bool> Owns(Guid storeId, CancellationToken token) =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var sellerId) &&
         await db.Stores.AnyAsync(x => x.Id == storeId && x.SellerId == sellerId, token);
 
     private static string BlockedReason(WbSyncJob job)
     {
-        var name = job.Kind switch { "funnel" or "funnel_recent" => "Свежие заказы", "funnel_backfill" => "История заказов",
+        var name = job.Kind switch { "funnel" or "funnel_recent" => "Свежие заказы", "funnel_backfill" or "funnel_year" => "История заказов",
+            "fullstats_history" => "История рекламы за год", "expenses_history" => "Расходы за год",
             "archive" => "Архив рекламы",
             "clusters" => "Поисковые кластеры", "jam" => "Поисковые запросы Джема", _ => "Статистика кампаний" };
+        if (job.PauseRequestedAtUtc != null) return $"{name} приостановлены. Продолжите загрузку, когда будет удобно.";
+        if (job.WaitReason == "priority") return $"{name} ждут завершения загрузки текущих данных.";
         if (job.WaitReason is "rate_limit" or "retry")
         {
             var moscow = TimeZoneInfo.ConvertTimeFromUtc(job.NextAttemptAtUtc, TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow"));
@@ -132,7 +184,8 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         var total = WbSyncJobUnits.Total(job);
         var remaining = Math.Max(0, total - job.NextCampaignOffset);
         var requests = (remaining + WbSyncJobUnits.BatchSize(job.Kind) - 1) / WbSyncJobUnits.BatchSize(job.Kind);
-        DateTime? estimatedCompletionAtUtc = (job.Status is "pending" or "running") && requests > 0
+        DateTime? estimatedCompletionAtUtc = !WbSyncJobUnits.IsYearHistory(job.Kind) &&
+            (job.Status is "pending" or "running") && requests > 0
             ? job.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(job.Kind).Ticks * (requests - 1)) : null;
         var stage = job.Stage == "queued" && job.Status == "completed" ? "completed" :
             job.Stage == "queued" && job.Status == "failed" ? "failed" : job.Stage;
@@ -141,8 +194,13 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         return new { job.Id, job.Kind, role = job.Kind, rateMethod = WbRateLimits.MethodFor(job.Kind, job.NextCampaignOffset),
             job.ImportedRows, job.ItemsWithData, job.ItemsWithoutData,
             retryCount,
-            warning = job.ItemsWithoutData > 0 ? "Часть запрошенных кампаний или товаров не вернула данных." : null,
-            job.Status, stage, job.WaitReason, job.StartDate, job.EndDate,
+            warning = job.ItemsWithoutData <= 0 ? null : job.Kind == "fullstats_history"
+                ? job.Status == "completed"
+                    ? "WB не вернул статистику по части кампаний даже после повторного запроса."
+                    : "WB пока не вернул статистику по части кампаний; повторный запрос добавлен в очередь."
+                : "Часть запрошенных кампаний или товаров не вернула данных.",
+            job.Status, stage, job.WaitReason, paused = job.PauseRequestedAtUtc != null &&
+                (job.Status is "pending" or "running"), job.StartDate, job.EndDate,
             processedCount = job.NextCampaignOffset, totalCount = total,
             unit = WbSyncJobUnits.Unit(job.Kind), estimatedCompletionAtUtc,
             job.CreatedAtUtc, job.StartedAtUtc, job.UpdatedAtUtc, job.CompletedAtUtc,

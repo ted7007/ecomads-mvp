@@ -208,6 +208,26 @@ public sealed class WbStoresController(
         return result.Job == null ? BadRequest(new { message = result.Reason }) : Accepted(ToSyncResponse(result.Job));
     }
 
+    [HttpPost("{storeId:guid}/history/year")]
+    public async Task<IActionResult> StartYearHistory(Guid storeId, CancellationToken cancellationToken)
+    {
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId,
+            cancellationToken);
+        if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
+        var end = WbSyncPlanner.Yesterday();
+        var start = end.AddDays(-364);
+        var fullstats = await planner.EnqueueYearFullStatsAsync(store, start, end, cancellationToken);
+        var expenses = await planner.EnqueueYearExpensesAsync(store, start, end, cancellationToken);
+        var orders = await planner.EnqueueYearOrdersAsync(store, start, end, cancellationToken);
+        return Accepted(new { startDate = start, endDate = end,
+            jobs = new[] { fullstats.Job, expenses.Job, orders.Job }.Where(x => x != null).Select(x =>
+                new { x!.Id, x.Kind, x.Status, x.StartDate, x.EndDate }),
+            skipped = new[] { new { kind = "fullstats_history", fullstats.Reason },
+                new { kind = "expenses_history", expenses.Reason },
+                new { kind = "funnel_year", orders.Reason } }.Where(x => x.Reason != null) });
+    }
+
     [HttpPost("{storeId:guid}/clusters/sync")]
     public async Task<IActionResult> StartClusterSync(Guid storeId, [FromBody] SyncRequest? request, CancellationToken cancellationToken)
     {

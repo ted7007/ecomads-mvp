@@ -5,6 +5,7 @@ namespace Ecomads.WebApplication.Services.Wb;
 
 public static class WbSyncJobUnits
 {
+    public static bool IsYearHistory(string kind) => kind is "fullstats_history" or "expenses_history" or "funnel_year";
     public static int Total(WbSyncJob job) => job.Kind switch
     {
         "fullstats_history" or "expenses_history" =>
@@ -21,7 +22,7 @@ public static class WbSyncJobUnits
     {
         "clusters" => 100,
         "fullstats_history" or "expenses_history" => 1,
-        "funnel" or "funnel_recent" or "funnel_backfill" or "expenses" => 1,
+        "funnel" or "funnel_recent" or "funnel_backfill" or "funnel_year" or "expenses" => 1,
         _ => 50
     };
 
@@ -30,7 +31,7 @@ public static class WbSyncJobUnits
         "clusters" => "pair",
         "fullstats_history" or "expenses_history" => "request",
         "jam" => "product",
-        "funnel" or "funnel_recent" or "funnel_backfill" or "expenses" => "request",
+        "funnel" or "funnel_recent" or "funnel_backfill" or "funnel_year" or "expenses" => "request",
         _ => "campaign"
     };
 }

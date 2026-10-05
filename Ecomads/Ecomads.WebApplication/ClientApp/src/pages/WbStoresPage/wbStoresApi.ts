@@ -18,7 +18,7 @@ export type WbStore = z.infer<typeof storeSchema>;
 
 const syncSchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(['fullstats', 'funnel', 'funnel_recent', 'funnel_backfill', 'expenses', 'archive', 'clusters', 'jam']),
+  kind: z.enum(['fullstats', 'funnel', 'funnel_recent', 'funnel_backfill', 'funnel_year', 'expenses', 'archive', 'clusters', 'jam', 'fullstats_history', 'expenses_history']),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   startDate: z.string(),
   endDate: z.string(),
@@ -38,6 +38,7 @@ const jobSchema = z.object({
   warning: z.string().nullable().optional(),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   stage: z.string(), waitReason: z.string().nullable(),
+  paused: z.boolean(),
   startDate: z.string(), endDate: z.string(),
   processedCount: z.number().int(), totalCount: z.number().int(),
   unit: z.enum(['campaign', 'pair', 'product', 'request']),
@@ -71,6 +72,10 @@ export async function refreshWbStore(storeId: string): Promise<WbRefreshResult> 
   return refreshSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/refresh`,
     { method: 'POST' }));
 }
+export async function loadWbYearHistory(storeId: string): Promise<void> {
+  await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/history/year`,
+    { method: 'POST' });
+}
 export async function getWbSyncHistory(storeId: string, page: number, kind: string, status: string) {
   const query = new URLSearchParams({ page: String(page), pageSize: '10' });
   if (kind) query.set('kind', kind);
@@ -82,6 +87,12 @@ export async function getWbSyncDetails(storeId: string, jobId: string) {
 }
 export async function retryWbSync(storeId: string, jobId: string) {
   return jobSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/sync-jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' }));
+}
+export async function pauseWbSync(storeId: string, jobId: string) {
+  return jobSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/sync-jobs/${encodeURIComponent(jobId)}/pause`, { method: 'POST' }));
+}
+export async function resumeWbSync(storeId: string, jobId: string) {
+  return jobSchema.parse(await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/sync-jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' }));
 }
 
 export async function getWbStores(): Promise<WbStore[]> {

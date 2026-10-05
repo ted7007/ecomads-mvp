@@ -4,6 +4,13 @@ namespace Ecomads.WebApplication.Services.Wb;
 
 public static class WbCampaignEligibility
 {
+    public static bool CreatedAfter(Campaign campaign, DateOnly periodEnd)
+    {
+        if (campaign.WbCreatedAtUtc is not { } created) return false;
+        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(created, moscow)) > periodEnd;
+    }
+
     public static bool FinishedBefore(Campaign campaign, DateOnly periodStart)
     {
         if (campaign.WbStatus != 7) return false;

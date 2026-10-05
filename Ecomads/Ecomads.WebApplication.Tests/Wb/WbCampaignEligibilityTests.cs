@@ -37,4 +37,13 @@ public sealed class WbCampaignEligibilityTests
         campaign.WbDeletedAtUtc = new DateTime(2026, 9, 3, 1, 0, 0, DateTimeKind.Utc);
         Assert.False(WbCampaignEligibility.FinishedBefore(campaign, PeriodStart));
     }
+
+    [Fact]
+    public void CreationDateUsesMoscowDayBoundary()
+    {
+        var campaign = new Campaign { WbCreatedAtUtc =
+            new DateTime(2026, 9, 2, 21, 30, 0, DateTimeKind.Utc) };
+        Assert.True(WbCampaignEligibility.CreatedAfter(campaign, new DateOnly(2026, 9, 2)));
+        Assert.False(WbCampaignEligibility.CreatedAfter(campaign, new DateOnly(2026, 9, 3)));
+    }
 }

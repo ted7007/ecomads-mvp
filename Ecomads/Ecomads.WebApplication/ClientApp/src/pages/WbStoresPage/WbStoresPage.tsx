@@ -1,7 +1,7 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, refreshWbStore } from './wbStoresApi';
+import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, loadWbYearHistory, refreshWbStore } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
 import { createTelegramLink, disconnectTelegramChat, getTelegramChats, sendYesterdaySummary } from './telegramApi';
 import { SyncDashboard } from './SyncDashboard';
@@ -33,6 +33,15 @@ function StoreCard({ store }: { store: WbStore }) {
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось запустить загрузку WB')
   });
+  const loadYear = useMutation({
+    mutationFn: () => loadWbYearHistory(store.id),
+    onSuccess: async () => {
+      setError(null);
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-history', store.id] });
+    },
+    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось начать загрузку истории')
+  });
   const disconnect = useMutation({
     mutationFn: () => disconnectWbStore(store.id),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['wb-stores'] }),
@@ -57,11 +66,17 @@ function StoreCard({ store }: { store: WbStore }) {
           <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} gap={1.5}>
             <Button variant="contained" disabled={activeJobs.some((job) => job.kind === 'fullstats' || job.kind === 'funnel_recent') || refreshAll.isPending} onClick={() => refreshAll.mutate()}
               sx={{ width: { xs: '100%', sm: 'auto' } }}>Загрузить всё из WB</Button>
-            {activeJobs.length > 0 ? <Typography variant="body2" color="text.secondary">
+            <Button variant="outlined" disabled={loadYear.isPending || activeJobs.some((job) =>
+              job.kind === 'fullstats_history' || job.kind === 'expenses_history' || job.kind === 'funnel_year')}
+              onClick={() => loadYear.mutate()} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+              Загрузить историю за год
+            </Button>
+            {activeJobs.some((job) => !job.paused) ? <Typography variant="body2" color="text.secondary">
               Загрузка идёт{completionTime ? `, завершится примерно в ${completionTime} МСК` : ''}.
             </Typography> : null}
           </Stack>
           <Typography variant="body2" color="text.secondary">Период выбирается автоматически: статистика кампаний и расходы кабинета — 31 день, все заказы — 30 дней, кластеры и Джем — 7 дней. Заказы за последние 7 дней загружаются сразу, более ранние — постепенно в пределах лимита WB.</Typography>
+          <Typography variant="body2" color="text.secondary">Годовая загрузка собирает рекламу и расходы периодами до 31 дня, а дневные заказы — отдельно через воронку товаров. История заказов может загружаться несколько дней. Её можно приостановить и продолжить без потери уже сохранённых данных; текущие загрузки получают приоритет по лимиту WB. Графики и KPI в «Сводке» используют сохранённые данные через «Год» или «Свой период».</Typography>
           {store.autoRefreshEnabled ? <Typography variant="body2" color="text.secondary">Автообновление каждый день после 06:00 МСК.</Typography> : null}
           <SyncDashboard storeId={store.id} overview={sync.data} refresh={() => { void sync.refetch(); }} error={sync.isError}
             skipped={refreshAll.data?.skipped ?? []} />

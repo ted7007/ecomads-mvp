@@ -1,11 +1,13 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Collapse, MenuItem, Select, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { getWbSyncDetails, getWbSyncHistory, retryWbSync } from './wbStoresApi';
+import { getWbSyncDetails, getWbSyncHistory, pauseWbSync, resumeWbSync, retryWbSync } from './wbStoresApi';
 import type { WbRefreshResult, WbSyncJob, WbSyncOverview } from './wbStoresApi';
 
 const labels: Record<string, string> = { fullstats: 'Текущая реклама', funnel: 'Все заказы (старое задание)',
-  funnel_recent: 'Свежие заказы · 7 дней', funnel_backfill: 'История заказов', expenses: 'Расход кабинета', archive: 'Архив рекламы',
+  fullstats_history: 'История рекламы · год', expenses_history: 'История расходов · год',
+  funnel_year: 'История заказов · год',
+  funnel_recent: 'Свежие заказы · 7 дней', funnel_backfill: 'История заказов · дни 8–30', expenses: 'Расход кабинета', archive: 'Архив рекламы',
   clusters: 'Поисковые кластеры', jam: 'Поисковые запросы Джема' };
 const units: Record<string, [string, string, string]> = {
   campaign: ['кампания', 'кампании', 'кампаний'],
@@ -13,7 +15,8 @@ const units: Record<string, [string, string, string]> = {
   product: ['товар', 'товара', 'товаров'],
   request: ['запрос', 'запроса', 'запросов']
 };
-const stages: Record<string, string> = { queued: 'В очереди', waiting: 'Ожидание', requesting: 'Запрос к WB', importing: 'Сохранение данных', completed: 'Завершено', failed: 'Ошибка' };
+const stages: Record<string, string> = { queued: 'В очереди', waiting: 'Ожидание', requesting: 'Запрос к WB', importing: 'Сохранение данных', completed: 'Завершено', failed: 'Ошибка', paused: 'Пауза', resumed: 'Продолжено' };
+const yearKinds = new Set(['fullstats_history', 'expenses_history', 'funnel_year']);
 
 export function moscowTime(value?: string | null): string {
   if (!value) return '—';
@@ -54,9 +57,11 @@ export function jobStatus(job: WbSyncJob | null): string {
   if (!job) return 'Ещё не запускалось';
   if (job.status === 'completed') return 'Завершено';
   if (job.status === 'failed') return 'Ошибка';
+  if (job.paused) return 'Приостановлено';
   if (job.stage === 'requesting') return 'Запрос к WB';
   if (job.stage === 'importing') return 'Сохраняем данные';
   if (job.waitReason === 'retry') return 'Ожидает повторной попытки';
+  if (job.waitReason === 'priority') return 'Ожидание текущих данных';
   if (job.waitReason === 'rate_limit') {
     return Date.now() > Date.parse(job.nextAttemptAtUtc) + 120000 ? 'Запуск задерживается' : 'Ожидание лимита WB';
   }
@@ -70,6 +75,7 @@ export function jobError(code: string | null, kind?: string): string {
     'WB отказал в доступе. Проверьте права токена и доступ к отчёту.';
   if (code === 'wb_402') return 'WB запросил оплату доступа к отчёту.';
   if (code === 'wb_429') return 'Достигнут лимит WB. Система повторит запрос после ожидания.';
+  if (code === 'invalid_response' && kind === 'expenses_history') return 'WB прислал списание с датой вне нужного периода. Система повторит запрос с перекрытием дат.';
   if (code === 'invalid_response') return 'WB вернул данные в неожиданном формате. Требуется проверка интеграции.';
   if (code === 'transport_error' || code.startsWith('wb_5')) return 'Временный сбой WB или связи. Система повторит запрос.';
   if (code === 'internal_error') return 'Ошибка обработки данных. Повторите загрузку после проверки подробностей.';
@@ -93,9 +99,19 @@ function JobDetails({ storeId, job }: { storeId: string; job: WbSyncJob }) {
     await Promise.all([queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', storeId] }),
       queryClient.invalidateQueries({ queryKey: ['wb-sync-history', storeId] })]);
   } });
+  const togglePause = useMutation({ mutationFn: () => job.paused ? resumeWbSync(storeId, job.id) : pauseWbSync(storeId, job.id),
+    onSuccess: async () => {
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', storeId] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-sync-history', storeId] })]);
+    } });
   return <>
     <Button size="small" onClick={() => setOpen(!open)}>{open ? 'Скрыть' : 'Подробности'}</Button>
+    {yearKinds.has(job.kind) && (job.status === 'pending' || job.status === 'running') ?
+      <Button size="small" disabled={togglePause.isPending} onClick={() => togglePause.mutate()}>
+        {job.paused ? 'Продолжить' : 'Приостановить'}
+      </Button> : null}
     {job.canRetry ? <Button size="small" disabled={retry.isPending} onClick={() => retry.mutate()}>Повторить</Button> : null}
+    {togglePause.isError ? <Alert severity="error">{togglePause.error instanceof Error ? togglePause.error.message : 'Не удалось изменить паузу'}</Alert> : null}
     <Collapse in={open}><Box sx={{ p: 1.5, bgcolor: 'rgba(0,122,255,.04)', borderRadius: '8px' }}>
       <Typography variant="body2">Задание {job.id} · создано {moscowTime(job.createdAtUtc)}</Typography>
       {job.kind === 'fullstats' ? <Typography variant="body2">Кампаний: {details.data?.campaignIds.length ?? job.totalCount}</Typography> : null}
@@ -133,6 +149,9 @@ export function SyncDashboard({ storeId, overview, refresh, error, skipped }: {
         <Chip size="small" label={jobStatus(source.activeJob ?? source.lastJob)} color={source.lastJob?.status === 'failed' ? 'error' : source.lastJob?.status === 'completed' ? 'success' : 'default'} />
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>Последняя успешная загрузка: {moscowTime(source.lastSuccessAtUtc)}</Typography>
+      {source.kind === 'funnel_backfill' && !source.lastJob ? <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
+        Запускается автоматически через «Загрузить всё из WB», если в последних 30 днях есть пропуски.
+      </Typography> : null}
       {source.lastJob ? <>
         <Typography variant="body2" sx={{ mt: 0.4 }}>Период {jobPeriod(source.lastJob)} · обработано {jobProgress(source.lastJob)}</Typography>
         {source.lastJob.importedRows ? <Typography variant="body2" color="text.secondary">Получено строк: {source.lastJob.importedRows}</Typography> : null}
@@ -141,6 +160,10 @@ export function SyncDashboard({ storeId, overview, refresh, error, skipped }: {
         {source.lastJob.errorCode ? <Typography variant="body2" color="error.main">{jobError(source.lastJob.errorCode, source.kind)}</Typography> : null}
         {source.activeJob?.waitReason === 'rate_limit' ? <Typography variant="body2">
           Следующий запрос в {moscowTime(source.activeJob.nextAttemptAtUtc)} — лимит WB.
+        </Typography> : null}
+        {source.activeJob?.paused ? <Typography variant="body2">Годовая загрузка приостановлена. Текущий запрос WB, если он уже начался, завершится.</Typography> : null}
+        {source.activeJob?.waitReason === 'priority' && !source.activeJob.paused ? <Typography variant="body2">
+          Годовая загрузка продолжится после загрузки текущих данных.
         </Typography> : null}
       </> : null}
       {skipped.find((item) => item.kind === source.kind)?.reason ? <Typography variant="body2" color="text.secondary">

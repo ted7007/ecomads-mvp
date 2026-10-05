@@ -71,6 +71,10 @@ export function DashboardPage() {
 
       {demoFeedbackSuccess ? <Alert severity="success">{demoFeedbackSuccess}</Alert> : null}
       <WbDataFreshness startDate={filters.startDate!} endDate={filters.endDate!} />
+      {Date.parse(`${filters.endDate}T00:00:00Z`) - Date.parse(`${filters.startDate}T00:00:00Z`) > 30 * 86400000 ?
+        <Alert severity="info" action={<Button component={Link} to={appRoutes.wbStores}>Загрузить историю</Button>}>
+          Для годовых графиков загрузите историю рекламы, расходов и заказов в кабинете WB. Заказы собираются по дням и могут загружаться несколько дней из-за лимита WB.
+        </Alert> : null}
 
       {campaignsQuery.isLoading ? <LoadingState title="Загружаем обзор рекламы" /> : null}
 

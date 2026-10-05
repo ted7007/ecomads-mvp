@@ -202,6 +202,102 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         return new(await QueueAsync(store.Id, "fullstats", start, end, JsonSerializer.Serialize(ids), null, null, ct));
     }
 
+    public async Task<WbPlanResult> EnqueueYearFullStatsAsync(Store store, DateOnly start, DateOnly end,
+        CancellationToken ct)
+    {
+        var active = await ActiveAsync(store.Id, "fullstats_history", ct);
+        if (active != null) return new(active);
+        var previous = await db.WbSyncJobs.Where(x => x.StoreId == store.Id &&
+                x.Kind == "fullstats_history" && x.Status == "completed" &&
+                x.StartDate == start && x.EndDate == end)
+            .OrderByDescending(x => x.CompletedAtUtc).FirstOrDefaultAsync(ct);
+        if (previous != null) return new(previous);
+
+        var campaigns = await db.Campaigns.Where(x => x.StoreId == store.Id &&
+                (x.WbStatus == 7 || x.WbStatus == 9 || x.WbStatus == 11))
+            .ToListAsync(ct);
+        var batches = new List<WbHistoryBatch>();
+        foreach (var (chunkStart, chunkEnd) in HistoryPeriods(start, end))
+        {
+            var ids = campaigns.Where(x => !WbCampaignEligibility.FinishedBefore(x, chunkStart) &&
+                    !WbCampaignEligibility.CreatedAfter(x, chunkEnd))
+                .Select(x => long.TryParse(x.WbCampaignId, out var id) ? id : 0)
+                .Where(x => x > 0).ToArray();
+            foreach (var group in ids.Chunk(50))
+                batches.Add(new WbHistoryBatch(chunkStart, chunkEnd, group));
+        }
+        if (batches.Count == 0) return new(null, "Нет кампаний за выбранный год.");
+        return new(await QueueAsync(store.Id, "fullstats_history", start, end, "[]",
+            JsonSerializer.Serialize(batches), null, ct));
+    }
+
+    public async Task<WbPlanResult> EnqueueYearExpensesAsync(Store store, DateOnly start, DateOnly end,
+        CancellationToken ct)
+    {
+        var active = await ActiveAsync(store.Id, "expenses_history", ct);
+        if (active != null) return new(active);
+        var previous = await db.WbSyncJobs.Where(x => x.StoreId == store.Id &&
+                x.Kind == "expenses_history" && x.Status == "completed" &&
+                x.StartDate == start && x.EndDate == end)
+            .OrderByDescending(x => x.CompletedAtUtc).FirstOrDefaultAsync(ct);
+        if (previous != null) return new(previous);
+        var loaded = (await db.WbStoreDailySpends.Where(x => x.StoreId == store.Id &&
+                x.Date >= start && x.Date <= end).Select(x => x.Date).ToListAsync(ct)).ToHashSet();
+        var batches = ExpenseHistoryBatches(start, end, loaded);
+        if (batches.Length == 0) return new(null, "Расходы за выбранный год уже загружены.");
+        return new(await QueueAsync(store.Id, "expenses_history", start, end, "[]",
+            JsonSerializer.Serialize(batches), null, ct));
+    }
+
+    public async Task<WbPlanResult> EnqueueYearOrdersAsync(Store store, DateOnly start, DateOnly end,
+        CancellationToken ct)
+    {
+        var olderEnd = end.AddDays(-7);
+        var active = await ActiveAsync(store.Id, "funnel_year", ct);
+        if (active != null) return new(active);
+        var previous = await db.WbSyncJobs.Where(x => x.StoreId == store.Id &&
+                x.Kind == "funnel_year" && x.Status == "completed" &&
+                x.StartDate == start && x.EndDate == olderEnd)
+            .OrderByDescending(x => x.CompletedAtUtc).FirstOrDefaultAsync(ct);
+        if (previous != null) return new(previous);
+        var loaded = (await db.WbStoreDailyOrders.Where(x => x.StoreId == store.Id &&
+                x.Date >= start && x.Date <= olderEnd).Select(x => x.Date).ToListAsync(ct)).ToHashSet();
+        var firstDays = new List<long>();
+        for (var day = start; day <= olderEnd; day = day.AddDays(1))
+        {
+            if (loaded.Contains(day)) continue;
+            firstDays.Add(long.Parse(day.ToString("yyyyMMdd")));
+            if (day < olderEnd && !loaded.Contains(day.AddDays(1))) day = day.AddDays(1);
+        }
+        if (firstDays.Count == 0) return new(null, "Заказы за выбранный год уже загружены.");
+        return new(await QueueAsync(store.Id, "funnel_year", start, olderEnd,
+            JsonSerializer.Serialize(firstDays), null, null, ct));
+    }
+
+    private static IEnumerable<(DateOnly Start, DateOnly End)> HistoryPeriods(DateOnly start, DateOnly end)
+    {
+        for (var current = start; current <= end; current = current.AddDays(31))
+        {
+            var chunkEnd = current.AddDays(30);
+            yield return (current, chunkEnd < end ? chunkEnd : end);
+        }
+    }
+
+    public static WbHistoryBatch[] ExpenseHistoryBatches(DateOnly start, DateOnly end,
+        IReadOnlySet<DateOnly> loaded)
+    {
+        var batches = new List<WbHistoryBatch>();
+        for (var current = start; current <= end; current = current.AddDays(29))
+        {
+            var chunkEnd = current.AddDays(28);
+            if (chunkEnd > end) chunkEnd = end;
+            if (Enumerable.Range(0, chunkEnd.DayNumber - current.DayNumber + 1)
+                .Any(offset => !loaded.Contains(current.AddDays(offset))))
+                batches.Add(new WbHistoryBatch(current, chunkEnd, []));
+        }
+        return batches.ToArray();
+    }
+
     public async Task<WbPlanResult> EnqueueFunnelAsync(Store store, Guid runId, CancellationToken ct)
     {
         var active = await ActiveAsync(store.Id, "funnel", ct);

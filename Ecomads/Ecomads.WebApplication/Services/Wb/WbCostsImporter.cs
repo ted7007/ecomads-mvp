@@ -11,7 +11,7 @@ public sealed class WbCostsImporter(EcomadsDbContext db)
     private static readonly TimeZoneInfo Moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
 
     public async Task<int> ImportAsync(Guid storeId, DateOnly start, DateOnly end, JsonElement root,
-        CancellationToken ct)
+        CancellationToken ct, bool allowAdjacentDays = false)
     {
         if (root.ValueKind != JsonValueKind.Array) throw new JsonException("История затрат WB не является массивом.");
         var totals = Enumerable.Range(0, end.DayNumber - start.DayNumber + 1)
@@ -28,7 +28,12 @@ public sealed class WbCostsImporter(EcomadsDbContext db)
                 throw new JsonException("WB не указал дату списания; дневной расход нельзя подтвердить.");
             var date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(time, Moscow).DateTime);
             if (!totals.ContainsKey(date))
-                throw new JsonException("WB вернул списание за пределами запрошенного периода.");
+            {
+                if (allowAdjacentDays && date >= start.AddDays(-2) && date <= end.AddDays(2))
+                    continue;
+                throw new JsonException($"WB вернул списание за {date:yyyy-MM-dd} вне периода " +
+                    $"{start:yyyy-MM-dd}–{end:yyyy-MM-dd}.");
+            }
             totals[date] += spend;
             count++;
         }

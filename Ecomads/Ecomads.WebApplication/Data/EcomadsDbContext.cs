@@ -155,6 +155,7 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc");
             entity.Property(e => e.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc");
             entity.Property(e => e.LastRequestAtUtc).HasColumnName("last_request_at_utc");
+            entity.Property(e => e.PauseRequestedAtUtc).HasColumnName("pause_requested_at_utc");
             entity.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(80);
             entity.Property(e => e.ImportedRows).HasColumnName("imported_rows");
             entity.Property(e => e.ItemsWithData).HasColumnName("items_with_data");

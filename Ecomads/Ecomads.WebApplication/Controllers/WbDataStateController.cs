@@ -104,7 +104,7 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                     expenseChecks.Length == 0 ? null : expenseChecks.Max(x => x.LoadedAtUtc),
                     expenseChecks.Length == 0 ? null : expenseChecks.Min(x => x.Date),
                     expenseChecks.Length == 0 ? null : expenseChecks.Max(x => x.Date)),
-                Source("orders", ["funnel_recent", "funnel_backfill", "funnel"], orderDays, allDays,
+                Source("orders", ["funnel_recent", "funnel_backfill", "funnel_year", "funnel"], orderDays, allDays,
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.LoadedAtUtc),
                     orderChecks.Length == 0 ? null : orderChecks.Min(x => x.Date),
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.Date)) };
