@@ -52,3 +52,31 @@ export function describeSummaryResult(result: SummaryResult): { severity: 'succe
   const severity = result.failed || result.unknown || result.partial ? 'warning' : result.sent ? 'success' : 'info';
   return { severity, text: parts.join('; ') + '.' };
 }
+
+export async function sendPeriodSummary(storeId: string, startDate: string, endDate: string) {
+  const query = new URLSearchParams({ startDate, endDate }).toString();
+  return z.object({ sent: z.number().int(), failed: z.number().int(), partial: z.boolean().default(false),
+    missingCampaigns: z.number().int().default(0) }).parse(await httpClient<unknown>(
+    `/api/telegram/stores/${encodeURIComponent(storeId)}/send-period?${query}`, { method: 'POST' }));
+}
+
+const historySchema = z.array(z.object({
+  storeName: z.string(),
+  reportDate: z.string(),
+  lastAtUtc: z.string(),
+  chats: z.array(z.object({ name: z.string().nullable(), status: z.string(), errorCode: z.string().nullable() }))
+}));
+
+export async function getTelegramHistory() {
+  return historySchema.parse(await httpClient<unknown>('/api/telegram/history'));
+}
+
+export function describeDeliveryStatus(status: string): string {
+  switch (status) {
+    case 'sent': return 'доставлено';
+    case 'failed': return 'не доставлено';
+    case 'unknown': return 'исход неизвестен';
+    case 'pending': return 'отправляется';
+    default: return status;
+  }
+}
