@@ -84,7 +84,7 @@ public sealed class TelegramDeliveryRetryTests(PostgresFixture postgres)
 
     private static TelegramController CreateController(EcomadsDbContext db, FlakyBot bot, Guid sellerId)
     {
-        var controller = new TelegramController(db, bot) { ControllerContext = new ControllerContext
+        var controller = new TelegramController(db, bot, new Ecomads.WebApplication.Services.Wb.WbReportReadinessService(db)) { ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, sellerId.ToString())], "test")) }
@@ -104,8 +104,12 @@ public sealed class TelegramDeliveryRetryTests(PostgresFixture postgres)
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
         db.AddRange(seller, store, campaign, chat);
-        db.WbSyncJobs.Add(new WbSyncJob { Id = Guid.NewGuid(), StoreId = store.Id, StartDate = yesterday,
-            EndDate = yesterday, CampaignIdsJson = "[123]", Status = "completed", Kind = "fullstats" });
+        var at = DateTime.UtcNow;
+        store.CampaignsRefreshedAtUtc = at;
+        db.WbCampaignDailyChecks.Add(new WbCampaignDailyCheck { CampaignId = campaign.Id, Date = yesterday,
+            CheckedAtUtc = at, Result = "data", Spend = 100m });
+        db.WbStoreDailySpends.Add(new WbStoreDailySpend { StoreId = store.Id, Date = yesterday, Spend = 100m, LoadedAtUtc = at });
+        db.WbStoreDailyOrders.Add(new WbStoreDailyOrders { StoreId = store.Id, Date = yesterday, LoadedAtUtc = at });
         db.CampaignStatistics.Add(new CampaignStatistics { CampaignId = campaign.Id,
             Date = DateTime.SpecifyKind(yesterday.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc),
             Spend = 100m, Revenue = 500m, Orders = 2 });
