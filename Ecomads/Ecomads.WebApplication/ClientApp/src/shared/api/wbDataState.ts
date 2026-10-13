@@ -10,7 +10,7 @@ const sourceSchema = z.object({
   estimatedCompletionAtUtc: z.string().nullable(), errorCode: z.string().nullable(),
   failedJobKind: z.string().nullable(), version: z.string()
 });
-const responseSchema = z.object({ sources: z.array(sourceSchema), active: z.boolean() });
+const responseSchema = z.object({ sources: z.array(sourceSchema), isPreliminary: z.boolean(), active: z.boolean() });
 export type WbDataState = z.infer<typeof responseSchema>;
 
 export async function getWbDataState(startDate: string, endDate: string, campaignId?: string): Promise<WbDataState> {

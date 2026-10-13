@@ -2,15 +2,17 @@ using System.Text.Json;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Ecomads.WebApplication.Services.Recommendations;
 
 namespace Ecomads.WebApplication.Services.Wb;
 
 public sealed record WbFullStatsImportResult(int Rows, long[] MissingCampaignIds);
 
-public sealed class WbFullStatsImporter(EcomadsDbContext db)
+public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<RecommendationOptions>? recommendations = null)
 {
     public async Task<WbFullStatsImportResult> ImportAsync(Guid storeId, JsonElement root, CancellationToken cancellationToken,
-        IReadOnlyList<long>? requestedIds = null, Guid? jobId = null)
+        IReadOnlyList<long>? requestedIds = null, Guid? jobId = null, bool fillMissingOnly = false)
     {
         if (root.ValueKind == JsonValueKind.Null)
             return new WbFullStatsImportResult(0, requestedIds?.ToArray() ?? []);
@@ -42,6 +44,8 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db)
             foreach (var day in advert.GetProperty("days").EnumerateArray())
             {
                 var date = DateTime.SpecifyKind(day.GetProperty("date").GetDateTime().Date, DateTimeKind.Utc);
+                if (fillMissingOnly && await db.WbCampaignDailyChecks.AnyAsync(x => x.CampaignId == campaign.Id &&
+                    x.Date == DateOnly.FromDateTime(date) && (x.Result == "data" || x.Result == "zero"), cancellationToken)) continue;
                 await db.CampaignStatistics.Where(s => s.CampaignId == campaign.Id && s.Date == date)
                     .ExecuteDeleteAsync(cancellationToken);
                 await db.CampaignNomenclatureStatistics.Where(s => s.CampaignId == campaign.Id && s.Date == date)
@@ -105,12 +109,17 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db)
                                 statistics = new CampaignNomenclatureStatistics
                                 {
                                     CampaignId = campaign.Id, NomenclatureId = article.Id,
-                                    Date = date
+                                    Date = date, OrderedProducts = 0, RecommendationFieldsVerified = true
                                 };
                                 articleStats.Add(nmId, statistics);
                             }
                             statistics.Spend += Number(nm, "sum");
                             statistics.Revenue += Number(nm, "sum_price");
+                            // Only leaf nms totals: never add campaign/day/app shks to these units.
+                            // Missing shks stays unknown, including when another app has a value.
+                            statistics.OrderedProducts += nm.TryGetProperty("shks", out var units) &&
+                                units.ValueKind == JsonValueKind.Number && units.TryGetInt32(out var quantity) && quantity >= 0
+                                    ? quantity : (int?)null;
                             statistics.Impressions += Whole(nm, "views");
                             statistics.Clicks += Whole(nm, "clicks");
                             statistics.Carts += Whole(nm, "atbs");
@@ -130,6 +139,13 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db)
                     statistics.Cpo = statistics.Orders > 0
                         ? statistics.Spend / statistics.Orders : null;
                     db.CampaignNomenclatureStatistics.Add(statistics);
+                    if (recommendations?.Value.Enabled ?? true) db.WbArticleObservations.Add(new WbArticleObservation
+                    {
+                        Id = Guid.NewGuid(), CampaignId = statistics.CampaignId,
+                        NomenclatureId = statistics.NomenclatureId, Date = DateOnly.FromDateTime(statistics.Date),
+                        JobId = jobId, ObservedAtUtc = DateTime.UtcNow, Orders = statistics.Orders,
+                        OrderedProducts = statistics.OrderedProducts, Revenue = statistics.Revenue
+                    });
                 }
             }
             }

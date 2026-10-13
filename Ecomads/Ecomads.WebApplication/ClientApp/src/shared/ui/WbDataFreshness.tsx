@@ -8,7 +8,7 @@ import { getWbDataState } from '../api/wbDataState';
 const names: Record<string, string> = { fullstats: 'Статистика кампаний', expenses: 'Расход кабинета', orders: 'Все заказы',
   clusters: 'Кластеры', jam: 'Джем' };
 const jobNames: Record<string, string> = { fullstats: 'текущей рекламы', archive: 'архива рекламы', expenses: 'расхода кабинета',
-  funnel_recent: 'свежих заказов', funnel_backfill: 'истории заказов', funnel: 'заказов',
+  funnel_recent: 'свежих заказов', funnel_backfill: 'истории заказов',
   clusters: 'кластеров', jam: 'Джема' };
 const errorNames: Record<string, string> = { invalid_response: 'не удалось обработать ответ WB',
   transport_error: 'нет связи с WB', token_missing: 'токен отсутствует',
@@ -42,6 +42,9 @@ export function WbDataFreshness({ startDate, endDate, campaignId }: {
   if (state.isError) return <Alert severity="warning">Не удалось проверить свежесть данных WB.</Alert>;
   if (!state.data) return null;
   return <Stack direction="row" gap={1.5} useFlexGap flexWrap="wrap" sx={{ px: 0.5 }}>
+    {state.data.isPreliminary ? <Alert severity="info" sx={{ width: '100%', py: 0 }}>
+      Текущий день по Москве ещё не завершён. Показатели предварительные и могут поступать с задержкой WB.
+    </Alert> : null}
     {state.data.sources.map((source) => {
       const age = source.lastCheckedAtUtc ? Date.now() - Date.parse(source.lastCheckedAtUtc) : null;
       const progress = source.kind === 'jam' || source.kind === 'clusters' ? '' :

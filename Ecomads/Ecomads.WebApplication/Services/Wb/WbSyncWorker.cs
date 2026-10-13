@@ -36,14 +36,17 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
     }
 
-    private async Task ProcessNextAsync(CancellationToken cancellationToken)
+    public async Task ProcessNextAsync(CancellationToken cancellationToken)
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
         var job = await db.WbSyncJobs
-            .Where(x => (x.Status == "pending" || x.Status == "running") && x.PauseRequestedAtUtc == null &&
-                x.NextAttemptAtUtc <= DateTime.UtcNow)
-            .OrderBy(x => x.Kind == "fullstats_history" || x.Kind == "expenses_history" || x.Kind == "funnel_year" ? 1 : 0)
+            .Where(x => WbSyncJobUnits.SupportedKinds.Contains(x.Kind) && (x.Status == "pending" || x.Status == "running") && x.PauseRequestedAtUtc == null &&
+                x.NextAttemptAtUtc <= DateTime.UtcNow && db.Stores.Any(s => s.Id == x.StoreId &&
+                    !s.AutoRefreshBlocked && (s.TokenExpiresAtUtc == null || s.TokenExpiresAtUtc > DateTime.UtcNow)))
+            .OrderBy(x => x.Kind == "fullstats" || x.Kind == "expenses" || x.Kind == "funnel_recent" ? 0 :
+                x.Kind == "fullstats_month" || x.Kind == "expenses_month" || x.Kind == "funnel_month" || x.Kind == "archive" || x.Kind == "funnel_backfill" ? 1 :
+                x.Kind == "clusters" || x.Kind == "jam" ? 2 : 3)
             .ThenBy(x => x.NextAttemptAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
         if (job == null) return;
@@ -62,7 +65,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
 
         var ids = JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? [];
-        var history = job.Kind is "fullstats_history" or "expenses_history"
+        var history = job.Kind is "fullstats_history" or "expenses_history" or "expenses_month"
             ? JsonSerializer.Deserialize<WbHistoryBatch[]>(job.PairIdsJson ?? "[]") ?? []
             : [];
         if (job.Kind == "expenses_history" && history.Any(x =>
@@ -136,9 +139,11 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         // A year job never claims the same WB method slot while fresh data still needs it.
         var urgentKinds = job.Kind switch
         {
-            "fullstats_history" => new[] { "fullstats", "archive" },
-            "expenses_history" => ["expenses"],
-            "funnel_year" => ["funnel", "funnel_recent", "funnel_backfill"],
+            "fullstats_history" => new[] { "fullstats", "fullstats_month", "archive" },
+            "fullstats_month" => ["fullstats"],
+            "expenses_history" => ["expenses", "expenses_month"],
+            "expenses_month" => ["expenses"],
+            "funnel_year" => ["funnel_recent", "funnel_backfill", "funnel_month"],
             _ => Array.Empty<string>()
         };
         if (urgentKinds.Length > 0 && await db.WbSyncJobs.AsNoTracking().AnyAsync(x =>
@@ -193,7 +198,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         try
         {
             var token = tokens.Unprotect(store.ApiKey);
-            if (job.Kind == "expenses_history")
+            if (job.Kind is "expenses_history" or "expenses_month")
             {
                 var period = history[job.NextCampaignOffset];
                 var requestStart = period.StartDate.AddDays(-1);
@@ -204,7 +209,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 job.Stage = "importing";
                 var importer = scope.ServiceProvider.GetRequiredService<WbCostsImporter>();
                 job.ImportedRows += await importer.ImportAsync(store.Id, period.StartDate, period.EndDate,
-                    response.RootElement, cancellationToken, allowAdjacentDays: true);
+                    response.RootElement, cancellationToken, allowAdjacentDays: true, fillMissingOnly: job.Kind == "expenses_history");
                 job.NextCampaignOffset++;
             }
             else if (job.Kind == "fullstats_history")
@@ -215,7 +220,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 job.Stage = "importing";
                 var importer = scope.ServiceProvider.GetRequiredService<WbFullStatsImporter>();
                 var imported = await importer.ImportAsync(store.Id, response.RootElement, cancellationToken,
-                    period.CampaignIds, job.Id);
+                    period.CampaignIds, job.Id, fillMissingOnly: true);
                 job.ImportedRows += imported.Rows;
                 job.ItemsWithData += period.CampaignIds.Length - imported.MissingCampaignIds.Length;
                 job.ItemsWithoutData = period.Retry
@@ -238,11 +243,11 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                     response.RootElement, cancellationToken);
                 job.NextCampaignOffset = 1;
             }
-            else if (job.Kind is "funnel" or "funnel_recent" or "funnel_backfill" or "funnel_year")
+            else if (job.Kind is "funnel_recent" or "funnel_backfill" or "funnel_year" or "funnel_month")
             {
                 var funnel = scope.ServiceProvider.GetRequiredService<IWbSalesFunnelClient>();
                 var importer = scope.ServiceProvider.GetRequiredService<WbSalesFunnelImporter>();
-                if (job.Kind == "funnel_recent" || (job.Kind == "funnel" && job.NextCampaignOffset == 0))
+                if (job.Kind == "funnel_recent")
                 {
                     using var response = await funnel.GetGroupedHistoryAsync(token, job.StartDate, job.EndDate,
                         cancellationToken);
@@ -255,7 +260,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 }
                 else
                 {
-                    var pairIndex = job.Kind == "funnel" ? job.NextCampaignOffset - 1 : job.NextCampaignOffset;
+                    var pairIndex = job.NextCampaignOffset;
                     var pairStart = DateOnly.ParseExact(ids[pairIndex].ToString(), "yyyyMMdd");
                     var state = JsonSerializer.Deserialize<WbFunnelPageState>(job.PairIdsJson ?? "null") ?? new();
                     using var response = await funnel.GetProductsAsync(token, pairStart.AddDays(1), pairStart,
@@ -270,7 +275,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                     else
                     {
                         await importer.ImportProductsAsync(store.Id, pairStart.AddDays(1), pairStart,
-                            page.State, cancellationToken);
+                            page.State, cancellationToken, replaceExisting: job.Kind == "funnel_month",
+                            snapshotAtUtc: job.StartedAtUtc);
                         job.PairIdsJson = null;
                         job.NextCampaignOffset++;
                     }
@@ -356,6 +362,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 store.JamStatus = error.StatusCode == HttpStatusCode.PaymentRequired ? "payment_required" : "access_denied";
                 store.JamCheckedAtUtc = DateTime.UtcNow;
             }
+            if (error.StatusCode == HttpStatusCode.Unauthorized) store.AutoRefreshBlocked = true;
             // A quota response means "wait", not that the payload is broken.
             if (error.StatusCode != HttpStatusCode.TooManyRequests) job.AttemptCount++;
             job.ErrorCode = $"wb_{(int)error.StatusCode}";
@@ -385,6 +392,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         catch (Exception error) when (error is JsonException or HttpRequestException or InvalidOperationException or CryptographicException)
         {
             logger.LogWarning(error, "WB sync step failed for job {JobId}", job.Id);
+            if (error is CryptographicException) store.AutoRefreshBlocked = true;
             job.AttemptCount++;
             job.ErrorCode = error is JsonException ? "invalid_response"
                 : error is CryptographicException ? "token_unreadable"
@@ -410,7 +418,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         job.WaitReason = null;
         job.UpdatedAtUtc = DateTime.UtcNow;
         job.CompletedAtUtc = job.UpdatedAtUtc;
-        if (job.Kind == "fullstats") store.LastSyncAt = job.UpdatedAtUtc;
+        if (job.Kind is "fullstats" or "fullstats_month") store.LastSyncAt = job.UpdatedAtUtc;
     }
 
     private async Task PlanFollowupsAsync(IServiceProvider services, WbSyncJob job, Store store,

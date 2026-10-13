@@ -15,7 +15,8 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
 {
     public sealed record ClusterRow(string NomenclatureId, string NomenclatureName, string ClusterName,
         decimal Spend, int? Views, int? Clicks, int? Carts, int? Orders, decimal? Cpc,
-        string Assessment);
+        string Assessment, int? OrderedProducts, decimal? AverageOrderedUnitPrice,
+        decimal? EstimatedOrderSum, decimal? EstimatedDrr, string EstimateStatus, string? EstimateReason);
     public sealed record ClusterResponse(bool IsWbConnected, bool IsPeriodComplete, IReadOnlyList<ClusterRow> Rows,
         int StoreNormVersion, int CampaignNormVersion);
 
@@ -29,6 +30,9 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
             .Select(x => new { x.StoreId, x.WbCampaignId, IsWbConnected = x.Store.ApiKey != null })
             .SingleOrDefaultAsync(cancellationToken);
         if (campaign == null) return NotFound();
+        if (startDate.HasValue && endDate.HasValue &&
+            (startDate > endDate || endDate.Value.DayNumber - startDate.Value.DayNumber > 365))
+            return BadRequest(new { message = "Выберите период не длиннее 366 дней." });
         if (!campaign.IsWbConnected) return Ok(new ClusterResponse(false, false, [], 0, 0));
 
         var completedJobs = await db.WbSyncJobs.AsNoTracking()
@@ -55,11 +59,49 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
         if (startDate.HasValue) query = query.Where(x => x.stat.Date >= startDate.Value);
         if (endDate.HasValue) query = query.Where(x => x.stat.Date <= endDate.Value);
         var raw = await query.ToListAsync(cancellationToken);
+        // Estimates require an explicit selected period, never unbounded historical averages.
+        var articleRows = new List<Ecomads.WebApplication.Data.Models.CampaignNomenclatureStatistics>();
+        var fullStatsComplete = false;
+        var estimateJobs = new List<(DateOnly Start, DateOnly End, WbNormQueryPair[] Pairs)>();
+        if (startDate.HasValue && endDate.HasValue)
+        {
+            var from = DateTime.SpecifyKind(startDate.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+            var to = DateTime.SpecifyKind(endDate.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+            articleRows = await db.CampaignNomenclatureStatistics.AsNoTracking()
+                .Where(x => x.CampaignId == campaignId && x.Date >= from && x.Date <= to)
+                .ToListAsync(cancellationToken);
+            var checkedDates = await db.WbCampaignDailyChecks.AsNoTracking()
+                .Where(x => x.CampaignId == campaignId && x.Date >= startDate.Value && x.Date <= endDate.Value &&
+                    (x.Result == "data" || x.Result == "zero"))
+                .Select(x => x.Date).ToListAsync(cancellationToken);
+            fullStatsComplete = checkedDates.Distinct().Count() == endDate.Value.DayNumber - startDate.Value.DayNumber + 1;
+            var jobs = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == campaign.StoreId &&
+                x.Kind == "clusters" && x.Status == "completed" &&
+                x.StartDate <= endDate.Value && x.EndDate >= startDate.Value)
+                .Select(x => new { x.StartDate, x.EndDate, x.PairIdsJson }).ToListAsync(cancellationToken);
+            estimateJobs = jobs.Select(x => (x.StartDate, x.EndDate,
+                JsonSerializer.Deserialize<WbNormQueryPair[]>(x.PairIdsJson ?? "[]") ?? [])).ToList();
+        }
+        var articleById = articleRows.ToLookup(x => x.NomenclatureId);
         var rows = raw.GroupBy(x => new { x.WbNomenclatureId, x.Name, x.stat.ClusterName })
             .Select(group =>
             {
                 var spend = group.Sum(x => x.stat.Spend);
                 var clicks = group.All(x => x.stat.Clicks.HasValue) ? group.Sum(x => x.stat.Clicks!.Value) : (int?)null;
+                var orderedProducts = group.All(x => x.stat.OrderedProducts.HasValue)
+                    ? group.Sum(x => x.stat.OrderedProducts!.Value) : (int?)null;
+                var articleId = group.First().stat.NomenclatureId;
+                var pairComplete = startDate.HasValue && endDate.HasValue &&
+                    long.TryParse(group.Key.WbNomenclatureId, out var nmId) &&
+                    Enumerable.Range(0, endDate.Value.DayNumber - startDate.Value.DayNumber + 1)
+                        .All(offset => estimateJobs.Any(job => job.Start <= startDate.Value.AddDays(offset) &&
+                            job.End >= startDate.Value.AddDays(offset) &&
+                            job.Pairs.Any(pair => pair.AdvertId == wbCampaignId && pair.NmId == nmId)));
+                var estimate = startDate.HasValue && endDate.HasValue
+                    ? WbClusterOrderEstimateCalculator.Calculate(startDate.Value, endDate.Value,
+                        articleById[articleId].ToList(), group.Select(x => x.stat).ToList(), fullStatsComplete,
+                        pairComplete, endDate.Value >= WbSyncPlanner.Today())
+                    : new WbClusterOrderEstimate(null, null, null, "unavailable", "Выберите начало и конец периода.");
                 return new ClusterRow(group.Key.WbNomenclatureId, group.Key.Name, group.Key.ClusterName,
                     spend,
                     group.All(x => x.stat.Views.HasValue) ? group.Sum(x => x.stat.Views!.Value) : null,
@@ -69,7 +111,8 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                     clicks is > 0 ? Math.Round(spend / clicks.Value, 2) : null,
                     Assess(spend, clicks,
                         group.All(x => x.stat.Orders.HasValue) ? group.Sum(x => x.stat.Orders!.Value) : null,
-                        minSpend, minClicks, minOrders));
+                        minSpend, minClicks, minOrders), orderedProducts, estimate.AverageOrderedUnitPrice,
+                    estimate.EstimatedOrderSum, estimate.EstimatedDrr, estimate.Status, estimate.Reason);
             })
             .OrderByDescending(x => x.Spend)
             .ToList();

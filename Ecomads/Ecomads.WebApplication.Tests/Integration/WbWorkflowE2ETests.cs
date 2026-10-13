@@ -190,8 +190,13 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         using var connected = await client.PostAsJsonAsync("/api/wb/stores/connect", new { token = FakeToken(Guid.NewGuid()) });
         using var connectedJson = JsonDocument.Parse(await connected.Content.ReadAsStringAsync());
         var storeId = connectedJson.RootElement.GetProperty("id").GetGuid();
-        using var started = await client.PostAsync($"/api/wb/stores/{storeId}/funnel/sync", null);
-        Assert.Equal(HttpStatusCode.Accepted, started.StatusCode);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
+            var store = await db.Stores.SingleAsync(x => x.Id == storeId);
+            await scope.ServiceProvider.GetRequiredService<WbSyncPlanner>()
+                .EnqueueRecentFunnelAsync(store, Guid.NewGuid(), CancellationToken.None);
+        }
         string? status = null;
         for (var attempt = 0; attempt < 25; attempt++)
         {
@@ -199,7 +204,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             using var response = await client.GetAsync($"/api/wb/stores/{storeId}/sync-overview");
             using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var source = body.RootElement.GetProperty("sources").EnumerateArray()
-                .Single(x => x.GetProperty("kind").GetString() == "funnel");
+                .Single(x => x.GetProperty("kind").GetString() == "funnel_recent");
             var job = source.GetProperty("lastJob");
             status = job.GetProperty("status").GetString();
             if (status == "failed" || !forbidden && job.GetProperty("processedCount").GetInt32() >= 1)
@@ -208,7 +213,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
                 break;
             }
         }
-        Assert.Equal(forbidden ? "failed" : "running", status);
+        Assert.Equal(forbidden ? "failed" : "completed", status);
         await using var check = postgres.CreateDbContext(connection);
         Assert.Equal(forbidden ? 0 : 7, await check.WbStoreDailyOrders.CountAsync(x => x.StoreId == storeId));
     }
@@ -268,7 +273,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task AutoRefresh_RunsOnceAfterSixMoscow()
+    public async Task AutoRefresh_PlansFreshAndYearJobsWithoutDuplicates()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
         using var factory = new WbFactory(connection, autoRefreshEnabled: true);
@@ -287,17 +292,73 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         var worker = new WbAutoRefreshWorker(services.GetRequiredService<IServiceScopeFactory>(),
             services.GetRequiredService<IConfiguration>(),
             services.GetRequiredService<ILogger<WbAutoRefreshWorker>>());
-        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var now = DateTime.UtcNow;
-        if (TimeZoneInfo.ConvertTimeFromUtc(now, moscow).TimeOfDay < TimeSpan.FromHours(6)) now = now.AddDays(-1);
+        await worker.RunOnceAsync(now, CancellationToken.None);
+        int count;
+        await using (var db = postgres.CreateDbContext(connection))
+        {
+            count = await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId);
+            Assert.True(count >= 6);
+            Assert.Contains(await db.WbSyncJobs.Where(x => x.StoreId == storeId).Select(x => x.Kind).ToListAsync(),
+                x => x == "funnel_year");
+            Assert.Equal(WbSyncPlanner.Today(), (await db.WbSyncJobs.SingleAsync(x => x.StoreId == storeId && x.Kind == "funnel_recent")).EndDate);
+        }
         await worker.RunOnceAsync(now, CancellationToken.None);
         await using (var db = postgres.CreateDbContext(connection))
-            Assert.Single(await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.RunId != null)
-                .Select(x => x.RunId).Distinct().ToListAsync());
-        await worker.RunOnceAsync(now, CancellationToken.None);
+            Assert.Equal(count, await db.WbSyncJobs.CountAsync(x => x.StoreId == storeId));
+    }
+
+    [Fact]
+    public async Task AutoRefreshToggleAndTodayEndpointsRespectOwnershipAndDateBounds()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        using var factory = new WbFactory(connection, autoRefreshEnabled: true);
+        using var client = factory.CreateClient();
+        var seller = TestData.CreateActiveDemoSeller();
         await using (var db = postgres.CreateDbContext(connection))
-            Assert.Single(await db.WbSyncJobs.Where(x => x.StoreId == storeId && x.RunId != null)
-                .Select(x => x.RunId).Distinct().ToListAsync());
+        {
+            db.Sellers.Add(seller);
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Add("X-Test-UserId", seller.Id.ToString());
+        using var connected = await client.PostAsJsonAsync("/api/wb/stores/connect", new { token = FakeToken(Guid.NewGuid()) });
+        using var json = JsonDocument.Parse(await connected.Content.ReadAsStringAsync());
+        var storeId = json.RootElement.GetProperty("id").GetGuid();
+        using var disabled = await client.PutAsJsonAsync($"/api/wb/stores/{storeId}/auto-refresh", new { enabled = false });
+        Assert.Equal(HttpStatusCode.OK, disabled.StatusCode);
+        var services = factory.Services;
+        var worker = new WbAutoRefreshWorker(services.GetRequiredService<IServiceScopeFactory>(),
+            services.GetRequiredService<IConfiguration>(), services.GetRequiredService<ILogger<WbAutoRefreshWorker>>());
+        await worker.RunOnceAsync(DateTime.UtcNow, default);
+        await using (var db = postgres.CreateDbContext(connection)) Assert.Empty(await db.WbSyncJobs.ToListAsync());
+        using var enabled = await client.PutAsJsonAsync($"/api/wb/stores/{storeId}/auto-refresh", new { enabled = true });
+        Assert.Equal(HttpStatusCode.OK, enabled.StatusCode);
+        var configuration = services.GetRequiredService<IConfiguration>();
+        configuration["Wb:AutoRefresh:StoreIds"] = Guid.NewGuid().ToString();
+        await worker.RunOnceAsync(DateTime.UtcNow, default);
+        await using (var db = postgres.CreateDbContext(connection)) Assert.Empty(await db.WbSyncJobs.ToListAsync());
+        configuration["Wb:AutoRefresh:StoreIds"] = storeId.ToString();
+        await worker.RunOnceAsync(DateTime.UtcNow, default);
+        var today = WbSyncPlanner.Today();
+        var query = $"startDate={today:yyyy-MM-dd}&endDate={today:yyyy-MM-dd}";
+        foreach (var route in new[] { "/api/projects", "/api/statistics/daily", "/api/statistics/coverage", "/api/wb/data-state" })
+        {
+            using var result = await client.GetAsync($"{route}?{query}");
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+        }
+        using var state = await client.GetAsync($"/api/wb/data-state?{query}");
+        using var stateJson = JsonDocument.Parse(await state.Content.ReadAsStringAsync());
+        Assert.True(stateJson.RootElement.GetProperty("isPreliminary").GetBoolean());
+        using var future = await client.GetAsync($"/api/statistics/daily?startDate={today:yyyy-MM-dd}&endDate={today.AddDays(1):yyyy-MM-dd}");
+        Assert.Equal(HttpStatusCode.BadRequest, future.StatusCode);
+        using var readiness = await client.GetAsync($"/api/wb/stores/{storeId}/report-readiness");
+        Assert.Equal(HttpStatusCode.OK, readiness.StatusCode);
+        client.DefaultRequestHeaders.Remove("X-Test-UserId");
+        client.DefaultRequestHeaders.Add("X-Test-UserId", Guid.NewGuid().ToString());
+        using var foreignToggle = await client.PutAsJsonAsync($"/api/wb/stores/{storeId}/auto-refresh", new { enabled = false });
+        Assert.Equal(HttpStatusCode.NotFound, foreignToggle.StatusCode);
+        using var foreignReadiness = await client.GetAsync($"/api/wb/stores/{storeId}/report-readiness");
+        Assert.Equal(HttpStatusCode.NotFound, foreignReadiness.StatusCode);
     }
 
     [Fact]
@@ -437,7 +498,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
         using var overviewJson = JsonDocument.Parse(await overview.Content.ReadAsStringAsync());
         var sources = overviewJson.RootElement.GetProperty("sources").EnumerateArray().ToArray();
-        Assert.Equal(11, sources.Length);
+        Assert.Equal(13, sources.Length);
+        Assert.DoesNotContain(sources, x => x.GetProperty("kind").GetString() == "funnel");
         var statsSource = Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "fullstats"));
         var completedJob = statsSource.GetProperty("lastJob");
         Assert.Equal("completed", completedJob.GetProperty("status").GetString());

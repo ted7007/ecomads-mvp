@@ -15,6 +15,7 @@ public class EcomadsDbContext : DbContext
     public DbSet<CampaignStatistics> CampaignStatistics { get; set; }
     public DbSet<DemoFeedback> DemoFeedbacks { get; set; }
     public DbSet<WbSyncJob> WbSyncJobs { get; set; }
+    public DbSet<WbRefreshSchedule> WbRefreshSchedules { get; set; }
     public DbSet<WbSyncJobEvent> WbSyncJobEvents { get; set; }
     public DbSet<WbStoreDailyOrders> WbStoreDailyOrders { get; set; }
     public DbSet<WbStoreDailySpend> WbStoreDailySpends { get; set; }
@@ -27,6 +28,9 @@ public class EcomadsDbContext : DbContext
     public DbSet<WbCampaignNorms> WbCampaignNorms { get; set; }
     public DbSet<WbNormRevision> WbNormRevisions { get; set; }
     public DbSet<WbRecommendationDecision> WbRecommendationDecisions { get; set; }
+    public DbSet<WbRecommendationRun> WbRecommendationRuns { get; set; }
+    public DbSet<WbArticleNorm> WbArticleNorms { get; set; }
+    public DbSet<WbArticleObservation> WbArticleObservations { get; set; }
     public DbSet<TelegramLinkCode> TelegramLinkCodes { get; set; }
     public DbSet<TelegramChat> TelegramChats { get; set; }
     public DbSet<TelegramDelivery> TelegramDeliveries { get; set; }
@@ -34,6 +38,35 @@ public class EcomadsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<WbRecommendationRun>(entity =>
+        {
+            entity.ToTable("wb_recommendation_runs");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Fingerprint).HasMaxLength(64);
+            entity.Property(x => x.SnapshotJson).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.CampaignId, x.StartDate, x.EndDate, x.Fingerprint }).IsUnique();
+            entity.HasIndex(x => new { x.StoreId, x.CalculatedAtUtc });
+            entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Seller>().WithMany().HasForeignKey(x => x.SellerId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbArticleNorm>(entity =>
+        {
+            entity.ToTable("wb_article_norms");
+            entity.HasKey(x => new { x.CampaignId, x.NomenclatureId });
+            entity.Property(x => x.TargetDrr).HasColumnType("decimal(8,2)");
+            entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Nomenclature>().WithMany().HasForeignKey(x => x.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbArticleObservation>(entity =>
+        {
+            entity.ToTable("wb_article_observations");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Revenue).HasColumnType("decimal(18,2)");
+            entity.HasIndex(x => new { x.CampaignId, x.NomenclatureId, x.Date, x.ObservedAtUtc });
+            entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Nomenclature>().WithMany().HasForeignKey(x => x.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<Seller>(entity =>
         {
             entity.ToTable("sellers");
@@ -95,6 +128,9 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.CampaignsRefreshedAtUtc).HasColumnName("campaigns_refreshed_at_utc");
             entity.Property(e => e.JamStatus).HasColumnName("jam_status").HasMaxLength(32).HasDefaultValue("unknown");
             entity.Property(e => e.JamCheckedAtUtc).HasColumnName("jam_checked_at_utc");
+            entity.Property(e => e.AutoRefreshEnabled).HasColumnName("auto_refresh_enabled").HasDefaultValue(true);
+            entity.Property(e => e.AutoRefreshBlocked).HasColumnName("auto_refresh_blocked").HasDefaultValue(false);
+            entity.Property(e => e.AutoHistoryStartedAtUtc).HasColumnName("auto_history_started_at_utc");
             entity.Property(e => e.SellerId).HasColumnName("seller_id");
             entity.HasIndex(e => new { e.Marketplace, e.ExternalId })
                 .IsUnique()
@@ -129,6 +165,17 @@ public class EcomadsDbContext : DbContext
                 .HasConstraintName("FK_campaigns_stores_store_id")
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => new { e.StoreId, e.WbCampaignId }).IsUnique();
+        });
+
+        modelBuilder.Entity<WbRefreshSchedule>(entity =>
+        {
+            entity.ToTable("wb_refresh_schedules");
+            entity.HasKey(x => new { x.StoreId, x.Task });
+            entity.Property(x => x.StoreId).HasColumnName("store_id");
+            entity.Property(x => x.Task).HasColumnName("task").HasMaxLength(32);
+            entity.Property(x => x.RequestedSlotUtc).HasColumnName("requested_slot_utc");
+            entity.Property(x => x.PlannedSlotUtc).HasColumnName("planned_slot_utc");
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WbSyncJob>(entity =>
@@ -348,6 +395,7 @@ public class EcomadsDbContext : DbContext
             entity.Property(x => x.Id).HasColumnName("id");
             entity.Property(x => x.StoreId).HasColumnName("store_id");
             entity.Property(x => x.CampaignId).HasColumnName("campaign_id");
+            entity.Property(x => x.NomenclatureId).HasColumnName("nomenclature_id");
             entity.Property(x => x.Version).HasColumnName("version");
             entity.Property(x => x.SettingsJson).HasColumnName("settings_json").HasColumnType("jsonb");
             entity.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
@@ -434,6 +482,8 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.Clicks).HasColumnName("clicks");
             entity.Property(e => e.Carts).HasColumnName("carts");
             entity.Property(e => e.Orders).HasColumnName("orders");
+            entity.Property(e => e.OrderedProducts).HasColumnName("ordered_products");
+            entity.Property(e => e.RecommendationFieldsVerified).HasColumnName("recommendation_fields_verified");
             entity.Property(e => e.Cancellations).HasColumnName("cancellations");
             entity.Property(e => e.Ctr).HasColumnName("ctr").HasColumnType("decimal(18,4)");
             entity.Property(e => e.Cr).HasColumnName("cr").HasColumnType("decimal(18,4)");

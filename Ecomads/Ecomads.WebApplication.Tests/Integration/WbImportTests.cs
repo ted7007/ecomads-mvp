@@ -27,8 +27,11 @@ public sealed class WbImportTests(PostgresFixture postgres)
         await migrator.MigrateAsync("20261001145315_AddWbRefreshRuns");
         var seller = TestData.CreateRegularSeller();
         db.Sellers.Add(seller);
-        db.Stores.Add(new Store { Id = storeId, SellerId = seller.Id, Name = "WB" });
         await db.SaveChangesAsync();
+        // Seed the old schema explicitly: the current Store model contains columns added later.
+        await db.Database.ExecuteSqlInterpolatedAsync($@"
+            INSERT INTO stores (id, seller_id, name, created_at)
+            VALUES ({storeId}, {seller.Id}, {"WB"}, {DateTime.UtcNow})");
         await db.Database.ExecuteSqlInterpolatedAsync($@"
             INSERT INTO wb_sync_jobs (id, store_id, start_date, end_date, campaign_ids_json,
                 pair_ids_json, kind, next_campaign_offset, attempt_count, status, created_at_utc,

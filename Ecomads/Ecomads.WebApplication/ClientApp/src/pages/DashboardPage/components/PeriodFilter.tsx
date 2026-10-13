@@ -12,20 +12,25 @@ type Props = {
 
 export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
   const [customOpen, setCustomOpen] = useState(false);
-  const end = moscowYesterday();
+  const today = moscowToday();
+  const end = addDays(today, -1);
   const presets = [7, 14, 30, 365].map((days) => ({
     days, filters: { startDate: addDays(end, 1 - days), endDate: end }
   }));
-  const selected = customOpen ? 'custom' : presets.find(({ filters }) => filters.startDate === draftFilters.startDate &&
+  const selected = customOpen ? 'custom' : draftFilters.startDate === today && draftFilters.endDate === today ? 'today' : presets.find(({ filters }) => filters.startDate === draftFilters.startDate &&
     filters.endDate === draftFilters.endDate)?.days ?? 'custom';
   const invalid = !draftFilters.startDate || !draftFilters.endDate ||
-    draftFilters.startDate > draftFilters.endDate || draftFilters.endDate > end ||
+    draftFilters.startDate > draftFilters.endDate || draftFilters.endDate > today ||
     (Date.parse(`${draftFilters.endDate}T00:00:00Z`) - Date.parse(`${draftFilters.startDate}T00:00:00Z`)) / 86400000 > 365;
 
   return <Stack spacing={1}>
     <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }} justifyContent="space-between">
       <ToggleButtonGroup exclusive size="small" value={selected} aria-label="Период статистики"
         onChange={(_, value) => {
+          if (value === 'today') {
+            const next = { startDate: today, endDate: today };
+            setCustomOpen(false); onDraftChange(next); onApply(next); return;
+          }
           const days = Number(value);
           if (!Number.isFinite(days)) return;
           const next = presets.find((preset) => preset.days === days)?.filters;
@@ -37,6 +42,7 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
           maxWidth: '100%', overflowX: 'auto',
           '& .MuiToggleButton-root': { border: 0, borderRadius: '999px!important', px: { xs: 1, sm: 2.5 },
             fontSize: { xs: 12, sm: 13 }, whiteSpace: 'nowrap', textTransform: 'none' } }}>
+        <ToggleButton value="today">Сегодня</ToggleButton>
         {presets.map(({ days }) => <ToggleButton key={days} value={days}>{days === 365 ? 'Год' : `${days} дней`}</ToggleButton>)}
         <ToggleButton value="custom" onClick={() => setCustomOpen(true)}>Свой период</ToggleButton>
       </ToggleButtonGroup>
@@ -44,28 +50,28 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
     {customOpen ? <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
       <TextField id="period-start" label="С даты" type="date" size="small" value={draftFilters.startDate ?? ''}
         onChange={(event) => onDraftChange({ ...draftFilters, startDate: event.target.value })}
-        InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
+        InputLabelProps={{ shrink: true }} inputProps={{ max: today }} sx={{ maxWidth: { sm: 190 } }} />
       <TextField label="По дату" type="date" size="small" value={draftFilters.endDate ?? ''}
         onChange={(event) => onDraftChange({ ...draftFilters, endDate: event.target.value })}
-        InputLabelProps={{ shrink: true }} inputProps={{ max: end }} sx={{ maxWidth: { sm: 190 } }} />
+        InputLabelProps={{ shrink: true }} inputProps={{ max: today }} sx={{ maxWidth: { sm: 190 } }} />
       <Button variant="contained" disabled={invalid} onClick={() => { onApply(draftFilters); setCustomOpen(false); }}>Показать</Button>
       {invalid && draftFilters.startDate && draftFilters.endDate ?
-        <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>Период должен быть завершённым и не длиннее 366 дней.</span> : null}
+        <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>Выберите период не позднее сегодня и не длиннее 366 дней.</span> : null}
     </Stack> : null}
   </Stack>;
 }
 
 export function defaultPeriod(): DashboardFilters {
-  const endDate = moscowYesterday();
+  const endDate = addDays(moscowToday(), -1);
   return { startDate: addDays(endDate, -6), endDate };
 }
 
-function moscowYesterday(): string {
+export function moscowToday(): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit'
   }).formatToParts(new Date());
   const date = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return addDays(`${date.year}-${date.month}-${date.day}`, -1);
+  return `${date.year}-${date.month}-${date.day}`;
 }
 
 function addDays(isoDate: string, days: number): string {

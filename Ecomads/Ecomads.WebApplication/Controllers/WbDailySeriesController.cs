@@ -20,9 +20,9 @@ public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageS
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime)
             .AddDays(-1);
-        if (startDate == default || endDate < startDate || endDate > yesterday ||
+        if (startDate == default || endDate < startDate || endDate > WbSyncPlanner.Today() ||
             endDate.DayNumber - startDate.DayNumber > 365)
-            return BadRequest(new { message = "Выберите завершённый период не длиннее 366 дней." });
+            return BadRequest(new { message = "Выберите период не позднее сегодня и не длиннее 366 дней." });
 
         var campaigns = await db.Campaigns.AsNoTracking()
             .Where(x => x.Store.SellerId == sellerId && (!campaignId.HasValue || x.Id == campaignId.Value))
@@ -72,6 +72,7 @@ public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageS
                 return new
                 {
                     Date = date.ToString("yyyy-MM-dd"),
+                    IsPreliminary = date == WbSyncPlanner.Today(),
                     Spend = spend,
                     Revenue = found ? (decimal?)value!.Revenue : null,
                     Clicks = found ? (int?)value!.Clicks : null,

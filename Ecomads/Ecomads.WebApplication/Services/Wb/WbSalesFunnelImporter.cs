@@ -36,22 +36,30 @@ public sealed class WbSalesFunnelImporter(EcomadsDbContext db, ILogger<WbSalesFu
     }
 
     public async Task ImportProductsAsync(Guid storeId, DateOnly day, DateOnly pastDay,
-        WbFunnelPageState totals, CancellationToken cancellationToken)
+        WbFunnelPageState totals, CancellationToken cancellationToken, bool replaceExisting = false,
+        DateTime? snapshotAtUtc = null)
     {
         var dates = new[] { day, pastDay };
         var existing = await db.WbStoreDailyOrders.Where(x => x.StoreId == storeId && dates.Contains(x.Date))
-            .Select(x => x.Date).ToListAsync(cancellationToken);
+            .ToDictionaryAsync(x => x.Date, cancellationToken);
         var loadedAt = DateTime.UtcNow;
-        if (!existing.Contains(day)) db.WbStoreDailyOrders.Add(new WbStoreDailyOrders
+        foreach (var date in dates.Distinct())
         {
-            StoreId = storeId, Date = day, OrderCount = totals.OrderCount, OrderSum = totals.OrderSum,
-            Source = "products", LoadedAtUtc = loadedAt
-        });
-        if (!existing.Contains(pastDay)) db.WbStoreDailyOrders.Add(new WbStoreDailyOrders
-        {
-            StoreId = storeId, Date = pastDay, OrderCount = totals.PastOrderCount, OrderSum = totals.PastOrderSum,
-            Source = "products", LoadedAtUtc = loadedAt
-        });
+            if (existing.TryGetValue(date, out var row))
+            {
+                // Backfill only fills gaps. Rechecks never replace a newer snapshot or grouped history.
+                if (!replaceExisting || (row.Source == "history" && date >= WbSyncPlanner.Today().AddDays(-6)) || row.LoadedAtUtc > (snapshotAtUtc ?? loadedAt)) continue;
+            }
+            else
+            {
+                row = new WbStoreDailyOrders { StoreId = storeId, Date = date };
+                db.WbStoreDailyOrders.Add(row);
+            }
+            row.OrderCount = date == day ? totals.OrderCount : totals.PastOrderCount;
+            row.OrderSum = date == day ? totals.OrderSum : totals.PastOrderSum;
+            row.Source = "products";
+            row.LoadedAtUtc = loadedAt;
+        }
         await db.SaveChangesAsync(cancellationToken);
     }
 

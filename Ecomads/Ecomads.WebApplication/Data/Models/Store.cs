@@ -37,6 +37,9 @@ public class Store
     
     public DateTime? LastSyncAt { get; set; }
     public DateTime? CampaignsRefreshedAtUtc { get; set; }
+    public bool AutoRefreshEnabled { get; set; } = true;
+    public bool AutoRefreshBlocked { get; set; }
+    public DateTime? AutoHistoryStartedAtUtc { get; set; }
 
     public string JamStatus { get; set; } = "unknown";
     public DateTime? JamCheckedAtUtc { get; set; }

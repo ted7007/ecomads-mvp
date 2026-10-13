@@ -1,7 +1,7 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, Stack, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, FormControlLabel, Switch, Grid, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, loadWbYearHistory, refreshWbStore } from './wbStoresApi';
+import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, loadWbYearHistory, refreshWbStore, setWbAutoRefresh } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
 import { createTelegramLink, disconnectTelegramChat, getTelegramChats, sendYesterdaySummary } from './telegramApi';
 import { SyncDashboard } from './SyncDashboard';
@@ -47,6 +47,15 @@ function StoreCard({ store }: { store: WbStore }) {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['wb-stores'] }),
     onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отключить кабинет WB')
   });
+  const autoRefresh = useMutation({
+    mutationFn: (enabled: boolean) => setWbAutoRefresh(store.id, enabled),
+    onSuccess: async () => {
+      setError(null);
+      await queryClient.invalidateQueries({ queryKey: ['wb-stores'] });
+      await queryClient.invalidateQueries({ queryKey: ['wb-sync-overview', store.id] });
+    },
+    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось изменить автосбор')
+  });
   const activeJobs = sync.data?.sources.flatMap((source) => source.activeJob ? [source.activeJob] : []) ?? [];
   const estimates = activeJobs.map((job) => job.estimatedCompletionAtUtc)
     .filter((value): value is string => Boolean(value)).sort();
@@ -77,7 +86,20 @@ function StoreCard({ store }: { store: WbStore }) {
           </Stack>
           <Typography variant="body2" color="text.secondary">Период выбирается автоматически: статистика кампаний и расходы кабинета — 31 день, все заказы — 30 дней, кластеры и Джем — 7 дней. Заказы за последние 7 дней загружаются сразу, более ранние — постепенно в пределах лимита WB.</Typography>
           <Typography variant="body2" color="text.secondary">Годовая загрузка собирает рекламу и расходы периодами до 31 дня, а дневные заказы — отдельно через воронку товаров. История заказов может загружаться несколько дней. Её можно приостановить и продолжить без потери уже сохранённых данных; текущие загрузки получают приоритет по лимиту WB. Графики и KPI в «Сводке» используют сохранённые данные через «Год» или «Свой период».</Typography>
-          {store.autoRefreshEnabled ? <Typography variant="body2" color="text.secondary">Автообновление каждый день после 06:00 МСК.</Typography> : null}
+          <FormControlLabel label="Автоматически обновлять данные" control={<Switch
+            checked={store.autoRefreshEnabled} disabled={autoRefresh.isPending}
+            onChange={(_, enabled) => autoRefresh.mutate(enabled)} />} />
+          <Typography variant="body2" color="text.secondary">
+            Каждые 2 часа круглосуточно: сегодня и недавние дни. Проверка последних 30 завершённых дней — с 06:15 МСК.
+            Годовая история загружается автоматически в свободных слотах; её пауза управляется отдельно.
+          </Typography>
+          {!store.autoRefreshAvailable ? <Alert severity="info">Автосбор пока выключен на сервере.</Alert> :
+            store.autoRefreshBlocked || sync.data?.autoRefreshBlocked ? <Alert severity="warning">Автосбор остановлен: замените недействительный токен WB.</Alert> :
+            store.autoRefreshEnabled && sync.data?.nextAutoRefreshAtUtc ? <Typography variant="body2" color="text.secondary">
+              Следующий плановый сбор: {new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow',
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(sync.data.nextAutoRefreshAtUtc))} МСК.
+              Фактическое получение зависит от лимитов WB.
+            </Typography> : null}
           <SyncDashboard storeId={store.id} overview={sync.data} refresh={() => { void sync.refetch(); }} error={sync.isError}
             skipped={refreshAll.data?.skipped ?? []} />
           {error ? <Alert severity="error">{error}</Alert> : null}
@@ -128,7 +150,7 @@ export function WbStoresPage() {
     <Stack spacing={3} sx={{ maxWidth: 1200 }}>
       <Box>
         <Typography variant="h4" fontWeight={800}>Кабинет WB и Telegram</Typography>
-        <Typography color="text.secondary">Подключение, ручной сбор и доставка сводки.</Typography>
+        <Typography color="text.secondary">Подключение, автоматический и ручной сбор, доставка сводки.</Typography>
       </Box>
 
       {stores.isError ? <Alert severity="error">Не удалось загрузить список кабинетов.</Alert> : null}

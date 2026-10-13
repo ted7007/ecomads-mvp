@@ -8,7 +8,7 @@ import type { DashboardFilters } from './dashboardApi';
 import { getCampaigns, getCoverage, getDailySeries, getLoadedPeriods } from './dashboardApi';
 import { CampaignsTable } from './components/CampaignsTable';
 import { DashboardKpiGrid } from './components/DashboardKpiGrid';
-import { PeriodFilter, defaultPeriod } from './components/PeriodFilter';
+import { PeriodFilter, defaultPeriod, moscowToday } from './components/PeriodFilter';
 import { ErrorState } from '../../shared/ui/ErrorState';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
@@ -40,10 +40,11 @@ export function DashboardPage() {
   const loadedPeriods = useQuery({ queryKey: ['loaded-periods'], queryFn: getLoadedPeriods });
   const dailyQuery = useQuery({ queryKey: ['dashboard-daily', filters], queryFn: () => getDailySeries(filters) });
   const coverageQuery = useQuery({ queryKey: ['wb-coverage', filters], queryFn: () => getCoverage(filters) });
+  const includeToday = filters.endDate === moscowToday();
   const prior = previousPeriod(filters);
-  const priorQuery = useQuery({ queryKey: ['dashboard-daily', prior], queryFn: () => getDailySeries(prior) });
-  const priorCoverageQuery = useQuery({ queryKey: ['wb-coverage', prior], queryFn: () => getCoverage(prior) });
-  const priorCampaignsQuery = useQuery({ queryKey: queryKeys.projects.list(prior), queryFn: () => getCampaigns(prior) });
+  const priorQuery = useQuery({ queryKey: ['dashboard-daily', prior], queryFn: () => getDailySeries(prior), enabled: !includeToday });
+  const priorCoverageQuery = useQuery({ queryKey: ['wb-coverage', prior], queryFn: () => getCoverage(prior), enabled: !includeToday });
+  const priorCampaignsQuery = useQuery({ queryKey: queryKeys.projects.list(prior), queryFn: () => getCampaigns(prior), enabled: !includeToday });
 
   const campaigns = campaignsQuery.data ?? [];
   const campaignsWithData = campaigns.filter((campaign) => campaign.kpi.coverageDays > 0).length;
@@ -63,7 +64,7 @@ export function DashboardPage() {
     <Stack spacing={2.5}>
       <PageHeader
         title={`Сводка за ${dateLabel}`}
-        description={`${storesQuery.data?.[0]?.name || 'Кабинет WB'} · сравнение с ${prior.startDate?.slice(5).split('-').reverse().join('.')} – ${prior.endDate?.slice(5).split('-').reverse().join('.')} · даты по МСК`}
+        description={includeToday ? 'Предварительные показатели · даты по МСК' : `${storesQuery.data?.[0]?.name || 'Кабинет WB'} · сравнение с ${prior.startDate?.slice(5).split('-').reverse().join('.')} – ${prior.endDate?.slice(5).split('-').reverse().join('.')} · даты по МСК`}
         actions={
           <PeriodFilter draftFilters={draftFilters} periods={[]} onApply={applyPeriod} onDraftChange={setDraftFilters} />
         }
@@ -114,14 +115,14 @@ export function DashboardPage() {
           </Stack>}
           </Stack>
 
-          <DashboardKpiGrid campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []}
-            days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []}
-            coverage={coverageQuery.data ?? null} previousCoverage={priorCoverageQuery.data ?? null}
+          <DashboardKpiGrid campaigns={campaigns} priorCampaigns={includeToday ? [] : priorCampaignsQuery.data ?? []}
+            days={dailyQuery.data ?? []} previousDays={includeToday ? [] : priorQuery.data ?? []}
+            coverage={coverageQuery.data ?? null} previousCoverage={includeToday ? null : priorCoverageQuery.data ?? null}
             selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
 
           <Card><CardContent>
             {dailyQuery.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
-              <DailyChart days={dailyQuery.data ?? []} previousDays={priorQuery.data ?? []} selectedMetrics={selectedMetrics} storeLevel />}
+              <DailyChart days={dailyQuery.data ?? []} previousDays={includeToday ? [] : priorQuery.data ?? []} selectedMetrics={selectedMetrics} storeLevel />}
           </CardContent></Card>
 
           <Card>
@@ -130,7 +131,7 @@ export function DashboardPage() {
                 <Typography variant="h6" fontWeight={800}>
                   Рекламные кампании
                 </Typography>
-                <CampaignsTable campaigns={campaigns} priorCampaigns={priorCampaignsQuery.data ?? []} filters={filters} />
+                <CampaignsTable campaigns={campaigns} priorCampaigns={includeToday ? [] : priorCampaignsQuery.data ?? []} filters={filters} />
               </Stack>
             </CardContent>
           </Card>

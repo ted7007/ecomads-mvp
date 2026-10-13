@@ -7,10 +7,12 @@ public static class WbRateLimits
 {
     public static string MethodFor(string kind, int offset = 0) => kind switch
     {
+        "fullstats_month" => "fullstats",
+        "expenses_month" => "expenses",
+        "funnel_month" => "funnel_products",
         "archive" => "fullstats",
         "fullstats_history" => "fullstats",
         "expenses_history" => "expenses",
-        "funnel" => offset == 0 ? "funnel_history" : "funnel_products",
         "funnel_recent" => "funnel_history",
         "funnel_backfill" => "funnel_products",
         "funnel_year" => "funnel_products",
@@ -21,8 +23,8 @@ public static class WbRateLimits
 
     public static TimeSpan IntervalFor(string kind) => kind switch
     {
-        "clusters" or "funnel" or "funnel_recent" or "funnel_backfill" or "funnel_year" or
-            "funnel_history" or "funnel_products" => TimeSpan.FromMinutes(30),
+        "clusters" or "funnel_recent" or "funnel_backfill" or "funnel_year" or
+            "funnel_history" or "funnel_products" or "funnel_month" => TimeSpan.FromMinutes(30),
         _ => TimeSpan.FromHours(1)
     };
 

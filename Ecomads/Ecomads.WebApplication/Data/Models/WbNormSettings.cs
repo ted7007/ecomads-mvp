@@ -3,7 +3,7 @@ namespace Ecomads.WebApplication.Data.Models;
 public sealed class WbStoreNorms
 {
     public Guid StoreId { get; set; }
-    public decimal TargetDrr { get; set; } = 30m;
+    public decimal TargetDrr { get; set; } = 20m;
     public decimal MinCtr { get; set; } = 3m;
     public int MinClicks { get; set; } = 30;
     public decimal MinSpend { get; set; } = 500m;
@@ -33,6 +33,7 @@ public sealed class WbNormRevision
     public Guid Id { get; set; }
     public Guid StoreId { get; set; }
     public Guid? CampaignId { get; set; }
+    public Guid? NomenclatureId { get; set; }
     public int Version { get; set; }
     public string SettingsJson { get; set; } = "{}";
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

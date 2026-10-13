@@ -16,7 +16,7 @@ public sealed class WbCoverageController(WbDataCoverageService coverage) : Contr
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var sellerId)) return Unauthorized();
         if (startDate == default || endDate < startDate || endDate.DayNumber - startDate.DayNumber > 365 ||
-            endDate > WbSyncPlanner.Yesterday()) return BadRequest();
+            endDate > WbSyncPlanner.Today()) return BadRequest();
         return Ok(await coverage.GetAsync(sellerId, startDate, endDate, campaignId, cancellationToken));
     }
 }

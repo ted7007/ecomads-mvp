@@ -9,7 +9,7 @@ import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { formatMoney } from '../../shared/lib/formatMoney';
 import { formatPercent } from '../../shared/lib/formatPercent';
-import { PeriodFilter, defaultPeriod } from '../DashboardPage/components/PeriodFilter';
+import { PeriodFilter, defaultPeriod, moscowToday } from '../DashboardPage/components/PeriodFilter';
 import type { DashboardFilters } from '../DashboardPage/dashboardApi';
 import { getCampaignPeriods, getCampaignSummary, getNomenclatureStatistics, getWbClusters, getWbJam, getWbSpendTrend } from './campaignApi';
 import { CampaignKpiGrid } from './components/CampaignKpiGrid';
@@ -23,6 +23,8 @@ import { campaignRecommendations, clusterRecommendations } from '../../shared/li
 import type { MetricKey } from '../../shared/ui/DailyChart';
 import { previousPeriod } from '../../shared/lib/previousPeriod';
 import { WbDataFreshness } from '../../shared/ui/WbDataFreshness';
+import { getClusterRecommendations } from '../../shared/api/clusterRecommendationApi';
+import { ClusterRecommendations } from './components/ClusterRecommendations';
 
 export function CampaignPage() {
   const { campaignId } = useParams();
@@ -48,20 +50,23 @@ export function CampaignPage() {
     queryFn: () => getCampaignSummary(id, filters), enabled: Boolean(id) });
   const clusters = useQuery({ queryKey: ['wb-clusters', id, filters],
     queryFn: () => getWbClusters(id, filters), enabled: Boolean(id) });
+  const clusterReport = useQuery({ queryKey: ['wb-cluster-recommendations', id, filters],
+    queryFn: () => getClusterRecommendations(id, filters), enabled: Boolean(id && filters.startDate && filters.endDate) });
   const jam = useQuery({ queryKey: ['wb-jam', id, jamPeriod],
     queryFn: () => getWbJam(id, jamPeriod ?? {}), enabled: Boolean(id),
     placeholderData: (previous) => previous });
   const articles = useQuery({ queryKey: ['campaign-nomenclatures', id, filters],
     queryFn: () => getNomenclatureStatistics(id, filters), enabled: Boolean(id) });
   const trend = useQuery({ queryKey: ['wb-spend-trend', id, filters.endDate],
-    queryFn: () => getWbSpendTrend(id, filters.endDate), enabled: Boolean(id) });
+    queryFn: () => getWbSpendTrend(id, filters.endDate), enabled: Boolean(id) && filters.endDate !== moscowToday() });
   const daily = useQuery({ queryKey: ['campaign-daily', id, filters],
     queryFn: () => getDailySeries(filters, id), enabled: Boolean(id) });
+  const includeToday = filters.endDate === moscowToday();
   const prior = previousPeriod(filters);
   const priorDaily = useQuery({ queryKey: ['campaign-daily', id, prior],
-    queryFn: () => getDailySeries(prior, id), enabled: Boolean(id) });
+    queryFn: () => getDailySeries(prior, id), enabled: Boolean(id) && !includeToday });
   const priorSummary = useQuery({ queryKey: ['campaign-summary', id, prior],
-    queryFn: () => getCampaignSummary(id, prior), enabled: Boolean(id) });
+    queryFn: () => getCampaignSummary(id, prior), enabled: Boolean(id) && !includeToday });
   const periods = useQuery({ queryKey: queryKeys.statistics.periods, queryFn: getCampaignPeriods });
 
   if (!id) return <Navigate to={appRoutes.dashboard} replace />;
@@ -103,10 +108,10 @@ export function CampaignPage() {
     {!loading && !error ? <>
       {summary.data && summary.data.kpi.coverageDays < summary.data.kpi.expectedDays ?
         <Alert severity="warning" variant="outlined" sx={{ py: 0, '& .MuiAlert-message': { py: 0.5 } }}>Загружено {summary.data.kpi.coverageDays} из {summary.data.kpi.expectedDays} дней. Оценки по этому периоду предварительные.</Alert> : null}
-      <CampaignKpiGrid campaign={summary.data ?? null} priorCampaign={priorSummary.data ?? null}
+      <CampaignKpiGrid campaign={summary.data ?? null} priorCampaign={includeToday ? null : priorSummary.data ?? null}
         selectedMetrics={selectedMetrics} onSelect={toggleMetric} />
       <Card><CardContent>{daily.isError ? <Alert severity="error">Не удалось загрузить дневную динамику.</Alert> :
-        <DailyChart days={daily.data ?? []} previousDays={priorDaily.data ?? []} selectedMetrics={selectedMetrics} />}
+        <DailyChart days={daily.data ?? []} previousDays={includeToday ? [] : priorDaily.data ?? []} selectedMetrics={selectedMetrics} />}
         {trend.isError ? <Alert severity="error">Не удалось загрузить сравнение расходов.</Alert> : null}
         {trend.data?.status === 'no_baseline' ? <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Сравнение расхода: за предыдущие семь дней расход был нулевым, поэтому процент не рассчитывается.
@@ -123,17 +128,25 @@ export function CampaignPage() {
       </CardContent></Card>
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
-        {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete ?
+        {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete && !clusterReport.data?.enabled ?
           <Alert severity="info" sx={{ mb: 2 }}>Сбор кластеров за весь выбранный период ещё не завершён. Строки ниже могут быть неполными; рекомендации по ним пока скрыты.</Alert> : null}
         {clusters.data?.isWbConnected ? <>
-          <WbClusterTable rows={clusters.data.rows} jamRows={jam.data &&
+          <WbClusterTable rows={clusterReport.data?.enabled ? clusterReport.data.rows : clusters.data.rows}
+            emptyText={clusterReport.data?.enabled ? clusterReport.data.message : undefined} jamRows={jam.data &&
             jam.data.startDate === filters.startDate && jam.data.endDate === filters.endDate ? jam.data.rows : []} />
           {jam.data?.rows.length && (jam.data.startDate !== filters.startDate || jam.data.endDate !== filters.endDate) ?
             <Typography variant="caption" color="text.secondary">Джем загружен за другой период; его показатели показаны ниже отдельно.</Typography> : null}
         </>
           : <Alert severity="info">Подключите кабинет WB для просмотра кластеров.</Alert>}
       </CardContent></Card>
-      {recommendations.length ? <Card><CardContent>
+      {clusterReport.data?.enabled && clusterReport.isFetching ?
+        <Alert severity="info">Пересчитываем рекомендации за выбранный период…</Alert> : null}
+      {clusterReport.isError ? <Alert severity="error">Не удалось рассчитать рекомендации за выбранный период.
+        <Link component="button" onClick={() => void clusterReport.refetch()}>Повторить</Link></Alert> :
+        clusterReport.isLoading ? <LoadingState title="Проверяем кластеры за выбранный период" /> :
+        clusterReport.data?.enabled ? <Card><CardContent>
+          <ClusterRecommendations campaignId={id} report={clusterReport.data} />
+        </CardContent></Card> : recommendations.length ? <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>Рекомендации</Typography>
         <RecommendationList startDate={filters.startDate} endDate={filters.endDate} items={recommendations} emptyText="" />
       </CardContent></Card> : <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>

@@ -72,11 +72,12 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
         var confirmed = days.Where(x => x.Spend.HasValue && x.Orders.HasValue).ToArray();
         var denominator = confirmed.Sum(x => x.Orders!.Value);
         var drrTotal = denominator > 0 ? confirmed.Sum(x => x.Spend!.Value) / denominator * 100m : (decimal?)null;
-        var status = confirmed.Length == days.Count && drrTotal.HasValue ? "complete" :
+        var isPreliminary = end >= WbSyncPlanner.Today();
+        var status = !isPreliminary && confirmed.Length == days.Count && drrTotal.HasValue ? "complete" :
             drrTotal.HasValue ? "preliminary" : "unavailable";
         var missingSpend = days.Count(x => !x.Spend.HasValue);
         var missingOrders = days.Count(x => !x.Orders.HasValue);
-        var reason = status == "complete" ? null : confirmed.Length == 0
+        var reason = isPreliminary ? "Текущий день ещё не завершён: показатели предварительные." : status == "complete" ? null : confirmed.Length == 0
             ? $"Нет дней с одновременно подтверждёнными расходом и заказами. " +
               $"Расход по истории затрат WB не загружен за {missingSpend} из {days.Count} дней, заказы — за {missingOrders}." : denominator == 0
                 ? "За подтверждённые дни сумма заказов равна нулю." :

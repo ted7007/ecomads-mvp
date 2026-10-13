@@ -71,3 +71,19 @@ ssh my-vps "docker compose --env-file /opt/ecomads/.env -f /opt/ecomads/compose.
 For Telegram, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_BOT_USERNAME` in the
 protected `/opt/ecomads/.env`. Without them, WB pages work and bot polling stays
 idle; chat linking and message delivery remain unavailable.
+
+## WB automatic refresh
+
+Automatic collection runs every two hours, with a daily recheck of the latest
+30 completed days and automatic year backfill. The new
+`AddWbAutomaticRefresh` migration is applied during application startup.
+
+Set `WB_AUTO_REFRESH_ENABLED=false` in the protected server `.env` to disable
+new scheduled runs. For a staged rollout, set `WB_AUTO_REFRESH_STORE_IDS` to a
+comma-separated list of store UUIDs; an empty value permits all connected
+stores with their own auto-refresh switch enabled. Changing these environment
+values requires recreating the web container. In-flight and already queued
+jobs are not canceled by the schedule switch; year jobs have a separate pause.
+
+See [the collection guide](../docs/wb-automatic-refresh.md) for scheduling,
+method limits, durability, report readiness, and monitoring.

@@ -17,7 +17,7 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
         [FromQuery] Guid? campaignId, CancellationToken ct)
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var sellerId)) return Unauthorized();
-        if (startDate == default || endDate < startDate || endDate > WbSyncPlanner.Yesterday() ||
+        if (startDate == default || endDate < startDate || endDate > WbSyncPlanner.Today() ||
             endDate.DayNumber - startDate.DayNumber > 365) return BadRequest();
         var stores = campaignId.HasValue
             ? await db.Campaigns.Where(x => x.Id == campaignId && x.Store.SellerId == sellerId)
@@ -25,7 +25,8 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
             : await db.Stores.Where(x => x.SellerId == sellerId && x.ApiKey != null)
                 .Select(x => x.Id).ToArrayAsync(ct);
         if (campaignId.HasValue && stores.Length == 0) return NotFound();
-        var jobs = await db.WbSyncJobs.AsNoTracking().Where(x => stores.Contains(x.StoreId))
+        var jobs = await db.WbSyncJobs.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
+            x.StartDate <= endDate && x.EndDate >= startDate)
             .OrderByDescending(x => x.UpdatedAtUtc).ToListAsync(ct);
         var checkedPeriod = await coverage.GetAsync(sellerId, startDate, endDate, campaignId, ct);
         var allDays = checkedPeriod.Days.Count;
@@ -83,7 +84,7 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
 
         var sources = campaignId.HasValue
             ? new[] {
-                Source("fullstats", ["fullstats", "archive"], spendDays, allDays,
+                Source("fullstats", ["fullstats", "fullstats_month", "fullstats_history", "archive"], spendDays, allDays,
                     checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc),
                     checks.Length == 0 ? null : checks.Min(x => x.Date),
                     checks.Length == 0 ? null : checks.Max(x => x.Date)),
@@ -96,18 +97,18 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                     jamChecks.Length == 0 ? null : jamChecks.Min(x => x.StartDate),
                     jamChecks.Length == 0 ? null : jamChecks.Max(x => x.EndDate)) }
             : new[] {
-                Source("fullstats", ["fullstats", "archive"], spendDays, allDays,
+                Source("fullstats", ["fullstats", "fullstats_month", "fullstats_history", "archive"], spendDays, allDays,
                     checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc),
                     checks.Length == 0 ? null : checks.Min(x => x.Date),
                     checks.Length == 0 ? null : checks.Max(x => x.Date)),
-                Source("expenses", ["expenses"], expenseDays, allDays,
+                Source("expenses", ["expenses", "expenses_month", "expenses_history"], expenseDays, allDays,
                     expenseChecks.Length == 0 ? null : expenseChecks.Max(x => x.LoadedAtUtc),
                     expenseChecks.Length == 0 ? null : expenseChecks.Min(x => x.Date),
                     expenseChecks.Length == 0 ? null : expenseChecks.Max(x => x.Date)),
-                Source("orders", ["funnel_recent", "funnel_backfill", "funnel_year", "funnel"], orderDays, allDays,
+                Source("orders", ["funnel_month", "funnel_recent", "funnel_backfill", "funnel_year"], orderDays, allDays,
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.LoadedAtUtc),
                     orderChecks.Length == 0 ? null : orderChecks.Min(x => x.Date),
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.Date)) };
-        return Ok(new { sources, active = jobs.Any(x => x.Status is "pending" or "running") });
+        return Ok(new { sources, isPreliminary = endDate >= WbSyncPlanner.Today(), active = jobs.Any(x => x.Status is "pending" or "running") });
     }
 }

@@ -10,11 +10,14 @@ const nomenclatureSchema = z.object({
 });
 export type NomenclatureStatistics = z.infer<typeof nomenclatureSchema>;
 
-const wbClusterRowSchema = z.object({
+export const wbClusterRowSchema = z.object({
   nomenclatureId: z.string(), nomenclatureName: z.string(), clusterName: z.string(),
   spend: z.number(), views: z.number().int().nullable(), clicks: z.number().int().nullable(),
   carts: z.number().int().nullable(), orders: z.number().int().nullable(), cpc: z.number().nullable(),
-  assessment: z.string()
+  assessment: z.string(), orderedProducts: z.number().int().nullable(),
+  averageOrderedUnitPrice: z.number().nullable(), estimatedOrderSum: z.number().nullable(),
+  estimatedDrr: z.number().nullable(), estimateStatus: z.enum(['complete', 'preliminary', 'unavailable']),
+  estimateReason: z.string().nullable()
 });
 const wbClustersSchema = z.object({ isWbConnected: z.boolean(), isPeriodComplete: z.boolean(), rows: z.array(wbClusterRowSchema),
   storeNormVersion: z.number().int(), campaignNormVersion: z.number().int() });

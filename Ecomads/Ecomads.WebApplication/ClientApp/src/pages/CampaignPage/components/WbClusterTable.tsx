@@ -1,4 +1,4 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { appRoutes } from '../../../app/routes';
@@ -9,8 +9,9 @@ const money = (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractio
 const count = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU').format(value);
 
 const jamCell = { bgcolor: '#F7F0FF', color: '#6841A1' };
+const estimateHint = 'Оценка по средней стоимости заказанных товаров этой пары «кампания + артикул» за выбранный период: сумма заказов fullstats / количество заказанных единиц (shks) × shks кластера. ДРР = расход кластера / оценочная сумма × 100%. Это не фактическая выручка кластера; данные вне выбранного периода не используются.';
 
-export function WbClusterTable({ rows, jamRows = [] }: { rows: WbClusterRow[]; jamRows?: WbJamRow[] }) {
+export function WbClusterTable({ rows, jamRows = [], emptyText }: { rows: WbClusterRow[]; jamRows?: WbJamRow[]; emptyText?: string }) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   useEffect(() => { setPage(0); }, [rows]);
@@ -18,14 +19,14 @@ export function WbClusterTable({ rows, jamRows = [] }: { rows: WbClusterRow[]; j
     .map((row) => [`${row.nomenclatureId}:${row.searchText.trim().toLocaleLowerCase('ru-RU')}`, row]));
   if (rows.length === 0) {
     return <Alert severity="info" action={<Button size="small" component={Link} to={appRoutes.wbStores}>Проверить загрузку</Button>}>
-      Поисковые кластеры за выбранный период пока не загружены.
+      {emptyText ?? 'Поисковые кластеры за выбранный период пока не загружены.'}
     </Alert>;
   }
   return <>
     <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', mb: 1, '&:before': { display: 'none' } }}>
       <AccordionSummary expandIcon="⌄"><Typography variant="body2" color="text.secondary">О показателях кластеров</Typography></AccordionSummary>
       <AccordionDetails><Typography variant="body2" color="text.secondary">
-        WB передаёт расход и заказы по поисковым кластерам, но не их выручку и ДРР. Фиолетовые столбцы — данные Джема по запросу товара при точном совпадении текста с кластером. Позиция не подтверждена как органическая. Прочерк означает отсутствие подтверждённого совпадения или значения.
+        WB передаёт расход и заказы по поисковым кластерам, но не их фактическую выручку и ДРР. {estimateHint} Неполная загрузка отмечена отдельно; при отсутствии средней стоимости выводится прочерк. Фиолетовые столбцы — данные Джема по запросу товара при точном совпадении текста с кластером. Позиция не подтверждена как органическая.
       </Typography></AccordionDetails>
     </Accordion>
     <TableContainer sx={{ maxHeight: 650 }}>
@@ -33,8 +34,11 @@ export function WbClusterTable({ rows, jamRows = [] }: { rows: WbClusterRow[]; j
         <TableHead><TableRow>
           <TableCell>Артикул WB</TableCell><TableCell>Поисковый кластер</TableCell>
           <TableCell align="right">Расход, ₽</TableCell><TableCell align="right">Показы</TableCell>
-          <TableCell align="right">Клики</TableCell><TableCell align="right">Заказы</TableCell>
+          <TableCell align="right">Клики</TableCell><TableCell align="right">Корзины</TableCell><TableCell align="right">Заказы</TableCell>
+          <TableCell align="right">Заказанные единицы</TableCell>
           <TableCell align="right">CPC, ₽</TableCell>
+          <TableCell align="right"><Tooltip title={estimateHint}><span>Сумма заказов, ₽ · Оценка</span></Tooltip></TableCell>
+          <TableCell align="right"><Tooltip title={estimateHint}><span>ДРР, % · Оценка</span></Tooltip></TableCell>
           <TableCell align="right" sx={jamCell}>Частотность · Джем</TableCell>
           <TableCell align="right" sx={jamCell}>Позиция · Джем</TableCell>
           <TableCell>Оценка</TableCell>
@@ -44,8 +48,17 @@ export function WbClusterTable({ rows, jamRows = [] }: { rows: WbClusterRow[]; j
           return <TableRow key={`${row.nomenclatureId}:${row.clusterName}`} hover>
           <TableCell>{row.nomenclatureId}</TableCell><TableCell>{row.clusterName}</TableCell>
           <TableCell align="right">{money(row.spend)}</TableCell><TableCell align="right">{count(row.views)}</TableCell>
-          <TableCell align="right">{count(row.clicks)}</TableCell><TableCell align="right">{count(row.orders)}</TableCell>
+          <TableCell align="right">{count(row.clicks)}</TableCell><TableCell align="right">{count(row.carts)}</TableCell>
+          <TableCell align="right">{count(row.orders)}</TableCell><TableCell align="right">{count(row.orderedProducts)}</TableCell>
           <TableCell align="right">{row.cpc === null ? '—' : money(row.cpc)}</TableCell>
+          <TableCell align="right"><Tooltip title={row.estimateReason ?? estimateHint}><span>
+            {row.estimatedOrderSum === null ? '—' : money(row.estimatedOrderSum)}
+          </span></Tooltip>{row.estimateStatus !== 'complete' ? <Typography variant="caption" display="block" color="warning.main">
+            {row.estimateStatus === 'preliminary' ? 'Предварительно' : 'Нет данных для оценки'}
+          </Typography> : null}</TableCell>
+          <TableCell align="right"><Tooltip title={row.estimateReason ?? (row.estimatedOrderSum === 0 ? 'Оценочная сумма заказов равна нулю; ДРР не рассчитывается.' : estimateHint)}><span>
+            {row.estimatedDrr === null ? '—' : money(row.estimatedDrr)}
+          </span></Tooltip></TableCell>
           <TableCell align="right" sx={jamCell}>{count(jam?.frequency ?? null)}</TableCell>
           <TableCell align="right" sx={jamCell}>{jam?.averagePosition == null ? '—' : money(jam.averagePosition)}</TableCell>
           <TableCell>{row.assessment}</TableCell>

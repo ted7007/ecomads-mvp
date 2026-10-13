@@ -11,7 +11,7 @@ public sealed class WbCostsImporter(EcomadsDbContext db)
     private static readonly TimeZoneInfo Moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
 
     public async Task<int> ImportAsync(Guid storeId, DateOnly start, DateOnly end, JsonElement root,
-        CancellationToken ct, bool allowAdjacentDays = false)
+        CancellationToken ct, bool allowAdjacentDays = false, bool fillMissingOnly = false)
     {
         if (root.ValueKind != JsonValueKind.Array) throw new JsonException("История затрат WB не является массивом.");
         var totals = Enumerable.Range(0, end.DayNumber - start.DayNumber + 1)
@@ -47,6 +47,7 @@ public sealed class WbCostsImporter(EcomadsDbContext db)
                 row = new WbStoreDailySpend { StoreId = storeId, Date = date };
                 db.WbStoreDailySpends.Add(row);
             }
+            else if (fillMissingOnly) continue;
             row.Spend = spend;
             row.LoadedAtUtc = loadedAt;
         }

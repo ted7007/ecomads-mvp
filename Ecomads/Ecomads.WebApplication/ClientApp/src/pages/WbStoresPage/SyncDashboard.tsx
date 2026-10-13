@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { getWbSyncDetails, getWbSyncHistory, pauseWbSync, resumeWbSync, retryWbSync } from './wbStoresApi';
 import type { WbRefreshResult, WbSyncJob, WbSyncOverview } from './wbStoresApi';
 
-const labels: Record<string, string> = { fullstats: 'Текущая реклама', funnel: 'Все заказы (старое задание)',
+const labels: Record<string, string> = { fullstats_month: 'Реклама · проверка месяца',
+  expenses_month: 'Расходы · проверка месяца', funnel_month: 'Заказы · проверка месяца', fullstats: 'Текущая реклама',
   fullstats_history: 'История рекламы · год', expenses_history: 'История расходов · год',
   funnel_year: 'История заказов · год',
   funnel_recent: 'Свежие заказы · 7 дней', funnel_backfill: 'История заказов · дни 8–30', expenses: 'Расход кабинета', archive: 'Архив рекламы',
@@ -38,7 +39,7 @@ function jobPeriod(job: WbSyncJob): string {
 }
 
 function jobProgress(job: WbSyncJob): string {
-  if ((job.kind === 'fullstats' || job.kind === 'archive') && job.retryCount) {
+  if ((job.kind === 'fullstats' || job.kind === 'fullstats_month' || job.kind === 'archive') && job.retryCount) {
     const initialCount = job.totalCount - job.retryCount;
     const checked = Math.min(job.processedCount, initialCount);
     const repeated = Math.max(0, job.processedCount - initialCount);

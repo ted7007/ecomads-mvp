@@ -15,14 +15,14 @@ namespace Ecomads.WebApplication.Controllers;
 [Route("api/wb/stores/{storeId:guid}")]
 public sealed class WbSyncVisibilityController(EcomadsDbContext db) : ControllerBase
 {
-    private static readonly string[] Kinds = ["fullstats", "funnel_recent", "expenses", "fullstats_history", "expenses_history", "funnel_year", "clusters", "jam", "archive", "funnel_backfill", "funnel"];
+    private static readonly string[] Kinds = WbSyncJobUnits.SupportedKinds;
     private static readonly string[] Statuses = ["pending", "running", "completed", "failed"];
 
     [HttpGet("sync-overview")]
     public async Task<IActionResult> Overview(Guid storeId, CancellationToken cancellationToken)
     {
         if (!await Owns(storeId, cancellationToken)) return NotFound();
-        var activeJobs = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
+        var activeJobs = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId && Kinds.Contains(x.Kind) &&
             (x.Status == "pending" || x.Status == "running"))
             .OrderBy(x => x.CreatedAtUtc).ToListAsync(cancellationToken);
         var active = activeJobs.FirstOrDefault();
@@ -49,7 +49,11 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
                 blockedReason = kindActive == null ? null : BlockedReason(kindActive),
                 lastSuccessAtUtc = success?.CompletedAtUtc ?? success?.UpdatedAtUtc });
         }
-        return Ok(new { sources, activeJob = active == null ? null : View(active),
+        var store = await db.Stores.AsNoTracking().SingleAsync(x => x.Id == storeId, cancellationToken);
+        var schedules = await db.WbRefreshSchedules.AsNoTracking().Where(x => x.StoreId == storeId)
+            .Select(x => new { x.Task, x.RequestedSlotUtc, x.PlannedSlotUtc }).ToListAsync(cancellationToken);
+        return Ok(new { sources, schedules, nextAutoRefreshAtUtc = store.AutoRefreshEnabled && !store.AutoRefreshBlocked
+            ? (DateTime?)WbRefreshClock.NextSlot(DateTime.UtcNow) : null, autoRefreshBlocked = store.AutoRefreshBlocked, activeJob = active == null ? null : View(active),
             blockedReason = active == null ? null : BlockedReason(active) });
     }
 
@@ -61,7 +65,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         if (!await Owns(storeId, cancellationToken)) return NotFound();
         if (page < 1 || pageSize is < 1 or > 100 || (kind != null && !Kinds.Contains(kind)) ||
             (status != null && !Statuses.Contains(status))) return BadRequest();
-        var query = db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId);
+        var query = db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId && Kinds.Contains(x.Kind));
         if (kind != null) query = query.Where(x => x.Kind == kind);
         if (status != null) query = query.Where(x => x.Status == status);
         var total = await query.CountAsync(cancellationToken);
@@ -74,7 +78,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
     public async Task<IActionResult> Details(Guid storeId, Guid jobId, CancellationToken cancellationToken)
     {
         if (!await Owns(storeId, cancellationToken)) return NotFound();
-        var job = await db.WbSyncJobs.AsNoTracking().SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId,
+        var job = await db.WbSyncJobs.AsNoTracking().SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId && Kinds.Contains(x.Kind),
             cancellationToken);
         if (job == null) return NotFound();
         var events = await db.WbSyncJobEvents.AsNoTracking().Where(x => x.JobId == jobId)
@@ -89,7 +93,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
     public async Task<IActionResult> Retry(Guid storeId, Guid jobId, CancellationToken cancellationToken)
     {
         if (!await Owns(storeId, cancellationToken)) return NotFound();
-        var failed = await db.WbSyncJobs.AsNoTracking().SingleOrDefaultAsync(x => x.Id == jobId && x.StoreId == storeId,
+        var failed = await db.WbSyncJobs.AsNoTracking().SingleOrDefaultAsync(x => x.Id == jobId && x.StoreId == storeId && Kinds.Contains(x.Kind),
             cancellationToken);
         if (failed == null) return NotFound();
         if (failed.Status != "failed") return Conflict(new { message = "Повтор доступен только для завершившегося ошибкой задания." });
@@ -121,7 +125,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
     public async Task<IActionResult> Pause(Guid storeId, Guid jobId, CancellationToken cancellationToken)
     {
         if (!await Owns(storeId, cancellationToken)) return NotFound();
-        var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId,
+        var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId && Kinds.Contains(x.Kind),
             cancellationToken);
         if (job == null) return NotFound();
         if (!WbSyncJobUnits.IsYearHistory(job.Kind)) return BadRequest(new { message = "Пауза доступна только для годовой истории." });
@@ -141,7 +145,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
     public async Task<IActionResult> Resume(Guid storeId, Guid jobId, CancellationToken cancellationToken)
     {
         if (!await Owns(storeId, cancellationToken)) return NotFound();
-        var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId,
+        var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId && Kinds.Contains(x.Kind),
             cancellationToken);
         if (job == null) return NotFound();
         if (!WbSyncJobUnits.IsYearHistory(job.Kind)) return BadRequest(new { message = "Продолжение доступно только для годовой истории." });
@@ -163,7 +167,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
 
     private static string BlockedReason(WbSyncJob job)
     {
-        var name = job.Kind switch { "funnel" or "funnel_recent" => "Свежие заказы", "funnel_backfill" or "funnel_year" => "История заказов",
+        var name = job.Kind switch { "funnel_recent" => "Свежие заказы", "funnel_backfill" or "funnel_year" => "История заказов",
             "fullstats_history" => "История рекламы за год", "expenses_history" => "Расходы за год",
             "archive" => "Архив рекламы",
             "clusters" => "Поисковые кластеры", "jam" => "Поисковые запросы Джема", _ => "Статистика кампаний" };
@@ -189,7 +193,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             ? job.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(job.Kind).Ticks * (requests - 1)) : null;
         var stage = job.Stage == "queued" && job.Status == "completed" ? "completed" :
             job.Stage == "queued" && job.Status == "failed" ? "failed" : job.Stage;
-        var retryCount = job.Kind is "fullstats" or "archive"
+        var retryCount = job.Kind is "fullstats" or "fullstats_month" or "archive"
             ? (JsonSerializer.Deserialize<long[]>(job.PairIdsJson ?? "[]") ?? []).Length : 0;
         return new { job.Id, job.Kind, role = job.Kind, rateMethod = WbRateLimits.MethodFor(job.Kind, job.NextCampaignOffset),
             job.ImportedRows, job.ItemsWithData, job.ItemsWithoutData,

@@ -20,6 +20,7 @@ public sealed class WbStoresController(
     WbSyncPlanner planner,
     IConfiguration configuration) : ControllerBase
 {
+    public sealed record AutoRefreshRequest(bool Enabled);
     public sealed record ConnectRequest(string Token);
     public sealed record SyncRequest(DateOnly? StartDate, DateOnly? EndDate, long[]? CampaignIds);
     public sealed record SyncResponse(Guid Id, string Kind, string Status, DateOnly StartDate, DateOnly EndDate,
@@ -34,7 +35,7 @@ public sealed class WbStoresController(
         int CampaignCount,
         string JamStatus,
         DateTime? JamCheckedAtUtc,
-        bool AutoRefreshEnabled);
+        bool AutoRefreshEnabled, bool AutoRefreshAvailable = false, bool AutoRefreshBlocked = false);
     public sealed record CampaignListItem(Guid Id, string Name, string WbCampaignId, int? WbStatus);
 
     [HttpGet]
@@ -52,7 +53,7 @@ public sealed class WbStoresController(
                 x.TokenExpiresAtUtc ?? DateTime.MinValue,
                 x.LastSyncAt,
                 db.Campaigns.Count(c => c.StoreId == x.Id),
-                x.JamStatus, x.JamCheckedAtUtc, autoRefreshEnabled))
+                x.JamStatus, x.JamCheckedAtUtc, x.AutoRefreshEnabled, autoRefreshEnabled, x.AutoRefreshBlocked))
             .ToListAsync(cancellationToken);
         return Ok(stores);
     }
@@ -108,6 +109,7 @@ public sealed class WbStoresController(
         store.ApiKey = tokens.Protect(rawToken);
         store.TokenLastFour = rawToken[^4..];
         store.TokenExpiresAtUtc = claims.ExpiresAtUtc;
+        store.AutoRefreshBlocked = false;
         store.JamStatus = "unknown";
         store.JamCheckedAtUtc = null;
         if (existing == null) store.LastSyncAt = null;
@@ -117,9 +119,24 @@ public sealed class WbStoresController(
         }
 
         await planner.UpsertCampaignsAsync(store, adverts, cancellationToken);
+        await WbRateLimits.DeferUntilAsync(db, store.Id, "campaign_list", 0, DateTime.UtcNow.AddHours(1), cancellationToken);
+        await db.WbRefreshSchedules.Where(x => x.StoreId == store.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.PlannedSlotUtc, (DateTime?)null), cancellationToken);
         return Ok(new StoreResponse(store.Id, store.Name, store.ExternalId, store.TokenLastFour,
             store.TokenExpiresAtUtc.Value, store.LastSyncAt, adverts.Count,
-            store.JamStatus, store.JamCheckedAtUtc, configuration.GetValue<bool>("Wb:AutoRefresh:Enabled")));
+            store.JamStatus, store.JamCheckedAtUtc, store.AutoRefreshEnabled,
+            configuration.GetValue<bool>("Wb:AutoRefresh:Enabled"), store.AutoRefreshBlocked));
+    }
+
+    [HttpPut("{storeId:guid}/auto-refresh")]
+    public async Task<IActionResult> SetAutoRefresh(Guid storeId, [FromBody] AutoRefreshRequest request, CancellationToken ct)
+    {
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId && x.ApiKey != null, ct);
+        if (store == null) return NotFound();
+        store.AutoRefreshEnabled = request.Enabled;
+        await db.SaveChangesAsync(ct);
+        return Ok(new { enabled = store.AutoRefreshEnabled });
     }
 
     [HttpGet("{storeId:guid}/campaigns")]
@@ -269,19 +286,6 @@ public sealed class WbStoresController(
 
         var result = await planner.EnqueueJamAsync(store, start, end, request?.CampaignIds, cancellationToken);
         return result.Job == null ? BadRequest(new { message = result.Reason }) : Accepted(ToSyncResponse(result.Job));
-    }
-
-    [HttpPost("{storeId:guid}/funnel/sync")]
-    public async Task<IActionResult> StartFunnelSync(Guid storeId, CancellationToken cancellationToken)
-    {
-        if (!TrySellerId(out var sellerId)) return Unauthorized();
-        var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
-        if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
-        var active = await db.WbSyncJobs.FirstOrDefaultAsync(x => x.StoreId == storeId && x.Kind == "funnel" &&
-            (x.Status == "pending" || x.Status == "running"), cancellationToken);
-        if (active != null) return Ok(ToSyncResponse(active));
-        var result = await planner.EnqueueFunnelAsync(store, cancellationToken);
-        return Accepted(ToSyncResponse(result.Job!));
     }
 
     private static SyncResponse ToSyncResponse(WbSyncJob job)

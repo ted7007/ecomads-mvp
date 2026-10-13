@@ -6,7 +6,7 @@ import { getCampaignNormList, getCampaignNorms, getStoreCampaigns, getStoreNorms
 import type { CampaignNormOverrides, StoreNormValues } from './normsApi';
 import { PaginationBar } from '../../shared/ui/PaginationBar';
 
-const defaults: StoreNormValues = { targetDrr: 30, minClicks: 30, minSpend: 500,
+const defaults: StoreNormValues = { targetDrr: 20, minClicks: 30, minSpend: 500,
   minOrders: 3, deviationPercent: 40, minCtr: 3 };
 const emptyOverrides: CampaignNormOverrides = { customName: null, goal: null, targetDrr: null,
   minClicks: null, minSpend: null, minOrders: null, deviationPercent: null, minCtr: null };
@@ -45,14 +45,24 @@ export function NormsPage() {
 
   const saveStore = useMutation({ mutationFn: () => saveStoreNorms(storeId, storeValues),
     onSuccess: async () => { setMessage('Нормы кабинета сохранены.');
-      await queryClient.invalidateQueries({ queryKey: ['wb-store-norms', storeId] }); },
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['wb-store-norms', storeId] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-cluster-recommendations'] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-campaign-norm-list', storeId] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-campaign-norms'] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-article-norms'] }),
+        queryClient.invalidateQueries({ queryKey: ['campaign-summary'] })
+      ]); },
     onError: () => setMessage('Не удалось сохранить нормы кабинета.') });
   const saveCampaign = useMutation({ mutationFn: () => saveCampaignNorms(campaignId, overrides),
     onSuccess: async () => { setMessage('Настройки кампании сохранены.');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norms', campaignId] }),
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norm-list', storeId] }),
-        queryClient.invalidateQueries({ queryKey: ['wb-clusters', campaignId] })
+        queryClient.invalidateQueries({ queryKey: ['wb-clusters', campaignId] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-cluster-recommendations', campaignId] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-article-norms', campaignId] }),
+        queryClient.invalidateQueries({ queryKey: ['campaign-summary', campaignId] })
       ]); },
     onError: () => setMessage('Не удалось сохранить настройки кампании.') });
   const storeDirty = Boolean(storeNorms.data) && JSON.stringify(storeValues) !== JSON.stringify(storeNorms.data?.values);
@@ -95,7 +105,7 @@ export function NormsPage() {
       </Stack>
     </Stack></CardContent></Card></Grid>
       <Grid item xs={12}><Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}><AccordionSummary expandIcon="⌄"><Typography variant="body2">Как рассчитываются нормы и оценки</Typography></AccordionSummary><AccordionDetails>
-        <Typography variant="body2" color="text.secondary">Целевой ДРР относится к рекламной сумме заказов. Порог отклонения сравнивает расход завершённого дня со средним за предыдущие семь дней при полном покрытии. Кластер без заказов выделяется только после минимального расхода и числа кликов. WB не передаёт выручку кластера.</Typography>
+        <Typography variant="body2" color="text.secondary">Целевой ДРР относится к рекламной сумме заказов. В новой диагностике расход без заказанных единиц проверяется по денежному порогу от средней цены товара за выбранный период, независимо от числа кликов. Остальные минимумы используются существующими проверками. Норму отдельного товара можно задать на экране кампании. WB не передаёт фактическую выручку кластера.</Typography>
       </AccordionDetails></Accordion></Grid>
     </Grid> : null}
 

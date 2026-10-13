@@ -7,6 +7,7 @@ using Ecomads.WebApplication.Middleware;
 using Ecomads.WebApplication.Services;
 using Ecomads.WebApplication.Services.Wb;
 using Ecomads.WebApplication.Services.Telegram;
+using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -60,7 +61,14 @@ builder.Services.AddScoped<WbJamImporter>();
 builder.Services.AddScoped<WbSalesFunnelImporter>();
 builder.Services.AddScoped<WbCostsImporter>();
 builder.Services.AddScoped<WbSyncPlanner>();
+builder.Services.AddScoped<WbScheduledRefreshService>();
+builder.Services.AddScoped<WbReportReadinessService>();
 builder.Services.AddScoped<WbDataCoverageService>();
+builder.Services.AddOptions<RecommendationOptions>().Bind(builder.Configuration.GetSection("Wb:Recommendations"))
+    .Validate(x => x.PriceScenario is >= 0 and < 1 && x.NoUnitsSpendFloor >= 0 && x.HighDrrMinimumUnits >= 1 && x.RetentionDays >= 1)
+    .ValidateOnStart();
+builder.Services.AddScoped<RecommendationService>();
+builder.Services.AddHostedService<RecommendationWorker>();
 builder.Services.AddHostedService<WbSyncWorker>();
 builder.Services.AddHostedService<WbAutoRefreshWorker>();
 builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();

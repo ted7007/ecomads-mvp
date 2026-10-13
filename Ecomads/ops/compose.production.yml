@@ -44,6 +44,8 @@ services:
       JwtSettings__Issuer: ecomads_api
       JwtSettings__Audience: ecomads_clients
       JwtSettings__ExpiryMinutes: 1440
+      Wb__AutoRefresh__Enabled: ${WB_AUTO_REFRESH_ENABLED:-true}
+      Wb__AutoRefresh__StoreIds: ${WB_AUTO_REFRESH_STORE_IDS:-}
       Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
       Telegram__BotUsername: ${TELEGRAM_BOT_USERNAME:-}
     expose:

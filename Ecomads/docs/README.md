@@ -1,5 +1,8 @@
 # EcomAds docs
 
+- [Реализованный первый спринт рекомендаций и доступность в сервисе](recommendations-sprint-1.md)
+- [План первого спринта с решениями пользователя](scenario-plans/recommendations-sprint-1-plan.md)
+
 Документы сгруппированы так, чтобы Codex мог быстро брать правильный контекст для миграции фронтенда и параллельной разработки.
 
 ## Категории
@@ -23,6 +26,8 @@
 
 ## Рекомендательная система
 
+- [Четыре архитектурные схемы EcomAds для домашнего задания: Context, Container и Component](architecture/ecomads-c4-homework.md)
+
 0. `expert-review/recommendation-logic-for-marketplace-expert.md`
 1. `architecture/recommendation-engine.md`
 2. `guidelines/recommendation-business-rules.md`
@@ -44,3 +49,8 @@
 ## Demo access and product analytics
 
 1. `refactoring-tasks/05-demo-access-and-product-analytics-mvp.md`
+
+## Сбор данных Wildberries
+
+- [Автоматическое обновление, история и подготовка Telegram](wb-automatic-refresh.md)
+- [Ручная загрузка и источники данных](wb-data-loading-guide.md)

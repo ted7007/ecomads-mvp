@@ -16,6 +16,8 @@ public class CampaignNomenclatureStatistics
     public int Clicks { get; set; }
     public int Carts { get; set; }
     public int Orders { get; set; }
+    public int? OrderedProducts { get; set; }
+    public bool? RecommendationFieldsVerified { get; set; }
     public int Cancellations { get; set; }
     public decimal? Ctr { get; set; }
     public decimal? Cr { get; set; }

@@ -11,14 +11,14 @@ const storeSchema = z.object({
   campaignCount: z.number().int(),
   jamStatus: z.enum(['unknown', 'active', 'access_denied', 'payment_required']),
   jamCheckedAtUtc: z.string().nullable(),
-  autoRefreshEnabled: z.boolean()
+  autoRefreshEnabled: z.boolean(), autoRefreshAvailable: z.boolean(), autoRefreshBlocked: z.boolean()
 });
 
 export type WbStore = z.infer<typeof storeSchema>;
 
 const syncSchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(['fullstats', 'funnel', 'funnel_recent', 'funnel_backfill', 'funnel_year', 'expenses', 'archive', 'clusters', 'jam', 'fullstats_history', 'expenses_history']),
+  kind: z.enum(['fullstats', 'funnel', 'funnel_recent', 'funnel_backfill', 'funnel_year', 'expenses', 'archive', 'clusters', 'jam', 'fullstats_history', 'expenses_history', 'fullstats_month', 'expenses_month', 'funnel_month']),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
   startDate: z.string(),
   endDate: z.string(),
@@ -53,7 +53,8 @@ const overviewSchema = z.object({
   sources: z.array(z.object({ kind: jobSchema.shape.kind,
     lastJob: jobSchema.nullable(), activeJob: jobSchema.nullable(), blockedReason: z.string().nullable(),
     lastSuccessAtUtc: z.string().nullable() })),
-  activeJob: jobSchema.nullable(), blockedReason: z.string().nullable()
+  activeJob: jobSchema.nullable(), blockedReason: z.string().nullable(),
+  nextAutoRefreshAtUtc: z.string().nullable(), autoRefreshBlocked: z.boolean()
 });
 export type WbSyncOverview = z.infer<typeof overviewSchema>;
 const refreshSchema = z.object({ runId: z.string().uuid(), campaignsRefreshed: z.boolean(),
@@ -115,3 +116,9 @@ export async function getWbSync(storeId: string): Promise<WbSync | undefined> {
   return response === undefined ? undefined : syncSchema.parse(response);
 }
 
+
+export async function setWbAutoRefresh(storeId: string, enabled: boolean): Promise<void> {
+  await httpClient<unknown>(`/api/wb/stores/${encodeURIComponent(storeId)}/auto-refresh`, {
+    method: 'PUT', body: { enabled }
+  });
+}

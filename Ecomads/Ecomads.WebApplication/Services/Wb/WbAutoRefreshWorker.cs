@@ -23,7 +23,7 @@ public sealed class WbAutoRefreshWorker(IServiceScopeFactory scopes, IConfigurat
             {
                 logger.LogError(error, "WB automatic refresh pass failed");
             }
-            try { await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken); }
+            try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }
     }
@@ -31,24 +31,21 @@ public sealed class WbAutoRefreshWorker(IServiceScopeFactory scopes, IConfigurat
     public async Task RunOnceAsync(DateTime nowUtc, CancellationToken cancellationToken)
     {
         if (!configuration.GetValue<bool>("Wb:AutoRefresh:Enabled")) return;
-        var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
-        var localNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, moscow);
-        if (localNow.TimeOfDay < TimeSpan.FromHours(6)) return;
-        var localStart = DateTime.SpecifyKind(localNow.Date.AddHours(6), DateTimeKind.Unspecified);
-        var startUtc = TimeZoneInfo.ConvertTimeToUtc(localStart, moscow);
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
-        var planner = scope.ServiceProvider.GetRequiredService<WbSyncPlanner>();
-        var stores = await db.Stores.Where(x => x.ApiKey != null && x.TokenExpiresAtUtc > nowUtc)
-            .ToListAsync(cancellationToken);
-        foreach (var store in stores)
+        var scheduler = scope.ServiceProvider.GetRequiredService<WbScheduledRefreshService>();
+        var storeIds = await db.Stores.AsNoTracking().Where(x => x.ApiKey != null && x.AutoRefreshEnabled &&
+            !x.AutoRefreshBlocked && (x.TokenExpiresAtUtc == null || x.TokenExpiresAtUtc > nowUtc))
+            .Select(x => x.Id).ToListAsync(cancellationToken);
+        var rolloutStores = (configuration["Wb:AutoRefresh:StoreIds"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => Guid.TryParse(x.Trim(), out var id) ? id : Guid.Empty).ToHashSet();
+        if (rolloutStores.Count > 0) storeIds = storeIds.Where(rolloutStores.Contains).ToList();
+        foreach (var storeId in storeIds)
         {
-            if (await db.WbSyncJobs.AnyAsync(x => x.StoreId == store.Id && x.RunId != null &&
-                x.CreatedAtUtc >= startUtc, cancellationToken)) continue;
-            try { await planner.StartRefreshAsync(store, cancellationToken); }
+            try { await scheduler.RunAsync(storeId, nowUtc, cancellationToken); }
             catch (Exception error) when (error is not OperationCanceledException)
             {
-                logger.LogError(error, "WB automatic refresh failed for store {StoreId}", store.Id);
+                logger.LogError(error, "WB automatic refresh failed for store {StoreId}", storeId);
             }
         }
     }

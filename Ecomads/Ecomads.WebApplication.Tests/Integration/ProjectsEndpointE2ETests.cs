@@ -105,6 +105,7 @@ public sealed class ProjectsEndpointE2ETests
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DefaultConnection"] = _connectionString,
+                    ["Wb:AutoRefresh:Enabled"] = "false",
                 });
             });
 

@@ -97,7 +97,7 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             return Conflict(new { message = "Вчерашние данные по части кампаний отсутствуют. Сводка не отправлена." });
 
         var storeTarget = await db.WbStoreNorms.AsNoTracking().Where(x => x.StoreId == storeId)
-            .Select(x => (decimal?)x.TargetDrr).FirstOrDefaultAsync(cancellationToken) ?? 30m;
+            .Select(x => (decimal?)x.TargetDrr).FirstOrDefaultAsync(cancellationToken) ?? 20m;
         var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
             .Select(x => new { x.CampaignId, x.TargetDrr, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, cancellationToken);
         var rows = campaigns.Select(c =>

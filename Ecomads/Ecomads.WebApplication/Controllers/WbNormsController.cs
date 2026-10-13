@@ -29,7 +29,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
         if (!TrySellerId(out var sellerId)) return Unauthorized();
         if (!await db.Stores.AnyAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken)) return NotFound();
         var fallback = await db.WbStoreNorms.AsNoTracking().Where(x => x.StoreId == storeId)
-            .Select(x => (decimal?)x.TargetDrr).SingleOrDefaultAsync(cancellationToken) ?? 30m;
+            .Select(x => (decimal?)x.TargetDrr).SingleOrDefaultAsync(cancellationToken) ?? 20m;
         var rows = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId)
             .OrderBy(x => x.Name)
             .Select(x => new CampaignNormListRow(x.Id, x.Name,
@@ -136,7 +136,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
     }
 
     private static StoreNormResponse ToStoreResponse(Guid storeId, WbStoreNorms? norms) =>
-        new(storeId, new StoreNormRequest(norms?.TargetDrr ?? 30m, norms?.MinClicks ?? 30,
+        new(storeId, new StoreNormRequest(norms?.TargetDrr ?? 20m, norms?.MinClicks ?? 30,
             norms?.MinSpend ?? 500m, norms?.MinOrders ?? 3, norms?.DeviationPercent ?? 40m, norms?.MinCtr ?? 3m),
             norms?.Version ?? 0, norms?.UpdatedAtUtc);
 
