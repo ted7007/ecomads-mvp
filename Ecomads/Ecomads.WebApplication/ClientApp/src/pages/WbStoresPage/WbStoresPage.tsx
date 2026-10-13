@@ -1,10 +1,11 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, FormControlLabel, Grid, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, Grid, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, loadWbYearHistory, refreshWbStore, setWbAutoRefresh } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
 import { createTelegramLink, describeSummaryResult, disconnectTelegramChat, getTelegramChats, sendTelegramTest, sendYesterdaySummary } from './telegramApi';
 import { SyncDashboard } from './SyncDashboard';
+import { HttpError } from '../../shared/api/httpClient';
 
 function StoreCard({ store }: { store: WbStore }) {
   const [error, setError] = useState<string | null>(null);
@@ -127,15 +128,20 @@ export function WbStoresPage() {
   const telegram = useQuery({ queryKey: ['telegram-chats'], queryFn: getTelegramChats });
   // Telegram errors live next to the Telegram card: the WB connection form is collapsed and would hide them.
   const [telegramError, setTelegramError] = useState<string | null>(null);
+  // 409 from the summary endpoint means "preconditions not met" (e.g. yesterday's data is still loading).
+  const [notReady, setNotReady] = useState<string | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const activeStoreId = stores.data?.find((store) => store.id === selectedStoreId)?.id ?? stores.data?.[0]?.id;
   const activeStore = stores.data?.find((store) => store.id === activeStoreId);
   const link = useMutation({ mutationFn: createTelegramLink, onSuccess: () => setTelegramError(null),
     onError: (reason) => setTelegramError(reason instanceof Error ? reason.message : 'Не удалось создать ссылку') });
   const sendSummary = useMutation({ mutationFn: (storeId: string) => sendYesterdaySummary(storeId),
-    onMutate: () => setTelegramError(null),
+    onMutate: () => { setTelegramError(null); setNotReady(null); },
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
-    onError: (reason) => setTelegramError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку') });
+    onError: (reason) => {
+      if (reason instanceof HttpError && reason.status === 409) { setNotReady(reason.message); return; }
+      setTelegramError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку');
+    } });
   const sendTest = useMutation({ mutationFn: sendTelegramTest,
     onMutate: () => setTelegramError(null),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
@@ -195,6 +201,17 @@ export function WbStoresPage() {
             <Typography variant="h6" fontWeight={800}>Telegram</Typography>
             {telegram.isError ? <Alert severity="error">Не удалось загрузить привязанные чаты.</Alert> : null}
             {telegramError ? <Alert severity="error">{telegramError}</Alert> : null}
+            <Dialog open={notReady !== null} onClose={() => setNotReady(null)}>
+              <DialogTitle>Сводку пока нельзя отправить</DialogTitle>
+              <DialogContent>
+                <DialogContentText>{notReady}</DialogContentText>
+                {notReady && /загруз|данн/i.test(notReady) ? <DialogContentText sx={{ mt: 2 }}>
+                  Сводка за вчера отправляется, когда данные по всем активным кампаниям за вчера загружены.
+                  Состояние загрузки показано в карточке кабинета. Когда она завершится, нажмите кнопку ещё раз.
+                </DialogContentText> : null}
+              </DialogContent>
+              <DialogActions><Button onClick={() => setNotReady(null)}>Понятно</Button></DialogActions>
+            </Dialog>
             {telegram.data && !telegram.data.botConfigured ? <Alert severity="info">Бот ещё не настроен. Привязка и отправка сводки станут доступны после добавления токена бота.</Alert> : null}
             {telegram.data?.chats.map((chat) => <Stack key={chat.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
               <Typography sx={{ flex: 1 }}>{chat.displayName || 'Личный чат'} · с {new Date(chat.linkedAtUtc).toLocaleDateString('ru-RU')}</Typography>
