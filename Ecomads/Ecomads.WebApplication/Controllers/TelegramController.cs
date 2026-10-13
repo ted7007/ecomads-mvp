@@ -34,7 +34,7 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
     public async Task<IActionResult> CreateLink(CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
-        if (!bot.IsConfigured) return Conflict(new { message = "Токен Telegram-бота пока не настроен." });
+        if (!bot.IsConfigured) return Conflict(new { message = "Telegram-бот ещё не подключён к сервису. Обратитесь к администратору." });
         var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes(code)));
         var expires = DateTime.UtcNow.AddMinutes(15);
@@ -67,13 +67,13 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
     public async Task<IActionResult> SendYesterday(Guid storeId, CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
-        if (!bot.IsConfigured) return Conflict(new { message = "Токен Telegram-бота пока не настроен." });
+        if (!bot.IsConfigured) return Conflict(new { message = "Telegram-бот ещё не подключён к сервису. Обратитесь к администратору." });
         var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(x => x.Id == storeId &&
             x.SellerId == sellerId && x.ApiKey != null, cancellationToken);
         if (store == null) return NotFound();
         var chats = await db.TelegramChats.Where(x => x.SellerId == sellerId && x.IsActive)
             .ToListAsync(cancellationToken);
-        if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите личный чат Telegram." });
+        if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите чат Telegram: нажмите «Создать ссылку для привязки», откройте бота по ссылке и нажмите Start." });
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
@@ -81,14 +81,19 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId &&
             (x.WbStatus == 9 || x.WbStatus == 11))
             .Select(x => new { x.Id, x.WbCampaignId, x.Name }).ToListAsync(cancellationToken);
-        if (campaigns.Count == 0) return Conflict(new { message = "Нет активных или приостановленных кампаний для сводки." });
+        if (campaigns.Count == 0) return Conflict(new { message = "В кабинете нет активных или приостановленных кампаний, поэтому составлять сводку не из чего." });
 
         var jobs = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
             x.Kind == "fullstats" && x.Status == "completed" && x.StartDate <= yesterday && x.EndDate >= yesterday)
             .Select(x => x.CampaignIdsJson).ToListAsync(cancellationToken);
         var loadedIds = jobs.SelectMany(x => JsonSerializer.Deserialize<long[]>(x) ?? []).ToHashSet();
         if (campaigns.Any(x => !long.TryParse(x.WbCampaignId, out var id) || !loadedIds.Contains(id)))
-            return Conflict(new { message = "Для вчерашней сводки сначала загрузите все активные и приостановленные кампании за вчера." });
+        {
+            var loadedCount = campaigns.Count(x => long.TryParse(x.WbCampaignId, out var id) && loadedIds.Contains(id));
+            return Conflict(new { message = $"Данные за {yesterday:dd.MM.yyyy} загружены только по {loadedCount} из {campaigns.Count} активных кампаний. " +
+                "Неполную сводку мы не отправляем, чтобы цифры не оказались заниженными. " +
+                "Дождитесь окончания загрузки (её ход показан в карточке кабинета) и нажмите кнопку ещё раз." });
+        }
 
         var campaignIds = campaigns.Select(x => x.Id).ToArray();
         var stats = await db.CampaignStatistics.AsNoTracking()
@@ -96,7 +101,11 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders })
             .ToListAsync(cancellationToken);
         if (campaigns.Any(x => !stats.Any(s => s.CampaignId == x.Id)))
-            return Conflict(new { message = "Вчерашние данные по части кампаний отсутствуют. Сводка не отправлена." });
+        {
+            var withoutStats = campaigns.Count(x => !stats.Any(s => s.CampaignId == x.Id));
+            return Conflict(new { message = $"За {yesterday:dd.MM.yyyy} нет данных по {withoutStats} из {campaigns.Count} активных кампаний: возможно, Wildberries ещё не отдал статистику. " +
+                "Сводка не отправлена. Попробуйте позже или обновите данные кнопкой «Загрузить всё из WB»." });
+        }
 
         var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
             .Select(x => new { x.CampaignId, x.TargetDrr, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, cancellationToken);
@@ -188,10 +197,10 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
     public async Task<IActionResult> SendTest(CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
-        if (!bot.IsConfigured) return Conflict(new { message = "Токен Telegram-бота пока не настроен." });
+        if (!bot.IsConfigured) return Conflict(new { message = "Telegram-бот ещё не подключён к сервису. Обратитесь к администратору." });
         var chats = await db.TelegramChats.Where(x => x.SellerId == sellerId && x.IsActive)
             .ToListAsync(cancellationToken);
-        if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите личный чат Telegram." });
+        if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите чат Telegram: нажмите «Создать ссылку для привязки», откройте бота по ссылке и нажмите Start." });
 
         var day = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
         var demo = new List<TelegramSummaryCampaign>
