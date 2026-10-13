@@ -205,10 +205,6 @@ export function WbStoresPage() {
               <DialogTitle>Сводку пока нельзя отправить</DialogTitle>
               <DialogContent>
                 <DialogContentText>{notReady}</DialogContentText>
-                {notReady && /загруз|данн/i.test(notReady) ? <DialogContentText sx={{ mt: 2 }}>
-                  Сводка за вчера отправляется, когда данные по всем активным кампаниям за вчера загружены.
-                  Состояние загрузки показано в карточке кабинета. Когда она завершится, нажмите кнопку ещё раз.
-                </DialogContentText> : null}
               </DialogContent>
               <DialogActions><Button onClick={() => setNotReady(null)}>Понятно</Button></DialogActions>
             </Dialog>
