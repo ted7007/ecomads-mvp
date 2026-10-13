@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, loadWbYearHistory, refreshWbStore, setWbAutoRefresh } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
-import { createTelegramLink, describeSummaryResult, disconnectTelegramChat, getTelegramChats, sendTelegramTest, sendYesterdaySummary } from './telegramApi';
+import { createTelegramLink, describeDeliveryStatus, describeSummaryResult, disconnectTelegramChat, getTelegramChats, getTelegramHistory, sendPeriodSummary, sendTelegramTest, sendYesterdaySummary } from './telegramApi';
+import { PeriodFilter, defaultPeriod, moscowToday } from '../DashboardPage/components/PeriodFilter';
+import type { DashboardFilters } from '../DashboardPage/dashboardApi';
 import { SyncDashboard } from './SyncDashboard';
 import { HttpError } from '../../shared/api/httpClient';
 
@@ -137,11 +139,25 @@ export function WbStoresPage() {
     onError: (reason) => setTelegramError(reason instanceof Error ? reason.message : 'Не удалось создать ссылку') });
   const sendSummary = useMutation({ mutationFn: (storeId: string) => sendYesterdaySummary(storeId),
     onMutate: () => { setTelegramError(null); setNotReady(null); },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }); await queryClient.invalidateQueries({ queryKey: ['telegram-history'] }); },
     onError: (reason) => {
       if (reason instanceof HttpError && reason.status === 409) { setNotReady(reason.message); return; }
       setTelegramError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку');
     } });
+  const history = useQuery({ queryKey: ['telegram-history'], queryFn: getTelegramHistory });
+  const [period, setPeriod] = useState<DashboardFilters>(defaultPeriod());
+  const sendPeriod = useMutation({ mutationFn: (args: { storeId: string; startDate: string; endDate: string }) =>
+      sendPeriodSummary(args.storeId, args.startDate, args.endDate),
+    onMutate: () => { setTelegramError(null); setNotReady(null); },
+    onError: (reason) => {
+      if (reason instanceof HttpError && reason.status === 409) { setNotReady(reason.message); return; }
+      setTelegramError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку за период');
+    } });
+  const periodDays = period.startDate && period.endDate
+    ? (Date.parse(`${period.endDate}T00:00:00Z`) - Date.parse(`${period.startDate}T00:00:00Z`)) / 86400000 + 1 : 0;
+  const periodError = !period.startDate || !period.endDate || period.startDate > period.endDate ? 'Выберите даты периода.'
+    : period.endDate >= moscowToday() ? 'Сводку можно отправить только за завершённые дни: последняя дата — вчера.'
+    : periodDays > 31 ? 'Период не длиннее 31 дня.' : null;
   const sendTest = useMutation({ mutationFn: sendTelegramTest,
     onMutate: () => setTelegramError(null),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
@@ -222,12 +238,29 @@ export function WbStoresPage() {
             {telegram.data?.botConfigured && activeStore ? <Button variant="outlined" disabled={sendSummary.isPending} onClick={() => sendSummary.mutate(activeStore.id)} sx={{ alignSelf: 'flex-start' }}>
               Отправить вчерашнюю сводку{(stores.data?.length ?? 0) > 1 ? ` · ${activeStore.name}` : ''}</Button> : null}
             {sendSummary.data ? (() => { const info = describeSummaryResult(sendSummary.data); return <Alert severity={info.severity}>{info.text}</Alert>; })() : null}
-            {telegram.data?.botConfigured && (telegram.data.chats.length ?? 0) > 0 ? <Button size="small" disabled={sendTest.isPending} onClick={() => sendTest.mutate()} sx={{ alignSelf: 'flex-start' }}>Отправить тестовое сообщение</Button> : null}
+            {telegram.data?.botConfigured && activeStore ? <Stack spacing={1}>
+              <Typography variant="subtitle2" fontWeight={700}>Сводка за период</Typography>
+              <PeriodFilter draftFilters={period} periods={[]} onDraftChange={setPeriod} onApply={setPeriod} />
+              {periodError ? <Typography variant="caption" color="text.secondary">{periodError}</Typography> : null}
+              <Button variant="outlined" disabled={sendPeriod.isPending || periodError !== null}
+                onClick={() => sendPeriod.mutate({ storeId: activeStore.id, startDate: period.startDate ?? '', endDate: period.endDate ?? '' })} sx={{ alignSelf: 'flex-start' }}>
+                Отправить данные за период</Button>
+              {sendPeriod.data ? <Alert severity={sendPeriod.data.failed || sendPeriod.data.partial ? 'warning' : 'success'}>За период: отправлено {sendPeriod.data.sent}, не доставлено {sendPeriod.data.failed}.{sendPeriod.data.partial ? ` Сводка с пропусками: WB не вернул данные по ${sendPeriod.data.missingCampaigns} кампаниям (это не ошибка, они перечислены в сообщении).` : ''} Такие отправки не попадают в историю и повторно не блокируются.</Alert> : null}
+            </Stack> : null}
+            {telegram.data?.botConfigured ? <Button size="small" disabled={sendTest.isPending || (telegram.data.chats.length ?? 0) === 0} onClick={() => sendTest.mutate()} sx={{ alignSelf: 'flex-start' }}>Отправить тестовое сообщение</Button> : null}
+            {telegram.data?.botConfigured && (telegram.data.chats.length ?? 0) === 0 ? <Typography variant="caption" color="text.secondary">Тестовое сообщение станет доступно после привязки чата.</Typography> : null}
             {sendTest.data ? <Alert severity={sendTest.data.failed ? 'warning' : 'success'}>Тест: отправлено {sendTest.data.sent}, не доставлено {sendTest.data.failed}. Данные в сообщении демонстрационные.</Alert> : null}
             {link.data?.linkUrl ? <Button href={link.data.linkUrl} target="_blank" rel="noopener noreferrer" sx={{ alignSelf: 'flex-start' }}>Открыть бота и привязать чат</Button> : null}
             {link.data && !link.data.linkUrl ? <Typography>Отправьте боту команду /start {link.data.code}</Typography> : null}
             {link.data ? <Button size="small" disabled={telegram.isFetching} onClick={() => { void telegram.refetch(); }} sx={{ alignSelf: 'flex-start' }}>Я привязал чат — проверить</Button> : null}
             {link.data ? <Typography variant="caption">Ссылка действует до {new Date(link.data.expiresAtUtc).toLocaleString('ru-RU')}.</Typography> : null}
+            <Typography variant="subtitle2" fontWeight={700}>История отправок</Typography>
+            {history.data?.length === 0 ? <Typography variant="body2" color="text.secondary">Сводки за день ещё не отправлялись.</Typography> : null}
+            {history.data?.map((event) => <Box key={`${event.storeName}-${event.reportDate}`} sx={{ borderTop: 1, borderColor: 'divider', pt: 1 }}>
+              <Typography variant="body2" fontWeight={600}>Сводка за {new Date(`${event.reportDate}T00:00:00`).toLocaleDateString('ru-RU')} · {event.storeName}</Typography>
+              <Typography variant="caption" color="text.secondary">Обновлено {new Date(event.lastAtUtc).toLocaleString('ru-RU')}</Typography>
+              {event.chats.map((chat, index) => <Typography key={index} variant="body2">{chat.name || 'Личный чат'} — {describeDeliveryStatus(chat.status)}</Typography>)}
+            </Box>)}
           </Stack>
         </CardContent>
       </Card>
