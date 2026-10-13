@@ -5,6 +5,7 @@ using System.Text.Json;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Services.Telegram;
+using Ecomads.WebApplication.Services.Wb;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,7 @@ namespace Ecomads.WebApplication.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/telegram")]
-public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient bot) : ControllerBase
+public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient bot, WbReportReadinessService readiness) : ControllerBase
 {
     private static readonly SemaphoreSlim SendLock = new(1, 1);
 
@@ -83,16 +84,20 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             .Select(x => new { x.Id, x.WbCampaignId, x.Name }).ToListAsync(cancellationToken);
         if (campaigns.Count == 0) return Conflict(new { message = "В кабинете нет активных или приостановленных кампаний, поэтому составлять сводку не из чего." });
 
-        var jobs = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
-            x.Kind == "fullstats" && x.Status == "completed" && x.StartDate <= yesterday && x.EndDate >= yesterday)
-            .Select(x => x.CampaignIdsJson).ToListAsync(cancellationToken);
-        var loadedIds = jobs.SelectMany(x => JsonSerializer.Deserialize<long[]>(x) ?? []).ToHashSet();
-        if (campaigns.Any(x => !long.TryParse(x.WbCampaignId, out var id) || !loadedIds.Contains(id)))
+        // Same readiness rules the dashboard uses (owner's WbReportReadinessService); Telegram adds no criteria of its own.
+        var ready = await readiness.GetAsync(storeId, yesterday, cancellationToken);
+        if (!ready.Ready)
         {
-            var loadedCount = campaigns.Count(x => long.TryParse(x.WbCampaignId, out var id) && loadedIds.Contains(id));
-            return Conflict(new { message = $"Данные за {yesterday:dd.MM.yyyy} загружены только по {loadedCount} из {campaigns.Count} активных кампаний. " +
+            var missing = ready.Sources.Where(x => !x.Ready).Select(x => x.Kind switch
+            {
+                "fullstats" => "статистика по рекламным кампаниям",
+                "expenses" => "общий расход кабинета",
+                "orders" => "заказы кабинета",
+                _ => x.Kind
+            });
+            return Conflict(new { message = $"Данные за {yesterday:dd.MM.yyyy} ещё загружаются из Wildberries, не загружено: {string.Join(", ", missing)}. " +
                 "Неполную сводку мы не отправляем, чтобы цифры не оказались заниженными. " +
-                "Дождитесь окончания загрузки (её ход показан в карточке кабинета) и нажмите кнопку ещё раз." });
+                "Дождитесь окончания загрузки (ход показан в карточке кабинета) и нажмите кнопку ещё раз." });
         }
 
         var campaignIds = campaigns.Select(x => x.Id).ToArray();
@@ -100,21 +105,16 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             .Where(x => campaignIds.Contains(x.CampaignId) && x.Date == day)
             .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders })
             .ToListAsync(cancellationToken);
-        if (campaigns.Any(x => !stats.Any(s => s.CampaignId == x.Id)))
-        {
-            var withoutStats = campaigns.Count(x => !stats.Any(s => s.CampaignId == x.Id));
-            return Conflict(new { message = $"За {yesterday:dd.MM.yyyy} нет данных по {withoutStats} из {campaigns.Count} активных кампаний: возможно, Wildberries ещё не отдал статистику. " +
-                "Сводка не отправлена. Попробуйте позже или обновите данные кнопкой «Загрузить всё из WB»." });
-        }
 
         var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
             .Select(x => new { x.CampaignId, x.TargetDrr, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, cancellationToken);
         var rows = campaigns.Select(c =>
         {
-            var stat = stats.Single(s => s.CampaignId == c.Id);
+            var stat = stats.FirstOrDefault(s => s.CampaignId == c.Id);
             campaignTargets.TryGetValue(c.Id, out var custom);
-            var drr = stat.Revenue > 0 ? (decimal?)((decimal)stat.Spend * 100m / (decimal)stat.Revenue) : null;
-            return new TelegramSummaryCampaign(custom?.CustomName ?? c.Name, (decimal)stat.Spend, stat.Orders, drr);
+            var spend = stat == null ? 0m : (decimal)stat.Spend;
+            var drr = stat != null && stat.Revenue > 0 ? (decimal?)(spend * 100m / (decimal)stat.Revenue) : null;
+            return new TelegramSummaryCampaign(custom?.CustomName ?? c.Name, spend, stat?.Orders ?? 0, drr);
         }).OrderByDescending(x => x.Spend).ToList();
         var message = TelegramSummaryFormatter.Format(new TelegramSummary(
             store.Name, yesterday,
