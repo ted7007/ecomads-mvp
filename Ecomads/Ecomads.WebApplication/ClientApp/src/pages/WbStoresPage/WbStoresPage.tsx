@@ -1,10 +1,11 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, FormControlLabel, Switch, Grid, Stack, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, Grid, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { connectWbStore, disconnectWbStore, getWbStores, getWbSyncOverview, loadWbYearHistory, refreshWbStore, setWbAutoRefresh } from './wbStoresApi';
 import type { WbStore } from './wbStoresApi';
-import { createTelegramLink, disconnectTelegramChat, getTelegramChats, sendYesterdaySummary } from './telegramApi';
+import { createTelegramLink, describeSummaryResult, disconnectTelegramChat, getTelegramChats, sendTelegramTest, sendYesterdaySummary } from './telegramApi';
 import { SyncDashboard } from './SyncDashboard';
+import { HttpError } from '../../shared/api/httpClient';
 
 function StoreCard({ store }: { store: WbStore }) {
   const [error, setError] = useState<string | null>(null);
@@ -125,13 +126,29 @@ export function WbStoresPage() {
   const queryClient = useQueryClient();
   const stores = useQuery({ queryKey: ['wb-stores'], queryFn: getWbStores });
   const telegram = useQuery({ queryKey: ['telegram-chats'], queryFn: getTelegramChats });
-  const link = useMutation({ mutationFn: createTelegramLink, onSuccess: () => setError(null),
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось создать ссылку') });
+  // Telegram errors live next to the Telegram card: the WB connection form is collapsed and would hide them.
+  const [telegramError, setTelegramError] = useState<string | null>(null);
+  // 409 from the summary endpoint means "preconditions not met" (e.g. yesterday's data is still loading).
+  const [notReady, setNotReady] = useState<string | null>(null);
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+  const activeStoreId = stores.data?.find((store) => store.id === selectedStoreId)?.id ?? stores.data?.[0]?.id;
+  const activeStore = stores.data?.find((store) => store.id === activeStoreId);
+  const link = useMutation({ mutationFn: createTelegramLink, onSuccess: () => setTelegramError(null),
+    onError: (reason) => setTelegramError(reason instanceof Error ? reason.message : 'Не удалось создать ссылку') });
   const sendSummary = useMutation({ mutationFn: (storeId: string) => sendYesterdaySummary(storeId),
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку') });
+    onMutate: () => { setTelegramError(null); setNotReady(null); },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
+    onError: (reason) => {
+      if (reason instanceof HttpError && reason.status === 409) { setNotReady(reason.message); return; }
+      setTelegramError(reason instanceof Error ? reason.message : 'Не удалось отправить сводку');
+    } });
+  const sendTest = useMutation({ mutationFn: sendTelegramTest,
+    onMutate: () => setTelegramError(null),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
+    onError: (reason) => setTelegramError(reason instanceof Error ? reason.message : 'Не удалось отправить тестовое сообщение') });
   const disconnectChat = useMutation({ mutationFn: disconnectTelegramChat,
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['telegram-chats'] }),
-    onError: (reason) => setError(reason instanceof Error ? reason.message : 'Не удалось отключить чат') });
+    onError: (reason) => setTelegramError(reason instanceof Error ? reason.message : 'Не удалось отключить чат') });
   const connect = useMutation({
     mutationFn: connectWbStore,
     onSuccess: async () => {
@@ -183,6 +200,14 @@ export function WbStoresPage() {
           <Stack spacing={2}>
             <Typography variant="h6" fontWeight={800}>Telegram</Typography>
             {telegram.isError ? <Alert severity="error">Не удалось загрузить привязанные чаты.</Alert> : null}
+            {telegramError ? <Alert severity="error">{telegramError}</Alert> : null}
+            <Dialog open={notReady !== null} onClose={() => setNotReady(null)}>
+              <DialogTitle>Сводку пока нельзя отправить</DialogTitle>
+              <DialogContent>
+                <DialogContentText>{notReady}</DialogContentText>
+              </DialogContent>
+              <DialogActions><Button onClick={() => setNotReady(null)}>Понятно</Button></DialogActions>
+            </Dialog>
             {telegram.data && !telegram.data.botConfigured ? <Alert severity="info">Бот ещё не настроен. Привязка и отправка сводки станут доступны после добавления токена бота.</Alert> : null}
             {telegram.data?.chats.map((chat) => <Stack key={chat.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
               <Typography sx={{ flex: 1 }}>{chat.displayName || 'Личный чат'} · с {new Date(chat.linkedAtUtc).toLocaleDateString('ru-RU')}</Typography>
@@ -190,11 +215,19 @@ export function WbStoresPage() {
             </Stack>)}
             {telegram.data?.chats.length === 0 && telegram.data.botConfigured ? <Typography color="text.secondary">Чаты пока не привязаны.</Typography> : null}
             {telegram.data?.botConfigured ? <Button variant="outlined" disabled={link.isPending} onClick={() => link.mutate()} sx={{ alignSelf: 'flex-start' }}>Создать ссылку для привязки</Button> : null}
-            {telegram.data?.botConfigured && stores.data?.[0] ? <Button variant="outlined" disabled={sendSummary.isPending} onClick={() => sendSummary.mutate(stores.data[0].id)} sx={{ alignSelf: 'flex-start' }}>Отправить вчерашнюю сводку</Button> : null}
-            {sendSummary.data ? <Alert severity={sendSummary.data.failed ? 'warning' : 'success'}>Отправлено: {sendSummary.data.sent}; ошибок: {sendSummary.data.failed}.</Alert> : null}
+            {telegram.data?.botConfigured && (stores.data?.length ?? 0) > 1 ? <TextField select size="small" label="Кабинет для сводки" value={activeStoreId ?? ''}
+              onChange={(event) => setSelectedStoreId(event.target.value)}>
+              {stores.data?.map((store) => <MenuItem key={store.id} value={store.id}>{store.name}</MenuItem>)}
+            </TextField> : null}
+            {telegram.data?.botConfigured && activeStore ? <Button variant="outlined" disabled={sendSummary.isPending} onClick={() => sendSummary.mutate(activeStore.id)} sx={{ alignSelf: 'flex-start' }}>
+              Отправить вчерашнюю сводку{(stores.data?.length ?? 0) > 1 ? ` · ${activeStore.name}` : ''}</Button> : null}
+            {sendSummary.data ? (() => { const info = describeSummaryResult(sendSummary.data); return <Alert severity={info.severity}>{info.text}</Alert>; })() : null}
+            {telegram.data?.botConfigured && (telegram.data.chats.length ?? 0) > 0 ? <Button size="small" disabled={sendTest.isPending} onClick={() => sendTest.mutate()} sx={{ alignSelf: 'flex-start' }}>Отправить тестовое сообщение</Button> : null}
+            {sendTest.data ? <Alert severity={sendTest.data.failed ? 'warning' : 'success'}>Тест: отправлено {sendTest.data.sent}, не доставлено {sendTest.data.failed}. Данные в сообщении демонстрационные.</Alert> : null}
             {link.data?.linkUrl ? <Button href={link.data.linkUrl} target="_blank" rel="noopener noreferrer" sx={{ alignSelf: 'flex-start' }}>Открыть бота и привязать чат</Button> : null}
             {link.data && !link.data.linkUrl ? <Typography>Отправьте боту команду /start {link.data.code}</Typography> : null}
-            {link.data ? <Typography variant="caption">Ссылка действует до {new Date(link.data.expiresAtUtc).toLocaleString('ru-RU')}. После привязки обновите страницу.</Typography> : null}
+            {link.data ? <Button size="small" disabled={telegram.isFetching} onClick={() => { void telegram.refetch(); }} sx={{ alignSelf: 'flex-start' }}>Я привязал чат — проверить</Button> : null}
+            {link.data ? <Typography variant="caption">Ссылка действует до {new Date(link.data.expiresAtUtc).toLocaleString('ru-RU')}.</Typography> : null}
           </Stack>
         </CardContent>
       </Card>

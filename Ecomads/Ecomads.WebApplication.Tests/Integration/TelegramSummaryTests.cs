@@ -47,6 +47,7 @@ public sealed class TelegramSummaryTests(PostgresFixture postgres)
         Assert.IsType<OkObjectResult>(await controller.SendYesterday(store.Id, CancellationToken.None));
         Assert.Single(bot.Messages);
         Assert.Contains("100,00", bot.Messages[0]);
+        Assert.Contains("Рекламный ДРР: 20,0%", bot.Messages[0]);
         Assert.IsType<OkObjectResult>(await controller.SendYesterday(store.Id, CancellationToken.None));
         Assert.Single(bot.Messages);
         Assert.Single(await db.TelegramDeliveries.ToListAsync());

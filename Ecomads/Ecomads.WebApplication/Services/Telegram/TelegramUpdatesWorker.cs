@@ -52,10 +52,37 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
         foreach (var update in updates.OrderBy(x => x.UpdateId))
         {
             if (update.UpdateId < state.NextUpdateId) continue;
-            await HandleAsync(db, update, cancellationToken);
+            try
+            {
+                await HandleAsync(db, update, cancellationToken);
+            }
+            catch (TelegramApiException error)
+            {
+                // One failing chat must not block the whole queue: the update is skipped, not retried forever.
+                logger.LogWarning("Telegram update {UpdateId} was not answered: HTTP {StatusCode}",
+                    update.UpdateId, error.StatusCode);
+                if (error.StatusCode == 403) await DeactivateChatAsync(db, update.ChatId, cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+                logger.LogWarning("Telegram update {UpdateId} was not answered: transport error", update.UpdateId);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogWarning("Telegram update {UpdateId} was not answered: timeout", update.UpdateId);
+            }
             state.NextUpdateId = update.UpdateId + 1;
             await db.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    private static async Task DeactivateChatAsync(EcomadsDbContext db, long chatId, CancellationToken cancellationToken)
+    {
+        if (chatId == 0) return;
+        var chat = await db.TelegramChats.SingleOrDefaultAsync(x => x.ChatId == chatId, cancellationToken);
+        if (chat is not { IsActive: true }) return;
+        chat.IsActive = false;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task HandleAsync(EcomadsDbContext db, TelegramIncoming update, CancellationToken cancellationToken)
