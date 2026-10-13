@@ -26,7 +26,7 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
         var campaignIds = campaigns.Select(x => x.Id).ToArray();
         var checks = await db.WbCampaignDailyChecks.AsNoTracking().Where(x =>
                 campaignIds.Contains(x.CampaignId) && x.Date >= start && x.Date <= end)
-            .Select(x => new { x.CampaignId, x.Date, x.Result, x.Spend, x.CheckedAtUtc })
+            .Select(x => new { x.CampaignId, x.Date, x.Result, x.Spend, x.CheckedAtUtc, x.LastAttemptAtUtc, x.LastAttemptResult })
             .ToArrayAsync(ct);
         var checkMap = checks.ToDictionary(x => (x.CampaignId, x.Date));
         var expenses = campaignId.HasValue ? [] : await db.WbStoreDailySpends.AsNoTracking().Where(x =>
@@ -49,7 +49,8 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
                 return first <= date && last >= date;
             }).ToArray();
             var verified = expected.Select(x => checkMap.GetValueOrDefault((x.Id, date)))
-                .Where(x => x != null && (x.Result is "data" or "zero") && x.Spend.HasValue).ToArray();
+                .Where(x => x != null && (x.Result is "data" or "zero") && x.Spend.HasValue &&
+                    !(x.LastAttemptResult == "no_data" && x.LastAttemptAtUtc >= x.CheckedAtUtc)).ToArray();
             decimal? spend;
             if (campaignId.HasValue)
                 spend = stores.Length > 0 && verified.Length == expected.Length

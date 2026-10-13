@@ -37,7 +37,10 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                 x.Date <= endDate && x.CampaignId != Guid.Empty &&
                 db.Campaigns.Any(c => c.Id == x.CampaignId && stores.Contains(c.StoreId) &&
                     (!campaignId.HasValue || c.Id == campaignId.Value)))
-            .Select(x => new { x.Date, x.CheckedAtUtc }).ToArrayAsync(ct);
+            .Select(x => new { x.CampaignId, x.Date, x.CheckedAtUtc, x.Result, x.LastAttemptAtUtc, x.LastAttemptResult }).ToArrayAsync(ct);
+        var missingChecks = checks.Where(x => x.LastAttemptResult == "no_data" &&
+            x.LastAttemptAtUtc >= x.CheckedAtUtc).ToArray();
+        var availableChecks = checks.Where(x => x.Result is "data" or "zero").ToArray();
         var orderChecks = await db.WbStoreDailyOrders.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
                 x.Date >= startDate && x.Date <= endDate)
             .Select(x => new { x.Date, x.LoadedAtUtc }).ToArrayAsync(ct);
@@ -67,12 +70,14 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
             var unresolvedFailure = relevant.FirstOrDefault(x => x.Status == "failed" &&
                 !relevant.Any(next => next.Kind == x.Kind && next.Status == "completed" &&
                     next.UpdatedAtUtc > x.UpdatedAtUtc));
+            var noDataCampaigns = kind == "fullstats" ? missingChecks.Select(x => x.CampaignId).Distinct().Count() : 0;
             var status = active != null ? active.WaitReason == "rate_limit" ? "waiting" : "loading" :
                 unresolvedFailure != null ? "failed" : covered == 0 ? "not_loaded" :
                     covered < expected ? "partial" : "complete";
+            if (active == null && unresolvedFailure == null && noDataCampaigns > 0) status = "partial";
             var version = Math.Max(verifiedAt?.Ticks ?? 0, latest?.UpdatedAtUtc.Ticks ?? 0).ToString();
             return new { kind, status, startDate, endDate, availableStartDate, availableEndDate,
-                covered, expected, lastCheckedAtUtc = verifiedAt,
+                covered, expected, noDataCampaigns, lastCheckedAtUtc = verifiedAt,
                 nextAttemptAtUtc = active?.NextAttemptAtUtc,
                 estimatedCompletionAtUtc = active == null ? (DateTime?)null :
                     active.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(active.Kind).Ticks *
@@ -85,9 +90,9 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
         var sources = campaignId.HasValue
             ? new[] {
                 Source("fullstats", ["fullstats", "fullstats_month", "fullstats_history", "archive"], spendDays, allDays,
-                    checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc),
-                    checks.Length == 0 ? null : checks.Min(x => x.Date),
-                    checks.Length == 0 ? null : checks.Max(x => x.Date)),
+                    checks.Length == 0 ? null : checks.Max(x => x.LastAttemptAtUtc ?? x.CheckedAtUtc),
+                    availableChecks.Length == 0 ? null : availableChecks.Min(x => x.Date),
+                    availableChecks.Length == 0 ? null : availableChecks.Max(x => x.Date)),
                 Source("clusters", ["clusters"], clusterDates.Length > 0 ? 1 : 0, 1,
                     jobs.FirstOrDefault(x => x.Kind == "clusters" && x.Status == "completed")?.CompletedAtUtc,
                     clusterDates.Length == 0 ? null : clusterDates.Min(),
@@ -98,9 +103,9 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                     jamChecks.Length == 0 ? null : jamChecks.Max(x => x.EndDate)) }
             : new[] {
                 Source("fullstats", ["fullstats", "fullstats_month", "fullstats_history", "archive"], spendDays, allDays,
-                    checks.Length == 0 ? null : checks.Max(x => x.CheckedAtUtc),
-                    checks.Length == 0 ? null : checks.Min(x => x.Date),
-                    checks.Length == 0 ? null : checks.Max(x => x.Date)),
+                    checks.Length == 0 ? null : checks.Max(x => x.LastAttemptAtUtc ?? x.CheckedAtUtc),
+                    availableChecks.Length == 0 ? null : availableChecks.Min(x => x.Date),
+                    availableChecks.Length == 0 ? null : availableChecks.Max(x => x.Date)),
                 Source("expenses", ["expenses", "expenses_month", "expenses_history"], expenseDays, allDays,
                     expenseChecks.Length == 0 ? null : expenseChecks.Max(x => x.LoadedAtUtc),
                     expenseChecks.Length == 0 ? null : expenseChecks.Min(x => x.Date),

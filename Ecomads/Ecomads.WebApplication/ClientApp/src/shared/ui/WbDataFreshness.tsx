@@ -65,6 +65,7 @@ export function WbDataFreshness({ startDate, endDate, campaignId }: {
       return <Typography key={source.kind} variant="caption" color={source.failedJobKind ? 'error.main' : 'text.secondary'}>
         {names[source.kind]}: {status}{progress}{available}{checked ? ` · проверено ${checked} МСК` : ''}
         {age !== null && age > 86_400_000 ? ' · более суток назад' : ''}{wait}{estimate}{failure}
+        {source.noDataCampaigns > 0 ? ` · WB не вернул часть дней по ${source.noDataCampaigns} кампаниям; пропуски не считаются нулями и проверяются при следующем сборе` : ''}
         {source.kind === 'orders' && source.status === 'waiting' ? ' · может потребоваться больше времени' : ''}
       </Typography>;
     })}

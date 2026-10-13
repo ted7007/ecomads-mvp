@@ -20,7 +20,7 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
         var store = await SeedAsync(db);
         var planner = Planner(db);
         var scheduler = new WbScheduledRefreshService(db, planner);
-        var now = DateTime.UtcNow.AddHours(-6);
+        var now = DateTime.UtcNow.AddHours(-13);
         await scheduler.RunAsync(store.Id, now, default);
         var count = await db.WbSyncJobs.CountAsync();
         var fresh = await db.WbSyncJobs.SingleAsync(x => x.Kind == "funnel_recent");
@@ -29,7 +29,7 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
         var year = await db.WbSyncJobs.SingleAsync(x => x.Kind == "funnel_year");
         year.PauseRequestedAtUtc = now;
         await db.SaveChangesAsync();
-        await scheduler.RunAsync(store.Id, now.AddHours(6), default);
+        await scheduler.RunAsync(store.Id, now.AddHours(13), default);
         Assert.Equal(count, await db.WbSyncJobs.CountAsync());
         Assert.NotNull((await db.WbSyncJobs.SingleAsync(x => x.Id == year.Id)).PauseRequestedAtUtc);
         var schedule = await db.WbRefreshSchedules.SingleAsync(x => x.Task == "funnel_recent");
@@ -37,7 +37,7 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
         fresh = await db.WbSyncJobs.SingleAsync(x => x.Kind == "funnel_recent");
         fresh.Status = "completed";
         await db.SaveChangesAsync();
-        await scheduler.RunAsync(store.Id, now.AddHours(6), default);
+        await scheduler.RunAsync(store.Id, now.AddHours(13), default);
         Assert.Equal(count + 1, await db.WbSyncJobs.CountAsync());
         Assert.Single(await db.WbSyncJobs.Where(x => x.Kind == "funnel_recent" && x.Status == "pending").ToListAsync());
     }

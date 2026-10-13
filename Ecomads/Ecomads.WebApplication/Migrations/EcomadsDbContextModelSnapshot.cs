@@ -682,6 +682,15 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("job_id");
 
+                    b.Property<DateTime?>("LastAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_attempt_at_utc");
+
+                    b.Property<string>("LastAttemptResult")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("last_attempt_result");
+
                     b.Property<string>("Result")
                         .IsRequired()
                         .HasMaxLength(24)

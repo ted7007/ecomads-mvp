@@ -74,9 +74,10 @@ idle; chat linking and message delivery remain unavailable.
 
 ## WB automatic refresh
 
-Automatic collection runs every two hours, with a daily recheck of the latest
+Automatic collection runs at 06:15 and 18:15 Moscow time, with a daily recheck of the latest
 30 completed days and automatic year backfill. The new
-`AddWbAutomaticRefresh` migration is applied during application startup.
+`AddWbSparseObservations` migration records sparse advertising responses separately
+from confirmed zeroes and is applied during application startup.
 
 Set `WB_AUTO_REFRESH_ENABLED=false` in the protected server `.env` to disable
 new scheduled runs. For a staged rollout, set `WB_AUTO_REFRESH_STORE_IDS` to a

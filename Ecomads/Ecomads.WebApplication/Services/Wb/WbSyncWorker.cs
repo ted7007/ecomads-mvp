@@ -65,6 +65,15 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
 
         var ids = JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? [];
+        if (job.Kind is "fullstats" or "fullstats_month" or "archive")
+        {
+            // Drain jobs queued by the old immediate-retry policy without requesting the same IDs again.
+            var processed = ids.Take(job.NextCampaignOffset).ToHashSet();
+            ids = ids.Take(job.NextCampaignOffset)
+                .Concat(ids.Skip(job.NextCampaignOffset).Where(x => !processed.Contains(x)).Distinct()).ToArray();
+            job.CampaignIdsJson = JsonSerializer.Serialize(ids);
+            job.PairIdsJson = null;
+        }
         var history = job.Kind is "fullstats_history" or "expenses_history" or "expenses_month"
             ? JsonSerializer.Deserialize<WbHistoryBatch[]>(job.PairIdsJson ?? "[]") ?? []
             : [];
@@ -217,18 +226,18 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 var period = history[job.NextCampaignOffset];
                 using var response = await wb.GetFullStatsAsync(token, period.CampaignIds,
                     period.StartDate, period.EndDate, cancellationToken);
+                if (response.RootElement.ValueKind == JsonValueKind.Null)
+                    throw new JsonException("WB вернул null вместо массива статистики.");
                 job.Stage = "importing";
                 var importer = scope.ServiceProvider.GetRequiredService<WbFullStatsImporter>();
                 var imported = await importer.ImportAsync(store.Id, response.RootElement, cancellationToken,
-                    period.CampaignIds, job.Id, fillMissingOnly: true);
+                    period.CampaignIds, job.Id, fillMissingOnly: true,
+                    requestedStart: period.StartDate, requestedEnd: period.EndDate);
                 job.ImportedRows += imported.Rows;
                 job.ItemsWithData += period.CampaignIds.Length - imported.MissingCampaignIds.Length;
                 job.ItemsWithoutData = period.Retry
                     ? Math.Max(0, job.ItemsWithoutData - period.CampaignIds.Length + imported.MissingCampaignIds.Length)
                     : job.ItemsWithoutData + imported.MissingCampaignIds.Length;
-                if (!period.Retry && imported.MissingCampaignIds.Length > 0)
-                    job.PairIdsJson = JsonSerializer.Serialize(history.Append(period with
-                        { CampaignIds = imported.MissingCampaignIds, Retry = true }));
                 job.NextCampaignOffset++;
             }
             else if (job.Kind == "expenses")
@@ -318,31 +327,18 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             {
                 using var response = await wb.GetFullStatsAsync(token, batch,
                     job.StartDate, job.EndDate, cancellationToken);
+                if (response.RootElement.ValueKind == JsonValueKind.Null)
+                    throw new JsonException("WB вернул null вместо массива статистики.");
                 job.Stage = "importing";
                 job.UpdatedAtUtc = DateTime.UtcNow;
                 Record(db, job);
                 await db.SaveChangesAsync(cancellationToken);
                 var importer = scope.ServiceProvider.GetRequiredService<WbFullStatsImporter>();
                 var imported = await importer.ImportAsync(store.Id, response.RootElement, cancellationToken,
-                    batch, job.Id);
-                if (response.RootElement.ValueKind == JsonValueKind.Null)
-                {
-                    logger.LogWarning("WB fullstats returned JSON null for job {JobId}, batch size {BatchSize}",
-                        job.Id, batch.Length);
-                    job.ErrorCode = "wb_null_response";
-                    job.UpdatedAtUtc = DateTime.UtcNow;
-                    Record(db, job);
-                }
+                    batch, job.Id, requestedStart: job.StartDate, requestedEnd: job.EndDate);
                 job.ImportedRows += imported.Rows;
                 job.ItemsWithData += batch.Length - imported.MissingCampaignIds.Length;
                 job.ItemsWithoutData += imported.MissingCampaignIds.Length;
-                var retried = JsonSerializer.Deserialize<long[]>(job.PairIdsJson ?? "[]")?.ToHashSet() ?? [];
-                var retryIds = imported.MissingCampaignIds.Where(x => retried.Add(x)).ToArray();
-                if (retryIds.Length > 0)
-                {
-                    job.CampaignIdsJson = JsonSerializer.Serialize(ids.Concat(retryIds).ToArray());
-                    job.PairIdsJson = JsonSerializer.Serialize(retried.ToArray());
-                }
                 job.NextCampaignOffset += batch.Length;
             }
             job.AttemptCount = 0;

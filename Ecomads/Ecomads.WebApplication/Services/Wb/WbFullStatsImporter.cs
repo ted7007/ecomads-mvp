@@ -12,12 +12,15 @@ public sealed record WbFullStatsImportResult(int Rows, long[] MissingCampaignIds
 public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<RecommendationOptions>? recommendations = null)
 {
     public async Task<WbFullStatsImportResult> ImportAsync(Guid storeId, JsonElement root, CancellationToken cancellationToken,
-        IReadOnlyList<long>? requestedIds = null, Guid? jobId = null, bool fillMissingOnly = false)
+        IReadOnlyList<long>? requestedIds = null, Guid? jobId = null, bool fillMissingOnly = false,
+        DateOnly? requestedStart = null, DateOnly? requestedEnd = null)
     {
         if (root.ValueKind == JsonValueKind.Null)
             return new WbFullStatsImportResult(0, requestedIds?.ToArray() ?? []);
         if (root.ValueKind != JsonValueKind.Array)
             throw new JsonException("Статистика WB имеет неожиданный формат.");
+        if (requestedStart.HasValue != requestedEnd.HasValue || requestedEnd < requestedStart)
+            throw new ArgumentException("Необходимо указать корректный период запроса.");
 
         var campaigns = await db.Campaigns.Where(c => c.StoreId == storeId)
             .ToDictionaryAsync(c => c.WbCampaignId, cancellationToken);
@@ -28,6 +31,8 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
         {
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
             var seenCampaigns = new HashSet<long>();
+            var seenDays = new HashSet<(Guid CampaignId, DateOnly Date)>();
+            var observedAt = DateTime.UtcNow;
             var rows = 0;
             foreach (var advert in root.EnumerateArray())
             {
@@ -44,6 +49,11 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
             foreach (var day in advert.GetProperty("days").EnumerateArray())
             {
                 var date = DateTime.SpecifyKind(day.GetProperty("date").GetDateTime().Date, DateTimeKind.Utc);
+                var requestedDay = DateOnly.FromDateTime(date);
+                if (requestedStart.HasValue && (requestedDay < requestedStart.Value || requestedDay > requestedEnd!.Value))
+                    throw new JsonException("WB вернул день вне запрошенного периода.");
+                if (!seenDays.Add((campaign.Id, requestedDay)))
+                    throw new JsonException("WB вернул повторный день кампании.");
                 if (fillMissingOnly && await db.WbCampaignDailyChecks.AnyAsync(x => x.CampaignId == campaign.Id &&
                     x.Date == DateOnly.FromDateTime(date) && (x.Result == "data" || x.Result == "zero"), cancellationToken)) continue;
                 await db.CampaignStatistics.Where(s => s.CampaignId == campaign.Id && s.Date == date)
@@ -81,7 +91,9 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                 check.Result = spend == 0 ? "zero" : "data";
                 check.Spend = spend;
                 check.JobId = jobId;
-                check.CheckedAtUtc = DateTime.UtcNow;
+                check.CheckedAtUtc = observedAt;
+                check.LastAttemptAtUtc = observedAt;
+                check.LastAttemptResult = check.Result;
                 rows++;
 
                 var articleStats = new Dictionary<string, CampaignNomenclatureStatistics>(StringComparer.Ordinal);
@@ -150,6 +162,30 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
             }
             }
 
+            if (requestedIds != null && requestedStart.HasValue)
+            {
+                var requestedCampaigns = campaigns.Values.Where(x => long.TryParse(x.WbCampaignId, out var id) && requestedIds.Contains(id)).ToArray();
+                var campaignIds = requestedCampaigns.Select(x => x.Id).ToArray();
+                var previous = await db.WbCampaignDailyChecks.Where(x => campaignIds.Contains(x.CampaignId) &&
+                    x.Date >= requestedStart.Value && x.Date <= requestedEnd!.Value)
+                    .ToDictionaryAsync(x => (x.CampaignId, x.Date), cancellationToken);
+                foreach (var campaign in requestedCampaigns)
+                for (var date = requestedStart.Value; date <= requestedEnd!.Value; date = date.AddDays(1))
+                {
+                    if (seenDays.Contains((campaign.Id, date)) || WbCampaignEligibility.CreatedAfter(campaign, date) ||
+                        WbCampaignEligibility.FinishedBefore(campaign, date)) continue;
+                    if (!previous.TryGetValue((campaign.Id, date), out var check))
+                    {
+                        check = new WbCampaignDailyCheck { CampaignId = campaign.Id, Date = date,
+                            CheckedAtUtc = observedAt, JobId = jobId };
+                        db.WbCampaignDailyChecks.Add(check);
+                    }
+                    // An absent row is an observation, never a zero or a reason to delete older values.
+                    else if (fillMissingOnly && check.Result is "data" or "zero") continue;
+                    check.LastAttemptAtUtc = observedAt;
+                    check.LastAttemptResult = "no_data";
+                }
+            }
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new WbFullStatsImportResult(rows, requestedIds?.Where(x => !seenCampaigns.Contains(x)).ToArray() ?? []);

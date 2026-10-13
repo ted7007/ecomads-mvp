@@ -25,7 +25,7 @@ public sealed class WbScheduledRefreshService(EcomadsDbContext db, WbSyncPlanner
             var schedules = await db.WbRefreshSchedules.Where(x => x.StoreId == storeId).ToDictionaryAsync(x => x.Task, ct);
             foreach (var task in Tasks)
             {
-                var slot = WbRefreshClock.LatestSlot(nowUtc, task is "fullstats_month" or "expenses_month" or "funnel_month" or "details" or "history");
+                var slot = WbRefreshClock.LatestSlot(nowUtc, task is "fullstats_month" or "expenses_month" or "funnel_month" or "history");
                 if (!schedules.TryGetValue(task, out var schedule))
                 {
                     schedule = new WbRefreshSchedule { StoreId = storeId, Task = task, RequestedSlotUtc = slot };
@@ -53,7 +53,7 @@ public sealed class WbScheduledRefreshService(EcomadsDbContext db, WbSyncPlanner
                     var end = WbSyncPlanner.Today(nowUtc).AddDays(-1);
                     if (!await db.WbSyncJobs.AnyAsync(x => x.StoreId == storeId &&
                         (x.Kind == "fullstats" || x.Kind == "fullstats_month") && x.Status == "completed" &&
-                        x.StartDate <= end.AddDays(-6) && x.EndDate >= end && x.CompletedAtUtc >= schedule.RequestedSlotUtc, ct)) continue;
+                        x.StartDate <= end.AddDays(-6) && x.EndDate >= end && x.CreatedAtUtc >= schedule.RequestedSlotUtc, ct)) continue;
                     if (await db.WbSyncJobs.AnyAsync(x => x.StoreId == storeId &&
                         (x.Kind == "clusters" || x.Kind == "jam") && (x.Status == "pending" || x.Status == "running"), ct)) continue;
                     var runId = Guid.NewGuid();
@@ -82,7 +82,9 @@ public sealed class WbScheduledRefreshService(EcomadsDbContext db, WbSyncPlanner
         var today = WbSyncPlanner.Today(nowUtc);
         var monthly = task.EndsWith("_month");
         var end = monthly ? today.AddDays(-1) : today;
-        var start = end.AddDays(monthly ? -29 : -6);
+        // Advertising includes seven closed days plus today, so each pass can feed details.
+        // Grouped order history has a stricter seven-day API limit.
+        var start = end.AddDays(monthly ? -29 : task == "fullstats" ? -7 : -6);
         long[] ids = [];
         string? pairs = null;
         if (task.StartsWith("fullstats"))

@@ -230,6 +230,8 @@ public class EcomadsDbContext : DbContext
             entity.Property(x => x.Date).HasColumnName("date");
             entity.Property(x => x.JobId).HasColumnName("job_id");
             entity.Property(x => x.CheckedAtUtc).HasColumnName("checked_at_utc");
+            entity.Property(x => x.LastAttemptAtUtc).HasColumnName("last_attempt_at_utc");
+            entity.Property(x => x.LastAttemptResult).HasColumnName("last_attempt_result").HasMaxLength(24);
             entity.Property(x => x.Result).HasColumnName("result").HasMaxLength(24);
             entity.Property(x => x.Spend).HasColumnName("spend").HasColumnType("decimal(18,2)");
             entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);

@@ -8,4 +8,6 @@ public sealed class WbCampaignDailyCheck
     public DateTime CheckedAtUtc { get; set; }
     public string Result { get; set; } = "unknown";
     public decimal? Spend { get; set; }
+    public DateTime? LastAttemptAtUtc { get; set; }
+    public string? LastAttemptResult { get; set; }
 }

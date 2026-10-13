@@ -199,10 +199,8 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             job.ImportedRows, job.ItemsWithData, job.ItemsWithoutData,
             retryCount,
             warning = job.ItemsWithoutData <= 0 ? null : job.Kind == "fullstats_history"
-                ? job.Status == "completed"
-                    ? "WB не вернул статистику по части кампаний даже после повторного запроса."
-                    : "WB пока не вернул статистику по части кампаний; повторный запрос добавлен в очередь."
-                : "Часть запрошенных кампаний или товаров не вернула данных.",
+                ? "WB не вернул статистику по части кампаний. Пропуски сохранены; следующий плановый сбор проверит их снова."
+                : "WB не вернул данные по части кампаний или товаров. Это не подтверждённые нули; немедленный повтор не требуется.",
             job.Status, stage, job.WaitReason, paused = job.PauseRequestedAtUtc != null &&
                 (job.Status is "pending" or "running"), job.StartDate, job.EndDate,
             processedCount = job.NextCampaignOffset, totalCount = total,
