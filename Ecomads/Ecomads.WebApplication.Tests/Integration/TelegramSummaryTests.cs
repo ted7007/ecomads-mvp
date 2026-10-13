@@ -40,16 +40,15 @@ public sealed class TelegramSummaryTests(PostgresFixture postgres)
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
-        db.WbSyncJobs.Add(new WbSyncJob { Id = Guid.NewGuid(), StoreId = store.Id, StartDate = yesterday,
-            EndDate = yesterday, CampaignIdsJson = "[123]", Status = "completed", Kind = "fullstats" });
+        var at = DateTime.UtcNow;
+        store.CampaignsRefreshedAtUtc = at;
+        db.WbCampaignDailyChecks.Add(new WbCampaignDailyCheck { CampaignId = campaign.Id, Date = yesterday,
+            CheckedAtUtc = at, Result = "data", Spend = 100m });
+        db.WbStoreDailySpends.Add(new WbStoreDailySpend { StoreId = store.Id, Date = yesterday, Spend = 100m, LoadedAtUtc = at });
+        db.WbStoreDailyOrders.Add(new WbStoreDailyOrders { StoreId = store.Id, Date = yesterday, OrderSum = 1000m, LoadedAtUtc = at });
         db.CampaignStatistics.Add(new CampaignStatistics { CampaignId = campaign.Id,
             Date = DateTime.SpecifyKind(yesterday.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc),
             Spend = 100m, Revenue = 500m, Orders = 2 });
-        store.CampaignsRefreshedAtUtc = DateTime.UtcNow;
-        db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = yesterday, Result = "data",
-            Spend = 100m, CheckedAtUtc = DateTime.UtcNow });
-        db.WbStoreDailySpends.Add(new() { StoreId = store.Id, Date = yesterday, Spend = 100m, LoadedAtUtc = DateTime.UtcNow });
-        db.WbStoreDailyOrders.Add(new() { StoreId = store.Id, Date = yesterday, OrderSum = 1000m, LoadedAtUtc = DateTime.UtcNow });
         if (sparse)
         {
             var paused = new Campaign { Id = Guid.NewGuid(), StoreId = store.Id, Name = "Missing paused campaign",
@@ -67,6 +66,7 @@ public sealed class TelegramSummaryTests(PostgresFixture postgres)
         Assert.Single(bot.Messages);
         Assert.Contains("100,00", bot.Messages[0]);
         Assert.Contains("Общий ДРР: 10,0%", bot.Messages[0]);
+        Assert.Contains("Рекламный ДРР: 20,0%", bot.Messages[0]);
         if (sparse)
         {
             Assert.Contains("Сводка с пропусками", bot.Messages[0]);

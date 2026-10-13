@@ -18,6 +18,7 @@ namespace Ecomads.WebApplication.Controllers;
 public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient bot, WbReportReadinessService reportReadiness) : ControllerBase
 {
     private static readonly SemaphoreSlim SendLock = new(1, 1);
+
     [HttpGet("chats")]
     public async Task<IActionResult> Chats(CancellationToken cancellationToken)
     {
@@ -34,7 +35,7 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
     public async Task<IActionResult> CreateLink(CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
-        if (!bot.IsConfigured) return Conflict(new { message = "Токен Telegram-бота пока не настроен." });
+        if (!bot.IsConfigured) return Conflict(new { message = "Telegram-бот ещё не подключён к сервису. Обратитесь к администратору." });
         var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes(code)));
         var expires = DateTime.UtcNow.AddMinutes(15);
@@ -67,13 +68,13 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
     public async Task<IActionResult> SendYesterday(Guid storeId, CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
-        if (!bot.IsConfigured) return Conflict(new { message = "Токен Telegram-бота пока не настроен." });
+        if (!bot.IsConfigured) return Conflict(new { message = "Telegram-бот ещё не подключён к сервису. Обратитесь к администратору." });
         var store = await db.Stores.AsNoTracking().SingleOrDefaultAsync(x => x.Id == storeId &&
             x.SellerId == sellerId && x.ApiKey != null, cancellationToken);
         if (store == null) return NotFound();
         var chats = await db.TelegramChats.Where(x => x.SellerId == sellerId && x.IsActive)
             .ToListAsync(cancellationToken);
-        if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите личный чат Telegram." });
+        if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите чат Telegram: нажмите «Создать ссылку для привязки», откройте бота по ссылке и нажмите Start." });
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
@@ -90,20 +91,16 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             .Where(x => campaignIds.Contains(x.CampaignId) && x.Date == day)
             .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders })
             .ToListAsync(cancellationToken);
-        if (campaigns.Any(x => !stats.Any(s => s.CampaignId == x.Id)))
-            return Conflict(new { message = "Вчерашние данные по части кампаний отсутствуют. Сводка не отправлена." });
 
-        var storeTarget = await db.WbStoreNorms.AsNoTracking().Where(x => x.StoreId == storeId)
-            .Select(x => (decimal?)x.TargetDrr).FirstOrDefaultAsync(cancellationToken) ?? 20m;
         var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
             .Select(x => new { x.CampaignId, x.TargetDrr, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, cancellationToken);
         var rows = campaigns.Select(c =>
         {
-            var stat = stats.Single(s => s.CampaignId == c.Id);
+            var stat = stats.FirstOrDefault(s => s.CampaignId == c.Id);
             campaignTargets.TryGetValue(c.Id, out var custom);
-            var target = custom?.TargetDrr ?? storeTarget;
-            var drr = stat.Revenue > 0 ? (decimal?)((decimal)stat.Spend * 100m / (decimal)stat.Revenue) : null;
-            return new { Name = custom?.CustomName ?? c.Name, stat.Spend, stat.Orders, Drr = drr, Target = target };
+            var spend = stat == null ? 0m : (decimal)stat.Spend;
+            var drr = stat != null && stat.Revenue > 0 ? (decimal?)(spend * 100m / (decimal)stat.Revenue) : null;
+            return new TelegramSummaryCampaign(custom?.CustomName ?? c.Name, spend, stat?.Orders ?? 0, drr);
         }).OrderByDescending(x => x.Spend).ToList();
         var totalSpend = rows.Sum(x => (decimal)x.Spend);
         var totalRevenue = stats.Sum(x => (decimal)x.Revenue);
@@ -121,71 +118,84 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         var skipped = 0;
         var failed = 0;
         var unknown = 0;
+        // One instance serves the app, so a process-wide lock is enough to keep two quick clicks from racing.
         await SendLock.WaitAsync(cancellationToken);
         try
         {
-        foreach (var chat in chats)
-        {
-            var delivery = await db.TelegramDeliveries.FirstOrDefaultAsync(x => x.StoreId == storeId &&
-                x.ChatId == chat.Id && x.ReportDate == yesterday, cancellationToken);
-            if (delivery == null)
+            foreach (var chat in chats)
             {
-                delivery = new TelegramDelivery { Id = Guid.NewGuid(), StoreId = storeId, ChatId = chat.Id,
-                    ReportDate = yesterday, CreatedAtUtc = DateTime.UtcNow };
-                db.TelegramDeliveries.Add(delivery);
-            }
-            else if (delivery.Status == "sent") { skipped++; continue; }
-            else if (delivery.Status == "unknown") { unknown++; continue; }
-            else if (delivery.Status == "pending")
-            {
-                if (delivery.UpdatedAtUtc > DateTime.UtcNow.AddMinutes(-5)) { skipped++; continue; }
-                delivery.Status = "unknown";
-                delivery.ErrorCode = "stale_pending";
+                var delivery = await db.TelegramDeliveries.FirstOrDefaultAsync(x => x.StoreId == storeId &&
+                    x.ChatId == chat.Id && x.ReportDate == yesterday, cancellationToken);
+                if (delivery == null)
+                {
+                    delivery = new TelegramDelivery
+                    {
+                        Id = Guid.NewGuid(), StoreId = storeId, ChatId = chat.Id, ReportDate = yesterday,
+                        CreatedAtUtc = DateTime.UtcNow
+                    };
+                    db.TelegramDeliveries.Add(delivery);
+                }
+                else if (delivery.Status == "sent") { skipped++; continue; }
+                else if (delivery.Status == "unknown") { unknown++; continue; }
+                else if (delivery.Status == "pending")
+                {
+                    // Fresh pending: someone is sending right now. Old pending: the process died mid-send,
+                    // so Telegram may or may not have delivered it. Never resend automatically.
+                    if (delivery.UpdatedAtUtc > DateTime.UtcNow.AddMinutes(-5)) { skipped++; continue; }
+                    delivery.Status = "unknown";
+                    delivery.ErrorCode = "stale_pending";
+                    delivery.UpdatedAtUtc = DateTime.UtcNow;
+                    await db.SaveChangesAsync(cancellationToken);
+                    unknown++;
+                    continue;
+                }
+                // Reaching here: new delivery, or a confirmed failure that is safe to retry.
+                delivery.Status = "pending";
+                delivery.ErrorCode = null;
                 delivery.UpdatedAtUtc = DateTime.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
-                unknown++;
-                continue;
+                try
+                {
+                    await bot.SendMessageAsync(chat.ChatId, message, cancellationToken);
+                    delivery.Status = "sent";
+                    sent++;
+                }
+                catch (TelegramApiException error)
+                {
+                    delivery.Status = "failed";
+                    delivery.ErrorCode = $"telegram_{error.StatusCode}";
+                    if (error.StatusCode == 403) chat.IsActive = false; // the user blocked the bot
+                    failed++;
+                }
+                catch (Exception error) when (error is HttpRequestException ||
+                    (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+                {
+                    delivery.Status = "unknown";
+                    delivery.ErrorCode = "transport_unknown";
+                    unknown++;
+                }
+                delivery.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
             }
-            delivery.Status = "pending";
-            delivery.ErrorCode = null;
-            delivery.UpdatedAtUtc = DateTime.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
-            try
-            {
-                await bot.SendMessageAsync(chat.ChatId, message, cancellationToken);
-                delivery.Status = "sent";
-                sent++;
-            }
-            catch (TelegramApiException error)
-            {
-                delivery.Status = "failed";
-                delivery.ErrorCode = $"telegram_{error.StatusCode}";
-                if (error.StatusCode == 403) chat.IsActive = false;
-                failed++;
-            }
-            catch (Exception error) when (error is HttpRequestException ||
-                (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
-            {
-                delivery.Status = "unknown";
-                delivery.ErrorCode = "transport_unknown";
-                unknown++;
-            }
-            delivery.UpdatedAtUtc = DateTime.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
         }
+        finally
+        {
+            SendLock.Release();
         }
-        finally { SendLock.Release(); }
         return Ok(new { reportDate = yesterday, sent, skipped, failed, unknown, partial = !readiness.Ready,
             missingCampaigns = readiness.MissingCampaigns.Count });
     }
 
+    /// <summary>Sends clearly labeled demo data to the linked chats. No WB cabinet needed, nothing is stored.</summary>
     [HttpPost("send-test")]
     public async Task<IActionResult> SendTest(CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
         if (!bot.IsConfigured) return Conflict(new { message = "Telegram-бот ещё не подключён к сервису. Обратитесь к администратору." });
-        var chats = await db.TelegramChats.Where(x => x.SellerId == sellerId && x.IsActive).ToListAsync(cancellationToken);
+        var chats = await db.TelegramChats.Where(x => x.SellerId == sellerId && x.IsActive)
+            .ToListAsync(cancellationToken);
         if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите чат Telegram: нажмите «Создать ссылку для привязки», откройте бота по ссылке и нажмите Start." });
+
         var day = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
         var demo = new List<TelegramSummaryCampaign>
         {
@@ -196,16 +206,26 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         var message = TelegramSummaryFormatter.Format(new TelegramSummary("Демо-кабинет", day,
             demo.Sum(x => x.Spend), 87650m, demo.Sum(x => x.Orders), demo,
             DateTime.UtcNow.ToString("dd.MM.yyyy HH:mm"), DashboardUrl(day), IsTest: true));
+
         var sent = 0;
         var failed = 0;
         foreach (var chat in chats)
         {
-            try { await bot.SendMessageAsync(chat.ChatId, message, cancellationToken); sent++; }
+            try
+            {
+                await bot.SendMessageAsync(chat.ChatId, message, cancellationToken);
+                sent++;
+            }
             catch (TelegramApiException error)
-            { if (error.StatusCode == 403) chat.IsActive = false; failed++; }
+            {
+                if (error.StatusCode == 403) chat.IsActive = false;
+                failed++;
+            }
             catch (Exception error) when (error is HttpRequestException ||
                 (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
-            { failed++; }
+            {
+                failed++;
+            }
         }
         await db.SaveChangesAsync(cancellationToken);
         return Ok(new { sent, failed });

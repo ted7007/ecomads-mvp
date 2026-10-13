@@ -126,7 +126,9 @@ export function WbStoresPage() {
   const queryClient = useQueryClient();
   const stores = useQuery({ queryKey: ['wb-stores'], queryFn: getWbStores });
   const telegram = useQuery({ queryKey: ['telegram-chats'], queryFn: getTelegramChats });
+  // Telegram errors live next to the Telegram card: the WB connection form is collapsed and would hide them.
   const [telegramError, setTelegramError] = useState<string | null>(null);
+  // 409 from the summary endpoint means "preconditions not met" (e.g. yesterday's data is still loading).
   const [notReady, setNotReady] = useState<string | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const activeStoreId = stores.data?.find((store) => store.id === selectedStoreId)?.id ?? stores.data?.[0]?.id;
@@ -201,7 +203,9 @@ export function WbStoresPage() {
             {telegramError ? <Alert severity="error">{telegramError}</Alert> : null}
             <Dialog open={notReady !== null} onClose={() => setNotReady(null)}>
               <DialogTitle>Сводку пока нельзя отправить</DialogTitle>
-              <DialogContent><DialogContentText>{notReady}</DialogContentText></DialogContent>
+              <DialogContent>
+                <DialogContentText>{notReady}</DialogContentText>
+              </DialogContent>
               <DialogActions><Button onClick={() => setNotReady(null)}>Понятно</Button></DialogActions>
             </Dialog>
             {telegram.data && !telegram.data.botConfigured ? <Alert severity="info">Бот ещё не настроен. Привязка и отправка сводки станут доступны после добавления токена бота.</Alert> : null}

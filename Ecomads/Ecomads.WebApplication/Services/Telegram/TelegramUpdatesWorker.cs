@@ -58,13 +58,19 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
             }
             catch (TelegramApiException error)
             {
-                logger.LogWarning("Telegram update {UpdateId} was not answered: HTTP {StatusCode}", update.UpdateId, error.StatusCode);
+                // One failing chat must not block the whole queue: the update is skipped, not retried forever.
+                logger.LogWarning("Telegram update {UpdateId} was not answered: HTTP {StatusCode}",
+                    update.UpdateId, error.StatusCode);
                 if (error.StatusCode == 403) await DeactivateChatAsync(db, update.ChatId, cancellationToken);
             }
             catch (HttpRequestException)
-            { logger.LogWarning("Telegram update {UpdateId} was not answered: transport error", update.UpdateId); }
+            {
+                logger.LogWarning("Telegram update {UpdateId} was not answered: transport error", update.UpdateId);
+            }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            { logger.LogWarning("Telegram update {UpdateId} was not answered: timeout", update.UpdateId); }
+            {
+                logger.LogWarning("Telegram update {UpdateId} was not answered: timeout", update.UpdateId);
+            }
             state.NextUpdateId = update.UpdateId + 1;
             await db.SaveChangesAsync(cancellationToken);
         }
