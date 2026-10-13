@@ -16,6 +16,8 @@ namespace Ecomads.WebApplication.Controllers;
 [Route("api/telegram")]
 public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient bot) : ControllerBase
 {
+    private static readonly SemaphoreSlim SendLock = new(1, 1);
+
     [HttpGet("chats")]
     public async Task<IActionResult> Chats(CancellationToken cancellationToken)
     {
@@ -96,78 +98,138 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         if (campaigns.Any(x => !stats.Any(s => s.CampaignId == x.Id)))
             return Conflict(new { message = "Вчерашние данные по части кампаний отсутствуют. Сводка не отправлена." });
 
-        var storeTarget = await db.WbStoreNorms.AsNoTracking().Where(x => x.StoreId == storeId)
-            .Select(x => (decimal?)x.TargetDrr).FirstOrDefaultAsync(cancellationToken) ?? 20m;
         var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
             .Select(x => new { x.CampaignId, x.TargetDrr, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, cancellationToken);
         var rows = campaigns.Select(c =>
         {
             var stat = stats.Single(s => s.CampaignId == c.Id);
             campaignTargets.TryGetValue(c.Id, out var custom);
-            var target = custom?.TargetDrr ?? storeTarget;
             var drr = stat.Revenue > 0 ? (decimal?)((decimal)stat.Spend * 100m / (decimal)stat.Revenue) : null;
-            return new { Name = custom?.CustomName ?? c.Name, stat.Spend, stat.Orders, Drr = drr, Target = target };
+            return new TelegramSummaryCampaign(custom?.CustomName ?? c.Name, (decimal)stat.Spend, stat.Orders, drr);
         }).OrderByDescending(x => x.Spend).ToList();
-        var aboveTarget = rows.Where(x => x.Drr > x.Target).Take(5).ToList();
-        var totalSpend = rows.Sum(x => (decimal)x.Spend);
-        var totalRevenue = stats.Sum(x => (decimal)x.Revenue);
-        var totalDrr = totalRevenue > 0 ? $"{totalSpend * 100m / totalRevenue:F1}%" : "—";
-        var lines = new List<string>
-        {
-            $"EcomAds · {store.Name} · {yesterday:dd.MM.yyyy}",
-            $"Реклама: расход {totalSpend:N2} ₽, ДРР {totalDrr}.",
-            $"Выше цели: {rows.Count(x => x.Drr > x.Target)} из {rows.Count} кампаний.",
-            "",
-            "Требуют внимания:"
-        };
-        lines.AddRange(aboveTarget.Count == 0 ? ["Превышений рекламного ДРР нет."] :
-            aboveTarget.Select(x => $"• {x.Name}: ДРР {x.Drr:F1}% при цели {x.Target:F1}%."));
-        lines.Add("");
-        lines.Add("Кампании по расходу:");
-        lines.AddRange(rows.Take(10).Select(x =>
-            $"• {x.Name}: {x.Spend:N2} ₽, {x.Orders} заказов, ДРР {(x.Drr.HasValue ? $"{x.Drr:F1}%" : "—")}."));
-        lines.Add($"Обновлено: {store.LastSyncAt?.ToString("dd.MM.yyyy HH:mm") ?? "неизвестно"} UTC.");
-        lines.Add($"{Request.Scheme}://{Request.Host}/dashboard?startDate={yesterday:yyyy-MM-dd}&endDate={yesterday:yyyy-MM-dd}");
-        var message = string.Join('\n', lines);
+        var message = TelegramSummaryFormatter.Format(new TelegramSummary(
+            store.Name, yesterday,
+            rows.Sum(x => x.Spend), stats.Sum(x => (decimal)x.Revenue), stats.Sum(x => (long)x.Orders),
+            rows, store.LastSyncAt?.ToString("dd.MM.yyyy HH:mm"), DashboardUrl(yesterday)));
 
         var sent = 0;
         var skipped = 0;
         var failed = 0;
+        var unknown = 0;
+        // One instance serves the app, so a process-wide lock is enough to keep two quick clicks from racing.
+        await SendLock.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var chat in chats)
+            {
+                var delivery = await db.TelegramDeliveries.FirstOrDefaultAsync(x => x.StoreId == storeId &&
+                    x.ChatId == chat.Id && x.ReportDate == yesterday, cancellationToken);
+                if (delivery == null)
+                {
+                    delivery = new TelegramDelivery
+                    {
+                        Id = Guid.NewGuid(), StoreId = storeId, ChatId = chat.Id, ReportDate = yesterday,
+                        CreatedAtUtc = DateTime.UtcNow
+                    };
+                    db.TelegramDeliveries.Add(delivery);
+                }
+                else if (delivery.Status == "sent") { skipped++; continue; }
+                else if (delivery.Status == "unknown") { unknown++; continue; }
+                else if (delivery.Status == "pending")
+                {
+                    // Fresh pending: someone is sending right now. Old pending: the process died mid-send,
+                    // so Telegram may or may not have delivered it. Never resend automatically.
+                    if (delivery.UpdatedAtUtc > DateTime.UtcNow.AddMinutes(-5)) { skipped++; continue; }
+                    delivery.Status = "unknown";
+                    delivery.ErrorCode = "stale_pending";
+                    delivery.UpdatedAtUtc = DateTime.UtcNow;
+                    await db.SaveChangesAsync(cancellationToken);
+                    unknown++;
+                    continue;
+                }
+                // Reaching here: new delivery, or a confirmed failure that is safe to retry.
+                delivery.Status = "pending";
+                delivery.ErrorCode = null;
+                delivery.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await bot.SendMessageAsync(chat.ChatId, message, cancellationToken);
+                    delivery.Status = "sent";
+                    sent++;
+                }
+                catch (TelegramApiException error)
+                {
+                    delivery.Status = "failed";
+                    delivery.ErrorCode = $"telegram_{error.StatusCode}";
+                    if (error.StatusCode == 403) chat.IsActive = false; // the user blocked the bot
+                    failed++;
+                }
+                catch (Exception error) when (error is HttpRequestException ||
+                    (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+                {
+                    delivery.Status = "unknown";
+                    delivery.ErrorCode = "transport_unknown";
+                    unknown++;
+                }
+                delivery.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            SendLock.Release();
+        }
+        return Ok(new { reportDate = yesterday, sent, skipped, failed, unknown });
+    }
+
+    /// <summary>Sends clearly labeled demo data to the linked chats. No WB cabinet needed, nothing is stored.</summary>
+    [HttpPost("send-test")]
+    public async Task<IActionResult> SendTest(CancellationToken cancellationToken)
+    {
+        if (!TrySellerId(out var sellerId)) return Unauthorized();
+        if (!bot.IsConfigured) return Conflict(new { message = "Токен Telegram-бота пока не настроен." });
+        var chats = await db.TelegramChats.Where(x => x.SellerId == sellerId && x.IsActive)
+            .ToListAsync(cancellationToken);
+        if (chats.Count == 0) return Conflict(new { message = "Сначала привяжите личный чат Telegram." });
+
+        var day = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var demo = new List<TelegramSummaryCampaign>
+        {
+            new("Демо: поиск, бренд", 12450.50m, 31, 14.2m),
+            new("Демо: автоматическая кампания с очень длинным названием для проверки переноса", 8300m, 12, 36.8m),
+            new("Демо: без выручки", 1200m, 0, null)
+        };
+        var message = TelegramSummaryFormatter.Format(new TelegramSummary("Демо-кабинет", day,
+            demo.Sum(x => x.Spend), 87650m, demo.Sum(x => x.Orders), demo,
+            DateTime.UtcNow.ToString("dd.MM.yyyy HH:mm"), DashboardUrl(day), IsTest: true));
+
+        var sent = 0;
+        var failed = 0;
         foreach (var chat in chats)
         {
-            var existing = await db.TelegramDeliveries.SingleOrDefaultAsync(x => x.StoreId == storeId &&
-                x.ChatId == chat.Id && x.ReportDate == yesterday, cancellationToken);
-            if (existing != null) { skipped++; continue; }
-            var delivery = new TelegramDelivery
-            {
-                Id = Guid.NewGuid(), StoreId = storeId, ChatId = chat.Id, ReportDate = yesterday,
-                CreatedAtUtc = DateTime.UtcNow, UpdatedAtUtc = DateTime.UtcNow
-            };
-            db.TelegramDeliveries.Add(delivery);
-            await db.SaveChangesAsync(cancellationToken);
             try
             {
                 await bot.SendMessageAsync(chat.ChatId, message, cancellationToken);
-                delivery.Status = "sent";
                 sent++;
             }
             catch (TelegramApiException error)
             {
-                delivery.Status = "failed";
-                delivery.ErrorCode = $"telegram_{error.StatusCode}";
+                if (error.StatusCode == 403) chat.IsActive = false;
                 failed++;
             }
-            catch (HttpRequestException)
+            catch (Exception error) when (error is HttpRequestException ||
+                (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
             {
-                delivery.Status = "unknown";
-                delivery.ErrorCode = "transport_unknown";
                 failed++;
             }
-            delivery.UpdatedAtUtc = DateTime.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
         }
-        return Ok(new { reportDate = yesterday, sent, skipped, failed });
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new { sent, failed });
     }
+
+    private string DashboardUrl(DateOnly day) =>
+        $"{Request.Scheme}://{Request.Host}/dashboard?startDate={day:yyyy-MM-dd}&endDate={day:yyyy-MM-dd}";
 
     private bool TrySellerId(out Guid sellerId) =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out sellerId);
