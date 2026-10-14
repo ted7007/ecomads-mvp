@@ -249,7 +249,9 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 await db.SaveChangesAsync(cancellationToken);
                 var importer = scope.ServiceProvider.GetRequiredService<WbCostsImporter>();
                 job.ImportedRows += await importer.ImportAsync(store.Id, job.StartDate, job.EndDate,
-                    response.RootElement, cancellationToken);
+                    // WB can include adjacent Moscow dates in an otherwise valid costs response.
+                    // Apply the same bounded filtering as monthly/history imports, keeping only requested days.
+                    response.RootElement, cancellationToken, allowAdjacentDays: true);
                 job.NextCampaignOffset = 1;
             }
             else if (job.Kind is "funnel_recent" or "funnel_backfill" or "funnel_year" or "funnel_month")

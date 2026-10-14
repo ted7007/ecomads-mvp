@@ -386,6 +386,22 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         return new(await QueueAsync(store.Id, "clusters", start, end, "[]", JsonSerializer.Serialize(pairs), null, ct));
     }
 
+    public async Task<WbPlanResult> EnqueueMissingClustersAsync(Store store, DateOnly start, DateOnly end, CancellationToken ct)
+    {
+        var active = await ActiveAsync(store.Id, "clusters", ct);
+        if (active != null) return new(active);
+        var loaded = await LoadedCampaignIdsAsync(store.Id, start, end, ct);
+        var eligible = (await ObservedAsync(store.Id, start, end, ct)).Where(x => loaded.Contains(x.AdvertId)).ToArray();
+        var completed = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == store.Id && x.Kind == "clusters" &&
+            x.Status == "completed" && x.StartDate <= end && x.EndDate >= start)
+            .Select(x => new { x.StartDate, x.EndDate, x.PairIdsJson }).ToListAsync(ct);
+        var intervals = completed.Select(x => new Services.Recommendations.ClusterCoverageInterval(x.StartDate, x.EndDate,
+            JsonSerializer.Deserialize<WbNormQueryPair[]>(x.PairIdsJson ?? "[]") ?? [])).ToArray();
+        var missing = eligible.Where(x => !Services.Recommendations.RecommendationCoverage.Covers(new(start, end), x.AdvertId, x.NmId, intervals)).ToArray();
+        if (missing.Length == 0) return new(null, "Все доступные пары за период уже загружены; остальные ожидают fullstats.");
+        return new(await QueueAsync(store.Id, "clusters", start, end, "[]", JsonSerializer.Serialize(missing), null, ct));
+    }
+
     public async Task<WbPlanResult> EnqueueJamAsync(Store store, Guid runId, CancellationToken ct)
     {
         var active = await ActiveAsync(store.Id, "jam", ct);

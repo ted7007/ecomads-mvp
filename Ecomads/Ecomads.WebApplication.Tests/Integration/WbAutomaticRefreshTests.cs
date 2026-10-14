@@ -146,6 +146,57 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
     private static WbSyncPlanner Planner(EcomadsDbContext db) =>
         new(db, new FakePromotionClient(), new PlainTokens(), NullLogger<WbSyncPlanner>.Instance);
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(-1, true)]
+    [InlineData(3, false)]
+    public async Task ExpensesWorkerFiltersAdjacentDatesWithoutLosingRequestedDays(int extraDayOffset, bool accepted)
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        await using var db = postgres.CreateDbContext(connection);
+        await db.Database.MigrateAsync();
+        var store = await SeedAsync(db);
+        var day = new DateOnly(2026, 10, 13);
+        var oldLoadedAt = DateTime.UtcNow.AddDays(-1);
+        db.WbStoreDailySpends.Add(new() { StoreId = store.Id, Date = day, Spend = 99m, LoadedAtUtc = oldLoadedAt });
+        var job = new WbSyncJob { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "expenses",
+            StartDate = day, EndDate = day, CampaignIdsJson = "[]", NextAttemptAtUtc = DateTime.UtcNow,
+            CreatedAtUtc = DateTime.UtcNow, UpdatedAtUtc = DateTime.UtcNow };
+        db.WbSyncJobs.Add(job);
+        await db.SaveChangesAsync();
+        var extraDay = day.AddDays(extraDayOffset);
+        var client = new FakePromotionClient { CostsJson = $$"""
+            [{"updTime":"2026-10-13T10:00:00+03:00","updSum":10},
+             {"updTime":"{{extraDay:yyyy-MM-dd}}T00:30:00+03:00","updSum":999}]
+            """ };
+        var services = new ServiceCollection();
+        services.AddDbContext<EcomadsDbContext>(options => options.UseNpgsql(connection));
+        services.AddSingleton<IWbPromotionClient>(client);
+        services.AddSingleton<IWbTokenService, PlainTokens>();
+        services.AddScoped<WbCostsImporter>();
+        using var provider = services.BuildServiceProvider();
+        var worker = new WbSyncWorker(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<WbSyncWorker>.Instance);
+        await worker.ProcessNextAsync(default);
+        db.ChangeTracker.Clear();
+        var saved = await db.WbStoreDailySpends.SingleAsync();
+        var savedJob = await db.WbSyncJobs.SingleAsync();
+        Assert.Equal(day, saved.Date);
+        Assert.Equal(accepted ? 10m : 99m, saved.Spend);
+        Assert.Equal(accepted ? 1 : 0, savedJob.NextCampaignOffset);
+        Assert.Equal(accepted ? 1 : 0, savedJob.ImportedRows);
+        if (accepted)
+        {
+            Assert.Equal("completed", savedJob.Status);
+            Assert.Null(savedJob.ErrorCode);
+            Assert.True(saved.LoadedAtUtc > oldLoadedAt);
+        }
+        else
+        {
+            Assert.Equal("invalid_response", savedJob.ErrorCode);
+            Assert.Equal(oldLoadedAt.Ticks / 10, saved.LoadedAtUtc.Ticks / 10);
+        }
+    }
+
     [Fact]
     public async Task ConcurrentSchedulersPlanOneJobPerSource()
     {
@@ -184,6 +235,54 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
         Assert.Equal(15m, (await db.WbCampaignDailyChecks.SingleAsync()).Spend);
     }
 
+    [Fact]
+    public async Task MissingClusterPlanningDoesNotRepeatCoveredEligiblePairsWhenOtherCampaignsAreNotLoaded()
+    {
+        await using var db = await postgres.CreateMigratedDbContextAsync();
+        var store = await SeedAsync(db);
+        var campaign = await db.Campaigns.SingleAsync();
+        var other = new Campaign { Id = Guid.NewGuid(), StoreId = store.Id, WbCampaignId = "999", Name = "unloaded" };
+        var article = new Nomenclature { Id = Guid.NewGuid(), StoreId = store.Id, WbNomenclatureId = "1", Name = "P" };
+        var start = WbSyncPlanner.Yesterday().AddDays(-7);
+        db.Campaigns.Add(other); db.Nomenclatures.Add(article);
+        foreach (var c in new[] { campaign, other }) db.CampaignNomenclatureStatistics.Add(new() { CampaignId = c.Id,
+            NomenclatureId = article.Id, Date = start.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) });
+        db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
+            Date = start.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) });
+        foreach (var day in new[] { start, start.AddDays(1) }) db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = day, Result = "data" });
+        db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "fullstats", Status = "completed",
+            StartDate = start, EndDate = start.AddDays(1), CampaignIdsJson = "[123]" });
+        db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed",
+            StartDate = start, EndDate = start, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
+        await db.SaveChangesAsync();
+        Assert.Null((await Planner(db).EnqueueMissingClustersAsync(store, start, start, default)).Job);
+        var next = (await Planner(db).EnqueueMissingClustersAsync(store, start.AddDays(1), start.AddDays(1), default)).Job;
+        Assert.NotNull(next);
+        Assert.Equal(start.AddDays(1), next.StartDate);
+        Assert.Equal(new WbNormQueryPair(123, 1), Assert.Single(JsonSerializer.Deserialize<WbNormQueryPair[]>(next.PairIdsJson!)!));
+    }
+
+    [Fact]
+    public async Task MissingOnlyImportRevalidatesLegacyArticleRowsInsteadOfSkippingConfirmedDayForever()
+    {
+        await using var db = await postgres.CreateMigratedDbContextAsync();
+        var store = await SeedAsync(db);
+        var campaign = await db.Campaigns.SingleAsync();
+        var article = new Nomenclature { Id = Guid.NewGuid(), StoreId = store.Id, WbNomenclatureId = "1", Name = "P" };
+        var day = WbSyncPlanner.Yesterday();
+        db.Nomenclatures.Add(article);
+        db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
+            Date = day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 100, OrderedProducts = 1, RecommendationFieldsVerified = null });
+        db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = day, Result = "data", Spend = 10 });
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        using var payload = JsonDocument.Parse($$"""
+        [{"advertId":123,"days":[{"date":"{{day:yyyy-MM-dd}}T00:00:00Z","sum":10,"sum_price":100,"views":100,"clicks":10,"atbs":2,"orders":1,"canceled":0,
+        "apps":[{"nms":[{"nmId":1,"sum":10,"sum_price":100,"shks":1,"views":100,"clicks":10,"atbs":2,"orders":1,"canceled":0}]}]}]}]
+        """);
+        await new WbFullStatsImporter(db).ImportAsync(store.Id, payload.RootElement, default, [123], fillMissingOnly: true);
+        Assert.True((await db.CampaignNomenclatureStatistics.SingleAsync()).RecommendationFieldsVerified);
+    }
+
     private static async Task<Store> SeedAsync(EcomadsDbContext db)
     {
         var seller = TestData.CreateActiveDemoSeller();
@@ -205,6 +304,7 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
 
     private sealed class FakePromotionClient : IWbPromotionClient
     {
+        public string CostsJson { get; init; } = "[]";
         public List<DateOnly> RequestedEnds { get; } = [];
         public Task<IReadOnlyList<WbCampaignInfo>> GetCampaignsAsync(string token, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<WbCampaignInfo>>([new(123, "Campaign", 9, "cpm", [])]);
@@ -216,7 +316,7 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
             }))));
         }
         public Task<JsonDocument> GetCostsAsync(string token, DateOnly start, DateOnly end, CancellationToken ct) =>
-            Task.FromResult(JsonDocument.Parse("[]"));
+            Task.FromResult(JsonDocument.Parse(CostsJson));
         public Task<JsonDocument> GetNormQueryStatsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs, DateOnly start, DateOnly end, CancellationToken ct) =>
             Task.FromResult(JsonDocument.Parse("{\"items\":[]}"));
     }

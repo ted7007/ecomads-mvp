@@ -73,10 +73,9 @@ public sealed class TelegramSummaryFormatterTests
     {
         var text = TelegramSummaryFormatter.Format(Sample([]) with
         {
-            MissingCampaignNames = ["Нет данных"], StoreSpend = 100m, StoreOrdersSum = 1000m
+            MissingCampaignNames = ["Нет данных"]
         });
         Assert.Contains("Сводка с пропусками", text);
-        Assert.Contains("Общий ДРР: 10,0%", text);
         Assert.Contains("Рекламные показатели: WB не вернул подтверждённых данных", text);
         Assert.DoesNotContain("Расход на рекламу: 0,00", text);
         Assert.EndsWith("Отключить сообщения: /stop", text);

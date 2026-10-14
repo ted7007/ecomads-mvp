@@ -139,6 +139,11 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                     Sum(x => x.Carts), Sum(x => x.Orders), Sum(x => x.OrderedProducts), price);
                 var economy = RecommendationEngine.Economy(facts, norm, settings.PriceScenario);
                 var rules = RecommendationEngine.Evaluate(facts, norm, quality, settings);
+                var gaps = new List<string>();
+                if (!articleComplete) gaps.Add("Не подтверждены все дни товарной статистики WB за выбранный период.");
+                if (!pairComplete) gaps.Add("Кластеры за выбранный период ещё не загружены полностью; ожидается фоновая загрузка.");
+                if (!fieldsVerified) gaps.Add("Старые товарные строки требуют повторной загрузки для проверки суммы заказов и заказанных единиц.");
+                if (gaps.Count > 0) rules = rules.Select(r => r.Status == "skipped" ? r with { Explanation = string.Join(" ", gaps) } : r).ToArray();
                 var launch = articleNorm?.LaunchDate ?? campaignNorm?.LaunchDate;
                 if (RecommendationActions.LaunchProtected(launch, window, today))
                     rules = rules.Select(x => x.Enabled ? x with { Status = "skipped", ReasonCode = "launch", Explanation = "Защита запуска: выбранный период пересекает первые 21 день или запуск ещё продолжается." } : x).ToArray();

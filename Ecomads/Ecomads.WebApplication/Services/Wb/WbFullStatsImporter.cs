@@ -55,7 +55,9 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                 if (!seenDays.Add((campaign.Id, requestedDay)))
                     throw new JsonException("WB вернул повторный день кампании.");
                 if (fillMissingOnly && await db.WbCampaignDailyChecks.AnyAsync(x => x.CampaignId == campaign.Id &&
-                    x.Date == DateOnly.FromDateTime(date) && (x.Result == "data" || x.Result == "zero"), cancellationToken)) continue;
+                    x.Date == DateOnly.FromDateTime(date) && (x.Result == "data" || x.Result == "zero"), cancellationToken) &&
+                    !await db.CampaignNomenclatureStatistics.AnyAsync(x => x.CampaignId == campaign.Id && x.Date == date &&
+                        x.RecommendationFieldsVerified != true, cancellationToken)) continue;
                 await db.CampaignStatistics.Where(s => s.CampaignId == campaign.Id && s.Date == date)
                     .ExecuteDeleteAsync(cancellationToken);
                 await db.CampaignNomenclatureStatistics.Where(s => s.CampaignId == campaign.Id && s.Date == date)

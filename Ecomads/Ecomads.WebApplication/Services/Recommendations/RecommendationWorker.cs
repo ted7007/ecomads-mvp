@@ -51,25 +51,24 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
                 if (store.AutoRefreshEnabled && !store.AutoRefreshBlocked && (store.TokenExpiresAtUtc == null || store.TokenExpiresAtUtc > nowUtc))
                 {
                     await scope.ServiceProvider.GetRequiredService<AdvertisingSettingsSync>().RefreshAsync(store, nowUtc, ct);
-                    var completed = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == store.Id && x.Kind == "clusters" &&
-                        x.Status == "completed" && x.StartDate <= window.EndDate && x.EndDate >= window.StartDate)
-                        .Select(x => new { x.StartDate, x.EndDate, x.PairIdsJson }).ToListAsync(ct);
-                    var intervals = completed.Select(x => new ClusterCoverageInterval(x.StartDate, x.EndDate,
-                        JsonSerializer.Deserialize<WbNormQueryPair[]>(x.PairIdsJson ?? "[]") ?? [])).ToArray();
-                    var pairs = await (from stat in db.CampaignNomenclatureStatistics.AsNoTracking()
-                        join campaign in db.Campaigns.AsNoTracking() on stat.CampaignId equals campaign.Id
-                        join article in db.Nomenclatures.AsNoTracking() on stat.NomenclatureId equals article.Id
-                        where campaign.StoreId == store.Id && stat.Date >= window.StartDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) &&
-                            stat.Date <= window.EndDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)
-                        select new { campaign.WbCampaignId, article.WbNomenclatureId }).Distinct().ToListAsync(ct);
-                    for (var start = window.StartDate; start <= window.EndDate; start = start.AddDays(7))
+                    var requested = await db.WbRecommendationRuns.AsNoTracking().Where(x => x.StoreId == store.Id &&
+                        x.SchemaVersion >= 2 && x.CalculatedAtUtc > nowUtc.AddDays(-1) && x.EndDate <= today.AddDays(-1))
+                        .Select(x => new { x.StartDate, x.EndDate }).Distinct().OrderByDescending(x => x.EndDate)
+                        .ThenByDescending(x => x.StartDate).Take(4).ToListAsync(ct);
+                    var windows = requested.Select(x => new RecommendationWindow(x.StartDate, x.EndDate)).Append(window).Distinct().ToArray();
+                    var planner = scope.ServiceProvider.GetRequiredService<WbSyncPlanner>();
+                    var queued = false;
+                    foreach (var target in windows)
                     {
-                        var end = start.AddDays(6) < window.EndDate ? start.AddDays(6) : window.EndDate;
-                        var missing = pairs.Any(pair => long.TryParse(pair.WbCampaignId, out var advert) &&
-                            long.TryParse(pair.WbNomenclatureId, out var nm) && !RecommendationCoverage.Covers(new(start, end), advert, nm, intervals));
-                        if (!missing) continue;
-                        await scope.ServiceProvider.GetRequiredService<WbSyncPlanner>().EnqueueClustersAsync(store, start, end, null, ct);
-                        break; // Existing queue serializes one cluster job per store.
+                        for (var start = target.StartDate; start <= target.EndDate; start = start.AddDays(7))
+                        {
+                            var end = start.AddDays(6) < target.EndDate ? start.AddDays(6) : target.EndDate;
+                            var result = await planner.EnqueueMissingClustersAsync(store, start, end, ct);
+                            if (result.Job == null) continue;
+                            queued = true;
+                            break;
+                        }
+                        if (queued) break;
                     }
                 }
                 foreach (var campaign in campaigns)

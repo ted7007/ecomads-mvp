@@ -54,7 +54,7 @@ export function WbClusterTable({ rows, jamRows = [], emptyText }: { rows: WbClus
           <TableCell align="right"><Tooltip title={row.estimateReason ?? estimateHint}><span>
             {row.estimatedOrderSum === null ? '—' : money(row.estimatedOrderSum)}
           </span></Tooltip>{row.estimateStatus !== 'complete' ? <Typography variant="caption" display="block" color="warning.main">
-            {row.estimateStatus === 'preliminary' ? 'Предварительно' : 'Нет данных для оценки'}
+            {row.estimateStatus === 'preliminary' ? 'Предварительно' : row.estimateReason ?? 'Средняя цена за выбранный период неизвестна'}
           </Typography> : null}</TableCell>
           <TableCell align="right"><Tooltip title={row.estimateReason ?? (row.estimatedOrderSum === 0 ? 'Оценочная сумма заказов равна нулю; ДРР не рассчитывается.' : estimateHint)}><span>
             {row.estimatedDrr === null ? '—' : money(row.estimatedDrr)}
