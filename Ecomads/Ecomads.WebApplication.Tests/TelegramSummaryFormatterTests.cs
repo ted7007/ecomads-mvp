@@ -10,7 +10,7 @@ public sealed class TelegramSummaryFormatterTests
     private static TelegramSummary Sample(IReadOnlyList<TelegramSummaryCampaign> campaigns,
         decimal revenue = 20000m, bool isTest = false) =>
         new("Кабинет", new DateOnly(2026, 10, 12), campaigns.Sum(x => x.Spend), revenue,
-            campaigns.Sum(x => x.Orders), campaigns, "13.10.2026 03:12", Url, isTest);
+            campaigns.Sum(x => x.Orders), campaigns, "13.10.2026 06:12 МСК", Url, isTest);
 
     [Fact]
     public void ShowsTotalsCampaignsAndLinks()
@@ -22,7 +22,9 @@ public sealed class TelegramSummaryFormatterTests
         Assert.Contains("Заказы из рекламы: 7", text);
         Assert.Contains("Рекламный ДРР: 19,5%", text);
         Assert.Contains("1. Пледы осень: 3 900,00 ₽ · 7 заказов · ДРР 21,0%", text);
-        Assert.Contains("Данные: 13.10.2026 03:12 UTC", text);
+        Assert.Contains("Данные: 13.10.2026 06:12 МСК", text);
+        Assert.Contains("Кампании по расходу — топ 1", text);
+        Assert.Contains("Открыть сводку за этот день: " + Url, text);
         Assert.Contains(Url, text);
         Assert.EndsWith("Отключить сообщения: /stop", text);
     }
@@ -46,7 +48,7 @@ public sealed class TelegramSummaryFormatterTests
         var text = TelegramSummaryFormatter.Format(Sample(campaigns));
 
         Assert.True(text.Length <= TelegramSummaryFormatter.MaxMessageLength);
-        Assert.Contains("топ 10 из 30", text);
+        Assert.Contains("Кампании по расходу — топ ", text);
         Assert.Contains("…", text);
     }
 
@@ -78,5 +80,19 @@ public sealed class TelegramSummaryFormatterTests
         Assert.Contains("Рекламные показатели: WB не вернул подтверждённых данных", text);
         Assert.DoesNotContain("Расход на рекламу: 0,00", text);
         Assert.EndsWith("Отключить сообщения: /stop", text);
+    }
+
+    [Fact]
+    public void PeriodSummaryShowsBothDatesAndPeriodLink()
+    {
+        var summary = Sample([new("Пледы", 100m, 1, 10m)]) with
+        {
+            ReportEndDate = new DateOnly(2026, 10, 14), DashboardLinkLabel = "Открыть сводку за этот период"
+        };
+
+        var text = TelegramSummaryFormatter.Format(summary);
+
+        Assert.Contains("Рекламная сводка за 12.10.2026 – 14.10.2026, МСК", text);
+        Assert.Contains("Открыть сводку за этот период: ", text);
     }
 }

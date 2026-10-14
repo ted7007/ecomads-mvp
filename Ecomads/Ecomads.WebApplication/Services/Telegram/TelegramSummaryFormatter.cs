@@ -16,8 +16,8 @@ public sealed record TelegramSummary(
     string DashboardUrl,
     bool IsTest = false,
     IReadOnlyList<string>? MissingCampaignNames = null,
-    decimal? StoreSpend = null,
-    decimal? StoreOrdersSum = null);
+    DateOnly? ReportEndDate = null,
+    string DashboardLinkLabel = "Открыть сводку за этот день");
 
 /// <summary>
 /// Builds the plain-text yesterday summary. Plain text on purpose: no parse_mode means nothing to escape,
@@ -58,7 +58,9 @@ public static class TelegramSummaryFormatter
         var sb = new StringBuilder();
         if (summary.IsTest) sb.AppendLine("ТЕСТОВОЕ СООБЩЕНИЕ · данные ниже демонстрационные").AppendLine();
         sb.AppendLine($"EcomAds · {Shorten(summary.StoreName, 60)}");
-        sb.AppendLine($"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy}, МСК");
+        sb.AppendLine(summary.ReportEndDate is { } end && end != summary.ReportDate
+            ? $"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy} – {end:dd.MM.yyyy}, МСК"
+            : $"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy}, МСК");
         sb.AppendLine();
         if (summary.MissingCampaignNames is { Count: > 0 } missing)
         {
@@ -66,13 +68,6 @@ public static class TelegramSummaryFormatter
             sb.AppendLine("WB не вернул данные по остальным кампаниям. Пропуски не считаются нулями; рекламные итоги ниже — только по подтверждённым данным.");
             foreach (var name in missing.Take(5)) sb.AppendLine($"• {Shorten(name, 80)}");
             if (missing.Count > 5) sb.AppendLine($"И ещё {missing.Count - 5} кампаний.");
-            sb.AppendLine();
-        }
-        if (summary.StoreSpend.HasValue && summary.StoreOrdersSum.HasValue)
-        {
-            sb.AppendLine($"Расход кабинета: {FormatMoney(summary.StoreSpend.Value)} ₽");
-            sb.AppendLine($"Все заказы: {FormatMoney(summary.StoreOrdersSum.Value)} ₽");
-            sb.AppendLine($"Общий ДРР: {FormatDrr(TotalDrr(summary.StoreSpend.Value, summary.StoreOrdersSum.Value))}");
             sb.AppendLine();
         }
         if (summary.Campaigns.Count == 0 && summary.MissingCampaignNames is { Count: > 0 })
@@ -85,9 +80,7 @@ public static class TelegramSummaryFormatter
             sb.AppendLine($"Рекламный ДРР: {FormatDrr(TotalDrr(summary.TotalSpend, summary.TotalRevenue))}");
         }
         sb.AppendLine();
-        sb.AppendLine(campaigns.Count < summary.Campaigns.Count
-            ? $"Кампании по расходу — топ {campaigns.Count} из {summary.Campaigns.Count}"
-            : "Кампании по расходу");
+        sb.AppendLine($"Кампании по расходу — топ {campaigns.Count}");
         for (var i = 0; i < campaigns.Count; i++)
         {
             var c = campaigns[i];
@@ -95,8 +88,8 @@ public static class TelegramSummaryFormatter
                           $"{c.Orders.ToString("N0", Numbers)} заказов · ДРР {FormatDrr(c.Drr)}");
         }
         sb.AppendLine();
-        sb.AppendLine($"Данные: {summary.UpdatedAtText ?? "время обновления неизвестно"} UTC");
-        sb.AppendLine($"Открыть сводку за этот день: {summary.DashboardUrl}");
+        sb.AppendLine($"Данные: {summary.UpdatedAtText ?? "время обновления неизвестно"}");
+        sb.AppendLine($"{summary.DashboardLinkLabel}: {summary.DashboardUrl}");
         sb.Append("Отключить сообщения: /stop");
         return sb.ToString();
     }
