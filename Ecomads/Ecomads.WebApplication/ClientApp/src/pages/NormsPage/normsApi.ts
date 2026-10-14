@@ -2,13 +2,13 @@ import { z } from 'zod';
 import { httpClient } from '../../shared/api/httpClient';
 
 const valuesSchema = z.object({ targetDrr: z.number(), minClicks: z.number().int(), minSpend: z.number(),
-  minOrders: z.number().int(), deviationPercent: z.number(), minCtr: z.number() });
+  minOrders: z.number().int(), deviationPercent: z.number(), minCtr: z.number(), minViews: z.number(), minCarts: z.number(), cartConversion: z.number().nullable(), orderCartConversion: z.number().nullable(), orderClickConversion: z.number().nullable() });
 const storeNormSchema = z.object({ storeId: z.string().uuid(), values: valuesSchema,
   version: z.number().int(), updatedAtUtc: z.string().nullable() });
 const overridesSchema = z.object({ customName: z.string().nullable(), goal: z.string().nullable(),
   targetDrr: z.number().nullable(), minClicks: z.number().int().nullable(),
   minSpend: z.number().nullable(), minOrders: z.number().int().nullable(), deviationPercent: z.number().nullable(),
-  minCtr: z.number().nullable() });
+  minCtr: z.number().nullable(), launchDate: z.string().nullable(), minViews: z.number().nullable(), minCarts: z.number().nullable(), cartConversion: z.number().nullable(), orderCartConversion: z.number().nullable(), orderClickConversion: z.number().nullable() });
 const campaignNormSchema = z.object({ campaignId: z.string().uuid(), overrides: overridesSchema,
   effective: valuesSchema, version: z.number().int(), storeVersion: z.number().int(),
   updatedAtUtc: z.string().nullable() });

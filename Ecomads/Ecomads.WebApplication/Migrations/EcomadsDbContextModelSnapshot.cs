@@ -601,6 +601,36 @@ namespace Ecomads.WebApplication.Migrations
                     b.ToTable("telegram_link_codes", (string)null);
                 });
 
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbAdvertisingSettings", b =>
+                {
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AttemptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("BidType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("PaymentType")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ReceivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("CampaignId");
+
+                    b.ToTable("wb_advertising_settings", (string)null);
+                });
+
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbArticleNorm", b =>
                 {
                     b.Property<Guid>("CampaignId")
@@ -608,6 +638,9 @@ namespace Ecomads.WebApplication.Migrations
 
                     b.Property<Guid>("NomenclatureId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("LaunchDate")
+                        .HasColumnType("date");
 
                     b.Property<decimal?>("TargetDrr")
                         .HasColumnType("decimal(8,2)");
@@ -712,6 +745,9 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("campaign_id");
 
+                    b.Property<decimal?>("CartConversion")
+                        .HasColumnType("numeric");
+
                     b.Property<string>("CustomName")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
@@ -725,6 +761,12 @@ namespace Ecomads.WebApplication.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("goal");
+
+                    b.Property<DateOnly?>("LaunchDate")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("MinCarts")
+                        .HasColumnType("integer");
 
                     b.Property<int?>("MinClicks")
                         .HasColumnType("integer")
@@ -741,6 +783,15 @@ namespace Ecomads.WebApplication.Migrations
                     b.Property<decimal?>("MinSpend")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("min_spend");
+
+                    b.Property<int?>("MinViews")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("OrderCartConversion")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("OrderClickConversion")
+                        .HasColumnType("numeric");
 
                     b.Property<decimal?>("TargetDrr")
                         .HasColumnType("decimal(8,2)")
@@ -1118,6 +1169,45 @@ namespace Ecomads.WebApplication.Migrations
                     b.ToTable("wb_refresh_schedules", (string)null);
                 });
 
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbSnapshotDecision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EvaluationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RuleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("SnoozeUntil")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId", "EvaluationId", "RuleId", "CreatedAtUtc");
+
+                    b.ToTable("wb_snapshot_decisions", (string)null);
+                });
+
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbStoreDailyOrders", b =>
                 {
                     b.Property<Guid>("StoreId")
@@ -1196,9 +1286,15 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("store_id");
 
+                    b.Property<decimal?>("CartConversion")
+                        .HasColumnType("numeric");
+
                     b.Property<decimal>("DeviationPercent")
                         .HasColumnType("decimal(8,2)")
                         .HasColumnName("deviation_percent");
+
+                    b.Property<int>("MinCarts")
+                        .HasColumnType("integer");
 
                     b.Property<int>("MinClicks")
                         .HasColumnType("integer")
@@ -1217,6 +1313,15 @@ namespace Ecomads.WebApplication.Migrations
                     b.Property<decimal>("MinSpend")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("min_spend");
+
+                    b.Property<int>("MinViews")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("OrderCartConversion")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("OrderClickConversion")
+                        .HasColumnType("numeric");
 
                     b.Property<decimal>("TargetDrr")
                         .HasColumnType("decimal(8,2)")
@@ -1514,6 +1619,15 @@ namespace Ecomads.WebApplication.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbAdvertisingSettings", b =>
+                {
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Campaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbArticleNorm", b =>
                 {
                     b.HasOne("Ecomads.WebApplication.Data.Models.Campaign", null)
@@ -1666,6 +1780,15 @@ namespace Ecomads.WebApplication.Migrations
                         .WithMany()
                         .HasForeignKey("StoreId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbSnapshotDecision", b =>
+                {
+                    b.HasOne("Ecomads.WebApplication.Data.Models.WbRecommendationRun", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

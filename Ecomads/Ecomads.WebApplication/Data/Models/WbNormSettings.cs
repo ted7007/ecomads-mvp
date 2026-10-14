@@ -2,6 +2,11 @@ namespace Ecomads.WebApplication.Data.Models;
 
 public sealed class WbStoreNorms
 {
+    public int MinViews { get; set; } = 1000;
+    public int MinCarts { get; set; } = 20;
+    public decimal? CartConversion { get; set; }
+    public decimal? OrderCartConversion { get; set; }
+    public decimal? OrderClickConversion { get; set; }
     public Guid StoreId { get; set; }
     public decimal TargetDrr { get; set; } = 20m;
     public decimal MinCtr { get; set; } = 3m;
@@ -15,6 +20,12 @@ public sealed class WbStoreNorms
 
 public sealed class WbCampaignNorms
 {
+    public DateOnly? LaunchDate { get; set; }
+    public int? MinViews { get; set; }
+    public int? MinCarts { get; set; }
+    public decimal? CartConversion { get; set; }
+    public decimal? OrderCartConversion { get; set; }
+    public decimal? OrderClickConversion { get; set; }
     public Guid CampaignId { get; set; }
     public string? CustomName { get; set; }
     public string? Goal { get; set; }

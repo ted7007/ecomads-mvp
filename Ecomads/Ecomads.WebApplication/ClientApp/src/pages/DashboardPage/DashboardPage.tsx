@@ -1,4 +1,4 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Card, CardContent, Stack, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Card, CardContent, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
@@ -13,8 +13,9 @@ import { ErrorState } from '../../shared/ui/ErrorState';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { DailyChart } from '../../shared/ui/DailyChart';
-import { RecommendationList } from '../../shared/ui/RecommendationList';
-import { campaignRecommendations } from '../../shared/lib/recommendations';
+import { ClusterRecommendationCard } from '../../shared/ui/ClusterRecommendationCard';
+import { getRecommendationSummary } from '../../shared/api/clusterRecommendationApi';
+
 import type { MetricKey } from '../../shared/ui/DailyChart';
 import { getWbStores } from '../WbStoresPage/wbStoresApi';
 import { previousPeriod } from '../../shared/lib/previousPeriod';
@@ -27,6 +28,7 @@ export function DashboardPage() {
     endDate: searchParams.get('endDate') ?? defaultPeriod().endDate };
   const [draftFilters, setDraftFilters] = useState<DashboardFilters>(filters);
   const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>(['spend', 'drrTotal']);
+  const [recommendationStore, setRecommendationStore] = useState('');
   const toggleMetric = (metric: MetricKey) => setSelectedMetrics((current) =>
     current.includes(metric) ? current.filter((item) => item !== metric) : [...current, metric]);
   useEffect(() => { setDraftFilters(filters); }, [filters.startDate, filters.endDate]);
@@ -50,7 +52,7 @@ export function DashboardPage() {
   const campaignsWithData = campaigns.filter((campaign) => campaign.kpi.coverageDays > 0).length;
   const hasIncompleteDays = campaigns.some((campaign) =>
     campaign.kpi.coverageDays > 0 && campaign.kpi.coverageDays < campaign.kpi.expectedDays);
-  const recommendations = campaignRecommendations(campaigns);
+  const recommendations = useQuery({ queryKey: ['wb-recommendation-summary', filters, recommendationStore], queryFn: () => getRecommendationSummary(filters, recommendationStore || undefined) });
   const demoFeedbackSuccess = (location.state as { demoFeedbackSuccess?: string } | null)?.demoFeedbackSuccess;
 
   const applyPeriod = (next: DashboardFilters) => {
@@ -93,26 +95,31 @@ export function DashboardPage() {
             За выбранный период данных нет. Доступный период: {latestAvailable.startDate} – {latestAvailable.endDate}.
           </Alert> : null}
           <Stack spacing={0.75}>
+          {(storesQuery.data?.length ?? 0) > 1 ? <TextField select label="Кабинет рекомендаций" size="small" value={recommendationStore} onChange={e => setRecommendationStore(e.target.value)} sx={{ maxWidth: 320 }}>
+            <MenuItem value="">Все подключённые кабинеты</MenuItem>{storesQuery.data?.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+          </TextField> : null}
           {incomplete ? <Accordion disableGutters elevation={0} sx={{ bgcolor: 'rgba(255,255,255,.48)', border: '1px solid', borderColor: 'divider', boxShadow: 'none', '&:before': { display: 'none' } }}>
             <AccordionSummary sx={{ minHeight: 44, '& .MuiAccordionSummary-content': { my: 1 } }}><Typography variant="body2" color="warning.main">⚠ Данные неполные: {campaignsWithData} из {campaigns.length} кампаний. Подробнее</Typography></AccordionSummary>
             <AccordionDetails><Typography variant="body2">Показатели относятся только к загруженным кампаниям. {hasIncompleteDays ? 'Для части кампаний загружены не все дни.' : ''} Сбор можно проверить в разделе «Кабинет WB и Telegram».</Typography></AccordionDetails>
           </Accordion> : null}
-          {recommendations.length ? <Card sx={{ '& .MuiCardContent-root': { py: 1.5 } }}>
-            <CardContent>
-              <Stack spacing={1.5}>
-                <Typography variant="h6" fontWeight={800}>Требуют внимания · {recommendations.length}</Typography>
-                <RecommendationList items={recommendations} maxVisible={3} startDate={filters.startDate} endDate={filters.endDate} emptyText="" />
-              </Stack>
-            </CardContent>
-          </Card> : <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} gap={0.5} sx={{ px: 0.5 }}>
-            <Typography variant="body2" color="text.secondary">
-              {campaigns.length === 0 ? 'Кампаний за выбранный период пока нет.' :
-                incomplete ? 'Рекомендаций пока нет: для подтверждённых выводов недостаточно данных.' : 'Отклонений от заданных норм нет.'}
-            </Typography>
-            {incomplete || campaigns.length === 0 ? <Button size="small" component={Link} to={appRoutes.wbStores} sx={{ px: 0.5, minWidth: 0, alignSelf: 'flex-start' }}>
-              Проверить загрузку
-            </Button> : null}
-          </Stack>}
+          {recommendations.isLoading ? <Typography>Расчёт рекомендаций…</Typography> : null}
+          {recommendations.isError ? <Alert severity="error">Не удалось получить рекомендации. <Button onClick={() => void recommendations.refetch()}>Повторить</Button></Alert> : null}
+          {recommendations.data ? <Card><CardContent><Stack spacing={1.5}>
+            <Typography variant="h6" fontWeight={800}>Требуют внимания · топ-5 рекомендаций</Typography>
+            {recommendations.data.top.map(({ runId, card }) => <Stack key={`${runId}:${card.evaluationId}:${card.rule.ruleId}`} spacing={.5}>
+              <Button component={Link} sx={{ alignSelf: 'flex-start' }} to={`/campaign/${card.subject.campaignId}?startDate=${filters.startDate}&endDate=${filters.endDate}`}>Открыть кампанию</Button>
+              <ClusterRecommendationCard runId={runId} card={card} />
+            </Stack>)}
+            {recommendations.data.remaining ? <Typography>Ещё {recommendations.data.remaining} рекомендаций — на экранах кампаний.</Typography> : null}
+            {!recommendations.data.top.length ? <Typography variant="body2">{recommendations.data.enabled ? 'Карточек за выбранный период нет. Для отдельных кампаний данные могут быть неполными.' : 'Рекомендации отключены или нет подключённых кабинетов.'}</Typography> : null}
+            {recommendations.data.campaigns.some(c => c.status !== 'no_deviations') ? <Accordion disableGutters elevation={0}>
+              <AccordionSummary expandIcon="⌄"><Typography variant="body2">Итоги по кампаниям и ограничения данных</Typography></AccordionSummary>
+              <AccordionDetails><Stack spacing={1}>{recommendations.data.campaigns.map(c => <Stack key={c.campaignId ?? c.name} spacing={.5}>
+                <Typography variant="body2">{c.name}: {c.count} рекомендаций · {c.message}</Typography>
+                {c.campaignId ? <Button size="small" component={Link} sx={{ alignSelf: 'flex-start' }} to={`/campaign/${c.campaignId}?startDate=${filters.startDate}&endDate=${filters.endDate}`}>Подробнее</Button> : null}
+              </Stack>)}</Stack></AccordionDetails>
+            </Accordion> : null}
+          </Stack></CardContent></Card> : null}
           </Stack>
 
           <DashboardKpiGrid campaigns={campaigns} priorCampaigns={includeToday ? [] : priorCampaignsQuery.data ?? []}

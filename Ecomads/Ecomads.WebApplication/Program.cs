@@ -68,6 +68,7 @@ builder.Services.AddOptions<RecommendationOptions>().Bind(builder.Configuration.
     .Validate(x => x.PriceScenario is >= 0 and < 1 && x.NoUnitsSpendFloor >= 0 && x.HighDrrMinimumUnits >= 1 && x.RetentionDays >= 1)
     .ValidateOnStart();
 builder.Services.AddScoped<RecommendationService>();
+builder.Services.AddScoped<AdvertisingSettingsSync>();
 builder.Services.AddHostedService<RecommendationWorker>();
 builder.Services.AddHostedService<WbSyncWorker>();
 builder.Services.AddHostedService<WbAutoRefreshWorker>();

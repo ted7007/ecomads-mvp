@@ -34,7 +34,8 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
         if (cleanedOn != today)
         {
             var cutoff = nowUtc.AddDays(-options.Value.RetentionDays);
-            await db.WbRecommendationRuns.Where(x => x.CalculatedAtUtc < cutoff).ExecuteDeleteAsync(ct);
+            await db.WbRecommendationRuns.Where(x => x.CalculatedAtUtc < cutoff &&
+                !db.WbSnapshotDecisions.Any(d => d.RunId == x.Id)).ExecuteDeleteAsync(ct);
             await db.WbArticleObservations.Where(x => x.ObservedAtUtc < cutoff).ExecuteDeleteAsync(ct);
             cleanedOn = today;
         }
@@ -49,6 +50,7 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
                     (x.WbStatus == 7 || x.WbStatus == 9 || x.WbStatus == 11)).ToListAsync(ct);
                 if (store.AutoRefreshEnabled && !store.AutoRefreshBlocked && (store.TokenExpiresAtUtc == null || store.TokenExpiresAtUtc > nowUtc))
                 {
+                    await scope.ServiceProvider.GetRequiredService<AdvertisingSettingsSync>().RefreshAsync(store, nowUtc, ct);
                     var completed = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == store.Id && x.Kind == "clusters" &&
                         x.Status == "completed" && x.StartDate <= window.EndDate && x.EndDate >= window.StartDate)
                         .Select(x => new { x.StartDate, x.EndDate, x.PairIdsJson }).ToListAsync(ct);

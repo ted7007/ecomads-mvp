@@ -76,6 +76,55 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/wb/campaigns/{campaign.Id}/recommendations/runs/{runId}")).StatusCode);
     }
 
+    [Fact]
+    public async Task PackageDecisionsSaveOnlySelectedEvidenceAndSummaryHasTopFive()
+    {
+        var connection = await postgres.CreateDatabaseConnectionStringAsync();
+        using var factory = new Factory(connection);
+        using var client = factory.CreateClient();
+        var seller = TestData.CreateRegularSeller();
+        var store = new Store { Id = Guid.NewGuid(), SellerId = seller.Id, Name = "S", ApiKey = "test", AutoRefreshEnabled = false };
+        var campaign = new Campaign { Id = Guid.NewGuid(), StoreId = store.Id, WbCampaignId = "123", Name = "C", WbStatus = 9 };
+        var article = new Nomenclature { Id = Guid.NewGuid(), StoreId = store.Id, WbNomenclatureId = "1", Name = "P" };
+        var date = new DateOnly(2026, 10, 1);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
+            db.Sellers.Add(seller); db.Stores.Add(store); db.Campaigns.Add(campaign); db.Nomenclatures.Add(article);
+            db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
+                Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 10000, OrderedProducts = 10, RecommendationFieldsVerified = true });
+            db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = date, Result = "data", Spend = 6000 });
+            for (var i = 0; i < 6; i++) db.WbClusterStatistics.Add(new() { Id = Guid.NewGuid(), CampaignId = campaign.Id, NomenclatureId = article.Id,
+                Date = date, ClusterName = "cluster" + i, Spend = 1000, Clicks = 1, Orders = 0, OrderedProducts = 0 });
+            db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed", StartDate = date, EndDate = date, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
+            db.WbAdvertisingSettings.Add(new() { CampaignId = campaign.Id, Status = "ready", BidType = "unified", PaymentType = "cpm", ReceivedAtUtc = DateTime.UtcNow,
+                PayloadJson = "{\"bids\":[],\"minus\":[{\"nomenclatureId\":\"1\",\"clusters\":[]}]}" });
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Add("X-Test-Seller", seller.Id.ToString());
+        var url = $"/api/wb/campaigns/{campaign.Id}/recommendations?startDate=2026-10-01&endDate=2026-10-01";
+        using var initial = JsonDocument.Parse(await client.GetStringAsync(url));
+        var report = initial.RootElement;
+        Assert.Equal(2, report.GetProperty("schemaVersion").GetInt32());
+        var bundle = Assert.Single(report.GetProperty("packages").EnumerateArray());
+        Assert.Equal(6, bundle.GetProperty("evaluationIds").GetArrayLength());
+        Assert.Equal(42000m, bundle.GetProperty("weeklySpend").GetDecimal());
+        var ids = bundle.GetProperty("evaluationIds").EnumerateArray().Take(2).Select(x => x.GetGuid()).ToArray();
+        var run = report.GetProperty("runId").GetGuid();
+        var decisionUrl = $"/api/wb/campaigns/{campaign.Id}/recommendations/runs/{run}/decisions";
+        using var savedResponse = await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = ids.Concat(ids), ruleId = "R03", status = "accepted", comment = "manual" });
+        Assert.Equal(HttpStatusCode.OK, savedResponse.StatusCode);
+        using var saved = JsonDocument.Parse(await savedResponse.Content.ReadAsStringAsync());
+        Assert.Equal(2, saved.RootElement.GetProperty("cards").EnumerateArray().Count(c => c.GetProperty("decision").ValueKind != JsonValueKind.Null));
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = ids, ruleId = "R03", status = "snoozed" })).StatusCode);
+        using var summary = JsonDocument.Parse(await client.GetStringAsync($"/api/wb/recommendations/summary?startDate=2026-10-01&endDate=2026-10-01&storeId={store.Id}"));
+        Assert.Equal(5, summary.RootElement.GetProperty("top").GetArrayLength());
+        Assert.Equal(1, summary.RootElement.GetProperty("remaining").GetInt32());
+        Assert.All(summary.RootElement.GetProperty("top").EnumerateArray(), x => Assert.Equal(run, x.GetProperty("runId").GetGuid()));
+        client.DefaultRequestHeaders.Remove("X-Test-Seller"); client.DefaultRequestHeaders.Add("X-Test-Seller", Guid.NewGuid().ToString());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = ids, ruleId = "R03", status = "accepted" })).StatusCode);
+    }
+
     private sealed class Factory(string connection) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)

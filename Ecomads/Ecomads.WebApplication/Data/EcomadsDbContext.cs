@@ -29,6 +29,8 @@ public class EcomadsDbContext : DbContext
     public DbSet<WbNormRevision> WbNormRevisions { get; set; }
     public DbSet<WbRecommendationDecision> WbRecommendationDecisions { get; set; }
     public DbSet<WbRecommendationRun> WbRecommendationRuns { get; set; }
+    public DbSet<WbAdvertisingSettings> WbAdvertisingSettings { get; set; }
+    public DbSet<WbSnapshotDecision> WbSnapshotDecisions { get; set; }
     public DbSet<WbArticleNorm> WbArticleNorms { get; set; }
     public DbSet<WbArticleObservation> WbArticleObservations { get; set; }
     public DbSet<TelegramLinkCode> TelegramLinkCodes { get; set; }
@@ -38,6 +40,20 @@ public class EcomadsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<WbAdvertisingSettings>(entity =>
+        {
+            entity.ToTable("wb_advertising_settings");
+            entity.HasKey(x => x.CampaignId);
+            entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbSnapshotDecision>(entity =>
+        {
+            entity.ToTable("wb_snapshot_decisions");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.RunId, x.EvaluationId, x.RuleId, x.CreatedAtUtc });
+            entity.HasOne<WbRecommendationRun>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<WbRecommendationRun>(entity =>
         {
             entity.ToTable("wb_recommendation_runs");

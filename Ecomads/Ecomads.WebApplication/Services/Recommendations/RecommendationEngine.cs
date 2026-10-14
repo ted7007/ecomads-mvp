@@ -16,7 +16,7 @@ public sealed class RecommendationOptions
 public sealed record RecommendationWindow(DateOnly StartDate, DateOnly EndDate)
 {
     public int Days => EndDate.DayNumber - StartDate.DayNumber + 1;
-    public bool IsValid => Days is >= 1 and <= 366;
+    public bool IsValid => Days is >= 1 and <= 366 && StartDate.DayNumber >= Days;
 }
 
 public sealed record RecommendationNorm(decimal Value, string Source, int StoreVersion,

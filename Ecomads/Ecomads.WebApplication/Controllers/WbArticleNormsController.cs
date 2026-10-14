@@ -14,9 +14,9 @@ namespace Ecomads.WebApplication.Controllers;
 [Route("api/wb/norms/campaigns/{campaignId:guid}/articles")]
 public sealed class WbArticleNormsController(EcomadsDbContext db) : ControllerBase
 {
-    public sealed record ArticleNormRequest(decimal? TargetDrr);
+    public sealed record ArticleNormRequest(decimal? TargetDrr, DateOnly? LaunchDate = null);
     public sealed record ArticleNormRow(Guid ArticleId, string NomenclatureId, string Name,
-        decimal? TargetDrr, decimal EffectiveTargetDrr, string Source, int Version);
+        decimal? TargetDrr, decimal EffectiveTargetDrr, string Source, int Version, DateOnly? LaunchDate = null, DateOnly? EffectiveLaunchDate = null);
 
     [HttpGet]
     public async Task<IActionResult> Get(Guid campaignId, CancellationToken ct)
@@ -37,7 +37,7 @@ public sealed class WbArticleNormsController(EcomadsDbContext db) : ControllerBa
             norms.TryGetValue(article.Id, out var norm);
             var effective = RecommendationEngine.ResolveNorm(norm?.TargetDrr, campaignNorm?.TargetDrr, storeNorm?.TargetDrr);
             return new ArticleNormRow(article.Id, article.WbNomenclatureId, article.Name, norm?.TargetDrr,
-                effective.Value * 100, effective.Source, norm?.Version ?? 0);
+                effective.Value * 100, effective.Source, norm?.Version ?? 0, norm?.LaunchDate, norm?.LaunchDate ?? campaignNorm?.LaunchDate);
         }));
     }
 
@@ -64,6 +64,7 @@ public sealed class WbArticleNormsController(EcomadsDbContext db) : ControllerBa
             }
             else norm.Version++;
             norm.TargetDrr = request.TargetDrr;
+            norm.LaunchDate = request.LaunchDate;
             norm.UpdatedAtUtc = DateTime.UtcNow;
             db.WbNormRevisions.Add(new WbNormRevision { Id = Guid.NewGuid(), StoreId = storeId.Value,
                 CampaignId = campaignId, NomenclatureId = articleId, Version = norm.Version,

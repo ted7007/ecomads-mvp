@@ -7,15 +7,20 @@ import type { CampaignNormOverrides, StoreNormValues } from './normsApi';
 import { PaginationBar } from '../../shared/ui/PaginationBar';
 
 const defaults: StoreNormValues = { targetDrr: 20, minClicks: 30, minSpend: 500,
-  minOrders: 3, deviationPercent: 40, minCtr: 3 };
+  minOrders: 3, deviationPercent: 40, minCtr: 3, minViews: 1000, minCarts: 20, cartConversion: null, orderCartConversion: null, orderClickConversion: null };
 const emptyOverrides: CampaignNormOverrides = { customName: null, goal: null, targetDrr: null,
-  minClicks: null, minSpend: null, minOrders: null, deviationPercent: null, minCtr: null };
+  minClicks: null, minSpend: null, minOrders: null, deviationPercent: null, minCtr: null, launchDate: null, minViews: null, minCarts: null, cartConversion: null, orderCartConversion: null, orderClickConversion: null };
 const numericFields = [
   { key: 'targetDrr', label: 'Целевой рекламный ДРР, %' },
   { key: 'minCtr', label: 'Минимальный CTR, %' },
   { key: 'minClicks', label: 'Минимум кликов' },
   { key: 'minSpend', label: 'Минимум расхода, ₽' },
   { key: 'minOrders', label: 'Минимум заказов' },
+  { key: 'minViews', label: 'Минимум показов для пояснений' },
+  { key: 'minCarts', label: 'Минимум корзин для пояснений' },
+  { key: 'cartConversion', label: 'Норма клик → корзина, %' },
+  { key: 'orderCartConversion', label: 'Норма корзина → заказ, %' },
+  { key: 'orderClickConversion', label: 'Норма клик → заказ, %' },
   { key: 'deviationPercent', label: 'Порог отклонения от среднего, %' }
 ] as const;
 
@@ -47,6 +52,7 @@ export function NormsPage() {
     onSuccess: async () => { setMessage('Нормы кабинета сохранены.');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['wb-store-norms', storeId] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-recommendation-summary'] }),
         queryClient.invalidateQueries({ queryKey: ['wb-cluster-recommendations'] }),
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norm-list', storeId] }),
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norms'] }),
@@ -60,6 +66,7 @@ export function NormsPage() {
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norms', campaignId] }),
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norm-list', storeId] }),
         queryClient.invalidateQueries({ queryKey: ['wb-clusters', campaignId] }),
+        queryClient.invalidateQueries({ queryKey: ['wb-recommendation-summary'] }),
         queryClient.invalidateQueries({ queryKey: ['wb-cluster-recommendations', campaignId] }),
         queryClient.invalidateQueries({ queryKey: ['wb-article-norms', campaignId] }),
         queryClient.invalidateQueries({ queryKey: ['campaign-summary', campaignId] })
@@ -92,16 +99,16 @@ export function NormsPage() {
       <Typography variant="body2" color="text.secondary">Целевой рекламный ДРР применяется по умолчанию ко всем кампаниям.</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
         {numericFields.slice(0, 2).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
-          inputProps={{ min: key === 'minCtr' ? 0.01 : 0, max: key === 'minCtr' ? 100 : undefined, step: 0.01 }} value={storeValues[key]}
-          onChange={(event) => setStoreValues((previous) => ({ ...previous, [key]: Number(event.target.value) }))} />)}
+          inputProps={{ min: key === 'minCtr' ? 0.01 : 0, max: key === 'minCtr' ? 100 : undefined, step: 0.01 }} value={storeValues[key] ?? ''}
+          onChange={(event) => setStoreValues((previous) => ({ ...previous, [key]: event.target.value === '' && key.endsWith('Conversion') ? null : Number(event.target.value) }))} />)}
       </Stack>
     </Stack></CardContent></Card></Grid>
       <Grid item xs={12} md={8}><Card sx={{ height: '100%' }}><CardContent><Stack spacing={2}>
       <Typography variant="h6" fontWeight={800}>Достаточность данных</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
         {numericFields.slice(2).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
-          inputProps={{ min: 0 }} value={storeValues[key]}
-          onChange={(event) => setStoreValues((previous) => ({ ...previous, [key]: Number(event.target.value) }))} />)}
+          inputProps={{ min: 0 }} value={storeValues[key] ?? ''}
+          onChange={(event) => setStoreValues((previous) => ({ ...previous, [key]: event.target.value === '' && key.endsWith('Conversion') ? null : Number(event.target.value) }))} />)}
       </Stack>
     </Stack></CardContent></Card></Grid>
       <Grid item xs={12}><Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}><AccordionSummary expandIcon="⌄"><Typography variant="body2">Как рассчитываются нормы и оценки</Typography></AccordionSummary><AccordionDetails>
@@ -137,6 +144,8 @@ export function NormsPage() {
           </TableRow>
           {row.campaignId === campaignId ? <TableRow sx={{ display: { xs: 'none', md: 'table-row' } }}><TableCell colSpan={4} sx={{ bgcolor: 'rgba(0,122,255,.04)' }}><Stack spacing={1.5} sx={{ py: 1 }}>
             <Typography variant="caption" color="text.secondary">Дополнительные настройки кампании</Typography>
+            <TextField type="date" size="small" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
+              onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Первые 21 день защищены. Дата товара важнее даты кампании." />
             <TextField label="Своё название" size="small" sx={{ maxWidth: 320 }} value={overrides.customName ?? ''} onChange={(event) => setOverrides((previous) => ({ ...previous, customName: event.target.value || null }))} />
             <Stack direction="row" useFlexGap flexWrap="wrap" gap={1.5}>{numericFields.slice(1).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small" sx={{ width: 190 }} inputProps={{ min: key === 'minCtr' ? 0.01 : 0, max: key === 'minCtr' ? 100 : undefined }} value={overrides[key] ?? ''}
               onChange={(event) => setOverrides((previous) => ({ ...previous, [key]: event.target.value === '' ? null : Number(event.target.value) }))}
@@ -155,6 +164,8 @@ export function NormsPage() {
           {campaign.name} · {campaign.wbCampaignId}</MenuItem>)}
       </TextField>
       {campaignId ? <>
+        <TextField type="date" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
+          onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Защита первых 21 дня; дата товара имеет приоритет." />
         <Typography variant="body2" color="text.secondary">Пустое числовое поле наследует норму кабинета. Версия кампании: {campaignNorms.data?.version ?? 0}.</Typography>
         {campaignDirty ? <Typography variant="caption" color="warning.main">Есть несохранённые изменения</Typography> : null}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>

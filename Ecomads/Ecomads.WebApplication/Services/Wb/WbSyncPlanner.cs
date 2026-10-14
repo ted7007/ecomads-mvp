@@ -95,6 +95,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     public async Task UpsertCampaignsAsync(Store store, IReadOnlyList<WbCampaignInfo> adverts, CancellationToken ct)
     {
         var existing = await db.Campaigns.Where(x => x.StoreId == store.Id).ToDictionaryAsync(x => x.WbCampaignId, ct);
+        var settings = await db.WbAdvertisingSettings.Where(x => existing.Values.Select(c => c.Id).Contains(x.CampaignId)).ToDictionaryAsync(x => x.CampaignId, ct);
         var now = DateTime.UtcNow;
         foreach (var advert in adverts)
         {
@@ -112,6 +113,21 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             campaign.WbStartedAtUtc = advert.StartedAtUtc;
             campaign.WbDeletedAtUtc = advert.DeletedAtUtc;
             campaign.WbUpdatedAtUtc = advert.UpdatedAtUtc;
+            if (!settings.TryGetValue(campaign.Id, out var source))
+            {
+                source = new WbAdvertisingSettings { CampaignId = campaign.Id };
+                settings.Add(campaign.Id, source);
+                db.WbAdvertisingSettings.Add(source);
+            }
+            var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            Services.Recommendations.AdvertisingSettingsPayload? payload = null;
+            try { payload = JsonSerializer.Deserialize<Services.Recommendations.AdvertisingSettingsPayload>(source.PayloadJson, json); }
+            catch (JsonException) { }
+            if (source.BidType != advert.BidType || source.PaymentType != advert.PaymentType) source.Status = "unknown";
+            source.BidType = advert.BidType;
+            source.PaymentType = advert.PaymentType;
+            source.PayloadJson = JsonSerializer.Serialize(new Services.Recommendations.AdvertisingSettingsPayload(
+                payload?.Bids ?? [], payload?.Minus ?? [], advert, now), json);
         }
         store.CampaignsRefreshedAtUtc = now;
         await db.SaveChangesAsync(ct);

@@ -28,12 +28,14 @@ public sealed record WbCampaignInfo(
     DateTime? CreatedAtUtc = null,
     DateTime? StartedAtUtc = null,
     DateTime? DeletedAtUtc = null,
-    DateTime? UpdatedAtUtc = null);
+    DateTime? UpdatedAtUtc = null, string? BidType = null);
 
 public sealed record WbNormQueryPair(long AdvertId, long NmId);
 
 public interface IWbPromotionClient
 {
+    Task<JsonDocument> GetClusterSettingsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs, bool minus,
+        CancellationToken ct) => throw new NotSupportedException("Cluster settings unavailable");
     Task<IReadOnlyList<WbCampaignInfo>> GetCampaignsAsync(string token, CancellationToken cancellationToken);
     Task<JsonDocument> GetFullStatsAsync(string token, IReadOnlyList<long> campaignIds,
         DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken);
@@ -45,6 +47,24 @@ public interface IWbPromotionClient
 
 public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClient
 {
+    public async Task<JsonDocument> GetClusterSettingsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs,
+        bool minus, CancellationToken ct)
+    {
+        if (pairs.Count is < 1 or > 100) throw new ArgumentException("Настройки кластеров: от 1 до 100 пар.");
+        using var request = new HttpRequestMessage(HttpMethod.Post, minus ? "/adv/v0/normquery/get-minus" : "/adv/v0/normquery/get-bids");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Content = JsonContent.Create(new { items = pairs.Select(x => new { advert_id = x.AdvertId, nm_id = x.NmId }).ToArray() });
+        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response));
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (!document.RootElement.TryGetProperty(minus ? "items" : "bids", out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            document.Dispose();
+            throw new JsonException("Неизвестный формат настроек кластеров WB.");
+        }
+        return document;
+    }
     public async Task<JsonDocument> GetCostsAsync(string token, DateOnly startDate, DateOnly endDate,
         CancellationToken cancellationToken)
     {
@@ -170,7 +190,8 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
                 value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), out var parsed)
                     ? parsed.UtcDateTime : null;
             result.Add(new WbCampaignInfo(id, name, status, paymentType, nms,
-                Timestamp("created"), Timestamp("started"), Timestamp("deleted"), Timestamp("updated")));
+                Timestamp("created"), Timestamp("started"), Timestamp("deleted"), Timestamp("updated"),
+                advert.TryGetProperty("bid_type", out var bidType) ? bidType.GetString() : null));
         }
 
         return result;
