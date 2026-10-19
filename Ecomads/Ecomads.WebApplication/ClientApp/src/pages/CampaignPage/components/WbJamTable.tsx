@@ -4,11 +4,12 @@ import { Link } from 'react-router-dom';
 import { appRoutes } from '../../../app/routes';
 import type { WbJamResponse } from '../campaignApi';
 import { PaginationBar } from '../../../shared/ui/PaginationBar';
+import { lightUiTokens } from '../../../app/lightUiTokens';
 
 const count = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU').format(value);
 const position = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value);
 const shortDate = (date: string) => date.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3.$2.$1');
-const jamCell = { bgcolor: '#F7F0FF', color: '#6841A1' };
+const jamCell = lightUiTokens.jamCell;
 
 export function WbJamTable({ report, onSelectPeriod }: { report: WbJamResponse;
   onSelectPeriod: (startDate: string, endDate: string) => void }) {

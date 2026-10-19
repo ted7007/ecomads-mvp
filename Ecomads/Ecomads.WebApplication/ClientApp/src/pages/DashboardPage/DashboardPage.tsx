@@ -105,7 +105,7 @@ export function DashboardPage() {
           {recommendations.isLoading ? <Typography>Расчёт рекомендаций…</Typography> : null}
           {recommendations.isError ? <Alert severity="error">Не удалось получить рекомендации. <Button onClick={() => void recommendations.refetch()}>Повторить</Button></Alert> : null}
           {recommendations.data ? <Card><CardContent><Stack spacing={1.5}>
-            <Typography variant="h6" fontWeight={800}>Требуют внимания · топ-5 рекомендаций</Typography>
+            <Typography variant="h6" fontWeight={700}>Требуют внимания · топ-5 рекомендаций</Typography>
             <Typography variant="body2">Рекомендации за 14 дней: {recommendations.data.window.startDate} — {recommendations.data.window.endDate}, МСК. Остатки и бюджет — по отдельным оперативным окнам.</Typography>
             {recommendations.data.top.map(({ runId, card }) => <Stack key={`${runId}:${card.evaluationId}:${card.rule.ruleId}`} spacing={.5}>
               <Button component={Link} sx={{ alignSelf: 'flex-start' }} to={`/campaign/${card.subject.campaignId}?startDate=${filters.startDate}&endDate=${filters.endDate}`}>Открыть кампанию</Button>
@@ -136,7 +136,7 @@ export function DashboardPage() {
           <Card>
             <CardContent>
               <Stack spacing={2}>
-                <Typography variant="h6" fontWeight={800}>
+                <Typography variant="h6" fontWeight={700}>
                   Рекламные кампании
                 </Typography>
                 <CampaignsTable campaigns={campaigns} priorCampaigns={includeToday ? [] : priorCampaignsQuery.data ?? []} filters={filters} />

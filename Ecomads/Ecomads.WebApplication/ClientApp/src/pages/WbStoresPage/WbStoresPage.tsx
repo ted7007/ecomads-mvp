@@ -71,7 +71,7 @@ function StoreCard({ store }: { store: WbStore }) {
       <CardContent>
         <Stack spacing={1.5}>
           <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-            <Typography variant="h6" fontWeight={800}>{store.name}</Typography>
+            <Typography variant="h6" fontWeight={700}>{store.name}</Typography>
             <Chip label="Подключён" color="success" size="small" variant="outlined" />
           </Stack>
           <Typography variant="body2" color="text.secondary">Кампаний: {store.campaignCount} · токен действует до {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU')}</Typography>
@@ -182,7 +182,7 @@ export function WbStoresPage() {
   return (
     <Stack spacing={3} sx={{ maxWidth: 1200 }}>
       <Box>
-        <Typography variant="h4" fontWeight={800}>Кабинет WB и Telegram</Typography>
+        <Typography variant="h4" fontWeight={700}>Кабинет WB и Telegram</Typography>
         <Typography color="text.secondary">Подключение, автоматический и ручной сбор, доставка сводки.</Typography>
       </Box>
 
@@ -195,7 +195,7 @@ export function WbStoresPage() {
         </Button>
         {(showConnection || stores.data?.length === 0) ? <Card>
           <CardContent><Stack spacing={2}>
-            <Typography variant="h6" fontWeight={800}>{stores.data?.length ? 'Добавить или заменить токен' : 'Подключить кабинет'}</Typography>
+            <Typography variant="h6" fontWeight={700}>{stores.data?.length ? 'Добавить или заменить токен' : 'Подключить кабинет'}</Typography>
             <Typography variant="body2" color="text.secondary">
               В личном кабинете WB создайте отдельный базовый токен с категорией «Продвижение» и доступом «Только чтение».
               Для общего ДРР дополнительно понадобится категория «Аналитика».
@@ -214,7 +214,7 @@ export function WbStoresPage() {
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <Typography variant="h6" fontWeight={800}>Telegram</Typography>
+            <Typography variant="h6" fontWeight={700}>Telegram</Typography>
             {telegram.isError ? <Alert severity="error">Не удалось загрузить привязанные чаты.</Alert> : null}
             {telegramError ? <Alert severity="error">{telegramError}</Alert> : null}
             <Dialog open={notReady !== null} onClose={() => setNotReady(null)}>

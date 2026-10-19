@@ -4,6 +4,7 @@ import type { KeyboardEvent, PointerEvent } from 'react';
 import type { DailyPoint } from '../../pages/DashboardPage/dashboardApi';
 import { formatMoney } from '../lib/formatMoney';
 import { formatPercent } from '../lib/formatPercent';
+import { lightUiTokens as ui } from '../../app/lightUiTokens';
 
 export type MetricKey = 'revenue' | 'spend' | 'drr' | 'ctr' | 'clicks' | 'orders' | 'cpc' | 'drrTotal';
 export const metricColors: Record<MetricKey, string> = {
@@ -149,7 +150,7 @@ export function DailyChart({ days, title, selectedMetrics, previousDays = [], st
     label={<Typography variant="body2" sx={{ fontSize: compact ? 13 : 14 }}>{compact ? 'Пунктиром — предыдущий период' : 'Предыдущий период'}</Typography>} />;
 
   return <Box ref={rootRef} sx={{ position: 'relative' }}>
-    {title ? <Typography variant="h6" fontWeight={800}>{title}</Typography> : null}
+    {title ? <Typography variant="h6" fontWeight={700}>{title}</Typography> : null}
     {compact ? null : <Stack direction="row" justifyContent="space-between" alignItems="center" gap={2} sx={{ mb: .5 }}>
       <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
         Показатели на графике выбираются карточками выше · у каждого своя шкала · наведите на день, чтобы увидеть значения
@@ -159,12 +160,12 @@ export function DailyChart({ days, title, selectedMetrics, previousDays = [], st
     <Box ref={plotRef} tabIndex={days.length ? 0 : -1} onPointerMove={track} onPointerDown={track} onKeyDown={step}
       onPointerLeave={(event) => { if (event.pointerType === 'mouse') setHover(null); }}
         sx={{ width: '100%', touchAction: 'pan-y', outline: 'none',
-        borderRadius: 1, '&:focus-visible': { boxShadow: '0 0 0 2px #007AFF' } }}>
+        borderRadius: 1, '&:focus-visible': ui.focus }}>
       <svg role="img" aria-label={`График по дням: ${selectedMetrics.map((metric) => labels[metric]).join(', ')}. Стрелки влево и вправо показывают значения по дням.`}
         viewBox={`0 0 ${width} ${height}`} width="100%" style={{ display: 'block' }}>
         {[0, 1, 2, 3].map((tick) => <line key={tick} x1={left} x2={right}
           y1={top + tick * (bottom - top) / 3} y2={top + tick * (bottom - top) / 3}
-          stroke={tick === 3 ? 'rgba(30,30,60,.18)' : 'rgba(30,30,60,.08)'} />)}
+          stroke={tick === 3 ? ui.surface.controlBorder : ui.surface.divider} />)}
         {series[0] ? axis(series[0], 'left') : null}
         {!compact && series[1] ? axis(series[1], 'right') : null}
         {active !== null ? <line x1={x(active)} x2={x(active)} y1={top - 4} y2={bottom} stroke="#9A9CA3" /> : null}
@@ -180,22 +181,22 @@ export function DailyChart({ days, title, selectedMetrics, previousDays = [], st
         {days.map((day, index) => {
           const last = index === days.length - 1;
           if (!last && (index % labelStep !== 0 || days.length - 1 - index < labelStep / 2)) return null;
-          return <text key={day.date} x={x(index)} y={labelY} fontSize={compact ? 11 : 12} fill="#5C5C66"
+          return <text key={day.date} x={x(index)} y={labelY} fontSize={compact ? 11 : 12} fill={ui.text.secondary}
             textAnchor={compact ? index === 0 ? 'start' : 'end' : 'middle'}>
             {!compact && days.length <= 7 ? dayLabel(day.date) : shortDate(day.date)}</text>;
         })}
       </svg>
     </Box>
     {active !== null ? <Box ref={tipRef} role="status" sx={{ position: 'absolute', left: 0, top: 0, zIndex: 2, pointerEvents: 'none',
-      width: 'max-content', minWidth: 'min(270px, calc(100% - 8px))', maxWidth: 'calc(100% - 8px)', boxSizing: 'border-box', bgcolor: 'rgba(255,255,255,.94)',
-      border: '1px solid rgba(80,90,120,.14)', borderRadius: '14px', boxShadow: '0 10px 30px rgba(40,50,90,.14)',
-      backdropFilter: 'blur(18px)', px: 1.5, py: 1.25, display: 'flex', flexDirection: 'column', gap: .75, fontVariantNumeric: 'tabular-nums' }}>
+      width: 'max-content', minWidth: 'min(270px, calc(100% - 8px))', maxWidth: 'calc(100% - 8px)', boxSizing: 'border-box', bgcolor: ui.surface.popup,
+      border: `1px solid ${ui.surface.controlBorder}`, borderRadius: '14px', boxShadow: ui.surface.popupShadow,
+      px: 1.5, py: 1.25, display: 'flex', flexDirection: 'column', gap: .75, fontVariantNumeric: 'tabular-nums' }}>
       <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{dayLabel(days[active].date)}
         {hasPrevious && previousDays[active] ? <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400 }}>
           {` / ${dayLabel(previousDays[active].date)}`}</Box> : null}</Typography>
       {series.map((item) => <Stack key={item.metric} direction="row" justifyContent="space-between" alignItems="baseline" gap={1.25}
         sx={{ fontSize: 13 }}>
-        <Stack direction="row" alignItems="center" gap={.75} sx={{ color: '#3A3A40', minWidth: 0, whiteSpace: compact ? 'normal' : 'nowrap' }}>
+        <Stack direction="row" alignItems="center" gap={.75} sx={{ color: ui.text.body, minWidth: 0, whiteSpace: compact ? 'normal' : 'nowrap' }}>
           <Box sx={{ flex: 'none', width: 8, height: 8, borderRadius: '2px', bgcolor: metricColors[item.metric] }} />
           {labels[item.metric]}
         </Stack>

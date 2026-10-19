@@ -141,7 +141,7 @@ export function SyncDashboard({ storeId, overview, refresh, error, skipped }: {
   useEffect(() => { if (overview) setCheckedAt(new Date()); }, [overview]);
   return <Stack spacing={1.5}>
     <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-      <Typography variant="h6" fontWeight={800}>Загрузка данных</Typography>
+      <Typography variant="h6" fontWeight={700}>Загрузка данных</Typography>
       <Button size="small" variant="outlined" onClick={() => { refresh(); void history.refetch(); }}>Обновить статус</Button>
     </Stack>
     <Typography variant="caption" color="text.secondary">

@@ -118,11 +118,11 @@ export function CampaignPage() {
         </Typography> : null}
       </CardContent></Card>
       <Card><CardContent>
-        <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Товары в кампании</Typography>
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Товары в кампании</Typography>
         <NomenclatureTable rows={articles.data ?? []} />
       </CardContent></Card>
       <Card><CardContent>
-        <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
         {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete ?
             <Alert severity="info" sx={{ mb: 2 }}>Сбор кластеров за весь выбранный период ещё не завершён. Строки отчёта могут быть неполными. Рекомендации рассчитываются отдельно за фиксированные 14 дней.</Alert> : null}
         {clusters.data?.isWbConnected ? <>
@@ -145,7 +145,7 @@ export function CampaignPage() {
         </CardContent></Card> : <Typography variant="body2" color="text.secondary">Рекомендации отключены или кабинет не подключён.</Typography>}
 
       <Card><CardContent>
-        <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые запросы Джема</Typography>
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Поисковые запросы Джема</Typography>
         {jam.isLoading ? <LoadingState title="Загружаем запросы Джема" /> :
           jam.isError ? <Alert severity="error">Не удалось загрузить отчёт Джема.</Alert> :
           jam.data ? <WbJamTable report={jam.data} onSelectPeriod={(startDate, endDate) =>

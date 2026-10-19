@@ -13,6 +13,7 @@ import { getCurrentUserFromApi } from '../auth/authApi';
 import type { CurrentUser } from '../auth/authTypes';
 import { clearAuth, setCurrentUser } from '../auth/tokenStorage';
 import { getWbStores } from '../../pages/WbStoresPage/wbStoresApi';
+import { lightUiTokens as ui } from '../../app/lightUiTokens';
 
 const navItems = [
   { label: 'Сводка', to: appRoutes.dashboard, icon: <DashboardIcon fontSize="small" /> },
@@ -53,17 +54,21 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         height: '100dvh',
         flexShrink: 0,
         overflow: 'hidden',
-        p: 2,
-        bgcolor: 'rgba(255,255,255,0.72)',
-        backdropFilter: 'blur(22px)',
+        px: 2,
+        py: 3,
+        bgcolor: ui.surface.fallback,
+        '@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))': {
+          bgcolor: ui.surface.sidebar, backdropFilter: ui.surface.sidebarBlur, WebkitBackdropFilter: ui.surface.sidebarBlur
+        },
+        fontFamily: ui.fontFamily,
         color: 'text.primary',
-        borderRight: '1px solid rgba(255,255,255,0.85)'
+        borderRight: `1px solid ${ui.surface.border}`
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3, flexShrink: 0 }}>
         <Box sx={{ width: 30, height: 30, borderRadius: '8px', bgcolor: 'primary.main', color: '#fff',
           display: 'grid', placeItems: 'center', fontWeight: 800, flexShrink: 0 }}>E</Box>
-        <Typography variant="h6" fontWeight={800}>
+        <Typography variant="h6" fontWeight={700}>
           EcomAds
         </Typography>
       </Box>
@@ -79,7 +84,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
       {demoState ? (
         <Stack spacing={0.5} sx={{ mb: 2, flexShrink: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Chip label="Demo" size="small" sx={{ bgcolor: '#E8F2FF', color: '#0068D9', fontWeight: 800 }} />
+            <Chip label="Demo" size="small" sx={ui.status.info} />
             <Typography color="text.secondary" variant="body2">
               {demoState.timeLeftText}
             </Typography>
@@ -100,18 +105,18 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
               mb: 0.5,
               minHeight: 42,
               px: 1.5,
-              borderRadius: '10px',
-              color: 'text.secondary',
+              borderRadius: ui.radius.control,
+              color: ui.text.body,
               '&.active': {
-                bgcolor: 'rgba(0,122,255,0.1)',
+                bgcolor: ui.action.selected,
                 color: 'primary.dark',
                 '& .MuiListItemIcon-root': { color: 'primary.main' }
               },
-              '&:hover': { bgcolor: 'rgba(0,122,255,0.07)' },
+              '&:hover': { bgcolor: ui.surface.soft },
             }}
           >
             <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 13, lineHeight: 1.2 }} />
+            <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3 }} />
           </ListItemButton>
         ))}
       </List>
@@ -122,7 +127,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         href="https://t.me/ecomads_mvp01"
         rel="noopener noreferrer"
         target="_blank"
-        sx={{ minHeight: 42, px: 1.5, borderRadius: '10px', color: 'text.secondary' }}
+        sx={{ minHeight: 42, px: 1.5, borderRadius: ui.radius.control, color: 'text.secondary' }}
       >
         <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
           <TelegramIcon fontSize="small" />
@@ -130,7 +135,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         <ListItemText primary="Группа в Telegram" primaryTypographyProps={{ fontSize: 13, lineHeight: 1.2 }} />
       </ListItemButton>
 
-      <ListItemButton onClick={logout} sx={{ minHeight: 42, px: 1.5, borderRadius: '10px', color: 'text.secondary' }}>
+      <ListItemButton onClick={logout} sx={{ minHeight: 42, px: 1.5, borderRadius: ui.radius.control, color: 'text.secondary' }}>
         <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
           <LogoutIcon fontSize="small" />
         </ListItemIcon>

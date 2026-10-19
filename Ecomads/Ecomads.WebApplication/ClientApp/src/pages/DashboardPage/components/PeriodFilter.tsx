@@ -1,6 +1,7 @@
 import { Button, Stack, TextField, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { useState } from 'react';
 import type { LoadedPeriod } from '../../../shared/api/apiTypes';
+import { lightUiTokens as ui } from '../../../app/lightUiTokens';
 import type { DashboardFilters } from '../dashboardApi';
 
 type Props = {
@@ -38,7 +39,7 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
           setCustomOpen(false);
           onDraftChange(next);
           onApply(next);
-        }} sx={{ bgcolor: 'rgba(118,118,140,.10)', borderRadius: '999px', p: .4,
+        }} sx={{ bgcolor: ui.surface.segment, borderRadius: '999px', p: .4,
           maxWidth: '100%', overflowX: 'auto',
           '& .MuiToggleButton-root': { border: 0, borderRadius: '999px!important', px: { xs: 1, sm: 2.5 },
             fontSize: { xs: 12, sm: 13 }, whiteSpace: 'nowrap', textTransform: 'none' } }}>
@@ -56,7 +57,7 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
         InputLabelProps={{ shrink: true }} inputProps={{ max: today }} sx={{ maxWidth: { sm: 190 } }} />
       <Button variant="contained" disabled={invalid} onClick={() => { onApply(draftFilters); setCustomOpen(false); }}>Показать</Button>
       {invalid && draftFilters.startDate && draftFilters.endDate ?
-        <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>Выберите период не позднее сегодня и не длиннее 366 дней.</span> : null}
+        <span role="alert" style={{ color: ui.status.error.color, fontSize: 12 }}>Выберите период не позднее сегодня и не длиннее 366 дней.</span> : null}
     </Stack> : null}
   </Stack>;
 }

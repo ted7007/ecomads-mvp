@@ -6,11 +6,12 @@ import type { WbClusterRow, WbJamRow } from '../campaignApi';
 import { PaginationBar } from '../../../shared/ui/PaginationBar';
 import type { ClusterRecommendationResponse } from '../../../shared/api/clusterRecommendationApi';
 import { clusterAssessment } from './clusterAssessment';
+import { lightUiTokens } from '../../../app/lightUiTokens';
 
 const money = (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 const count = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU').format(value);
 
-const jamCell = { bgcolor: '#F7F0FF', color: '#6841A1' };
+const jamCell = lightUiTokens.jamCell;
 const estimateHint = 'Оценка по средней стоимости заказанных товаров этой пары «кампания + артикул» за выбранный период: сумма заказов fullstats / количество заказанных единиц (shks) × shks кластера. ДРР = расход кластера / оценочная сумма × 100%. Это не фактическая выручка кластера; данные вне выбранного периода не используются.';
 
 export function WbClusterTable({ rows, jamRows = [], emptyText, report, assessmentLoading, assessmentError }: {

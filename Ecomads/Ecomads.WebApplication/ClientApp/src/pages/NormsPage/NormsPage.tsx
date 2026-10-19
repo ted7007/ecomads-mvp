@@ -77,7 +77,7 @@ export function NormsPage() {
 
   return <Stack spacing={2.5} sx={{ maxWidth: 1200 }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'center' }} gap={1.5}>
-      <Box><Typography variant="h4" fontWeight={800}>Нормы</Typography>
+      <Box><Typography variant="h4" fontWeight={700}>Нормы</Typography>
         <Typography color="text.secondary">Пороги для блока «Требуют внимания» и оценки кластеров. Пустое поле кампании наследует норму кабинета.</Typography></Box>
       {storeId ? <Stack direction="row" alignItems="center" gap={1.5} flexShrink={0}>
         {storeDirty ? <Typography variant="caption" color="warning.main">Есть несохранённые изменения</Typography> : null}
@@ -95,7 +95,7 @@ export function NormsPage() {
 
     {storeId ? <Grid container spacing={2} alignItems="stretch">
       <Grid item xs={12} md={4}><Card sx={{ height: '100%' }}><CardContent><Stack spacing={2}>
-      <Typography variant="h6" fontWeight={800}>Нормы кабинета</Typography>
+      <Typography variant="h6" fontWeight={700}>Нормы кабинета</Typography>
       <Typography variant="body2" color="text.secondary">Целевой рекламный ДРР применяется по умолчанию ко всем кампаниям.</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
         {numericFields.slice(0, 2).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
@@ -104,7 +104,7 @@ export function NormsPage() {
       </Stack>
     </Stack></CardContent></Card></Grid>
       <Grid item xs={12} md={8}><Card sx={{ height: '100%' }}><CardContent><Stack spacing={2}>
-      <Typography variant="h6" fontWeight={800}>Достаточность данных</Typography>
+      <Typography variant="h6" fontWeight={700}>Достаточность данных</Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
         {numericFields.slice(2).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small"
           inputProps={{ min: 0 }} value={storeValues[key] ?? ''}
@@ -117,7 +117,7 @@ export function NormsPage() {
     </Grid> : null}
 
     {storeId ? <Card><CardContent><Stack spacing={2}>
-      <Typography variant="h6" fontWeight={800}>Нормы и цели кампаний</Typography>
+      <Typography variant="h6" fontWeight={700}>Нормы и цели кампаний</Typography>
       <Typography variant="body2" color="text.secondary">Нажмите строку для редактирования. Серым показано значение, унаследованное от кабинета.</Typography>
       <TableContainer sx={{ maxHeight: 470, display: { xs: 'none', md: 'block' } }}><Table stickyHeader size="small" aria-label="Нормы кампаний">
         <TableHead><TableRow><TableCell sx={{ width: '38%' }}>Кампания</TableCell><TableCell sx={{ width: '28%' }}>Цель</TableCell>

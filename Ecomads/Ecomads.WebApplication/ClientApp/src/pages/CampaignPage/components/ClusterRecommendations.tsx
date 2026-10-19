@@ -12,7 +12,7 @@ const sources: Record<string, string> = { article: 'товар', campaign: 'ка
 export function ClusterRecommendations({ campaignId, report }: { campaignId: string; report: ClusterRecommendationResponse }) {
   const unavailable = report.evaluations.filter(row => row.rules.some(rule => rule.status === 'skipped'));
   return <Stack spacing={2}>
-    <Typography variant="h6" fontWeight={800}>Рекомендации кампании</Typography>
+    <Typography variant="h6" fontWeight={700}>Рекомендации кампании</Typography>
     <Typography variant="body2" color="text.secondary">
       Рекомендации за 14 дней: {report.window.startDate} — {report.window.endDate}, МСК. Период отчёта не влияет на расчёт.
     </Typography>

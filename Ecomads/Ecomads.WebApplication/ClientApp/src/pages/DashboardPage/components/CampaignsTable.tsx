@@ -68,7 +68,7 @@ export function CampaignsTable({ campaigns, priorCampaigns, filters }: { campaig
       </Stack>
     </Box>
     <TableContainer sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
-      <Table size="small" sx={{ width: '100%', tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25 }, '& .MuiTableCell-head': { fontSize: 11, fontWeight: 700, lineHeight: 1.25, color: 'text.secondary', textTransform: 'uppercase' } }} aria-label="Рекламные кампании">
+      <Table size="small" sx={{ width: '100%', tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25 } }} aria-label="Рекламные кампании">
         <TableHead><TableRow>
           {[['name', 'Кампания']].map(([key, label]) =>
             <TableCell key={key} sx={{ width: '24%' }} align={key === 'name' ? 'left' : 'right'} sortDirection={sort === key ? ascending ? 'asc' : 'desc' : false}>
@@ -104,7 +104,8 @@ export function CampaignsTable({ campaigns, priorCampaigns, filters }: { campaig
           <TableCell align="right">{delta}</TableCell>
           <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatMoney(campaign.kpi.revenue)}</TableCell>
           <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{campaign.kpi.revenue > 0 ? formatPercent(campaign.kpi.drr, 1) : '—'}
-            {campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr ? <Chip size="small" color="warning" label="Выше цели" sx={{ ml: 1 }} /> : null}</TableCell>
+            {campaign.kpi.revenue > 0 && campaign.kpi.drr > campaign.targetDrr ? <Chip size="small" color="warning" label="Выше цели"
+              sx={{ display: 'flex', width: 'fit-content', maxWidth: '100%', ml: 'auto', mt: 0.5 }} /> : null}</TableCell>
           <TableCell align="right">{campaign.kpi.impressions > 0 ? formatPercent(campaign.kpi.ctr, 2) : '—'}</TableCell>
           <TableCell align="right">{campaign.kpi.clicks > 0 ? formatMoney(campaign.kpi.spend / campaign.kpi.clicks) : '—'}</TableCell>
         </TableRow>;})}</TableBody>
