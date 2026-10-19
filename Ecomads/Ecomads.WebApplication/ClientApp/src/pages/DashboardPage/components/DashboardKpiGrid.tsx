@@ -1,4 +1,4 @@
-import { Stack, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Stack, Typography } from '@mui/material';
 import type { ProjectDashboard } from '../../../shared/api/apiTypes';
 import type { CoveragePeriod, DailyPoint } from '../dashboardApi';
 import { formatMoney } from '../../../shared/lib/formatMoney';
@@ -64,7 +64,7 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
 
   return (
     <Stack spacing={0.5}>
-      <KpiGrid>
+      <KpiGrid hideLastOnMobile>
         <KpiCard label="Заказы" value={currentOrders === null ? '—' : formatMoney(currentOrders)}
           note={ordersNote} hint={currentOrders === null ? ordersHint : undefined} {...toggle('orders')}
           delta={orderComparison?.delta} deltaTone={orderComparison?.tone} previous={orderComparison?.previous} />
@@ -84,6 +84,11 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
         <KpiCard label="CTR" value={totals.impressions > 0 ? formatPercent(totals.ctr, 1) : '—'} {...toggle('ctr')}
           {...comparison(totals.impressions > 0 ? totals.ctr : null, previous?.impressions ? previous.ctr : null, 'percent', 1)} />
       </KpiGrid>
+      <Accordion disableGutters elevation={0} sx={{ display: { xs: 'block', sm: 'none' } }}>
+        <AccordionSummary expandIcon="⌄"><Typography variant="body2">Другие показатели · CTR</Typography></AccordionSummary>
+        <AccordionDetails><KpiCard label="CTR" value={totals.impressions > 0 ? formatPercent(totals.ctr, 1) : '—'} {...toggle('ctr')}
+          {...comparison(totals.impressions > 0 ? totals.ctr : null, previous?.impressions ? previous.ctr : null, 'percent', 1)} /></AccordionDetails>
+      </Accordion>
       {hasData && !comparable ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.5 }}>
         Сравнение с прошлым периодом появится после полной загрузки обоих периодов.
       </Typography> : null}

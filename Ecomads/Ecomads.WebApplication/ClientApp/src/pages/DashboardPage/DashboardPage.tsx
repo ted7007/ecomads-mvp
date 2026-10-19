@@ -13,7 +13,8 @@ import { ErrorState } from '../../shared/ui/ErrorState';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { DailyChart } from '../../shared/ui/DailyChart';
-import { ClusterRecommendationCard } from '../../shared/ui/ClusterRecommendationCard';
+import { DashboardRecommendations } from './components/DashboardRecommendations';
+import { DashboardDataStatus } from '../../shared/ui/DashboardDataStatus';
 import { getRecommendationSummary } from '../../shared/api/clusterRecommendationApi';
 
 import type { MetricKey } from '../../shared/ui/DailyChart';
@@ -58,6 +59,8 @@ export function DashboardPage() {
   const applyPeriod = (next: DashboardFilters) => {
     setSearchParams({ startDate: next.startDate ?? '', endDate: next.endDate ?? '' });
   };
+  const expiringTokens = (storesQuery.data ?? []).filter(store => Date.parse(store.tokenExpiresAtUtc) <= Date.now() + 14 * 86400000);
+  const cabinetLabel = (storesQuery.data?.length ?? 0) > 1 ? 'Все подключённые кабинеты' : storesQuery.data?.[0]?.name || 'Кабинет WB';
   const dateLabel = `${new Date(`${filters.startDate}T00:00:00Z`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })} – ${new Date(`${filters.endDate}T00:00:00Z`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })}`;
   const incomplete = campaigns.length > 0 && (campaignsWithData < campaigns.length || hasIncompleteDays);
   const latestAvailable = [...(loadedPeriods.data ?? [])].sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
@@ -66,14 +69,20 @@ export function DashboardPage() {
     <Stack spacing={2.5}>
       <PageHeader
         title={`Сводка за ${dateLabel}`}
-        description={includeToday ? 'Предварительные показатели · даты по МСК' : `${storesQuery.data?.[0]?.name || 'Кабинет WB'} · сравнение с ${prior.startDate?.slice(5).split('-').reverse().join('.')} – ${prior.endDate?.slice(5).split('-').reverse().join('.')} · даты по МСК`}
+        description={includeToday ? 'Предварительные показатели · даты по МСК' : `${cabinetLabel} · сравнение с ${prior.startDate?.slice(5).split('-').reverse().join('.')} – ${prior.endDate?.slice(5).split('-').reverse().join('.')} · даты по МСК`}
         actions={
-          <PeriodFilter draftFilters={draftFilters} periods={[]} onApply={applyPeriod} onDraftChange={setDraftFilters} />
+          <PeriodFilter compact draftFilters={draftFilters} periods={[]} onApply={applyPeriod} onDraftChange={setDraftFilters} />
         }
       />
 
       {demoFeedbackSuccess ? <Alert severity="success">{demoFeedbackSuccess}</Alert> : null}
       <WbDataFreshness startDate={filters.startDate!} endDate={filters.endDate!} />
+      <DashboardDataStatus startDate={filters.startDate!} endDate={filters.endDate!} />
+      {expiringTokens.map(store => <Alert key={store.id} severity={Date.parse(store.tokenExpiresAtUtc) <= Date.now() ? 'error' : 'warning'}
+        sx={{ flexWrap: { xs: 'wrap', sm: 'nowrap' }, '& .MuiAlert-message': { flex: { xs: '1 1 calc(100% - 40px)', sm: 'auto' } }, '& .MuiAlert-action': { ml: { xs: 4, sm: 0 }, pl: 0 } }}
+        action={<Button component={Link} to={appRoutes.wbStores}>Заменить токен</Button>}>
+        {store.name}: токен WB {Date.parse(store.tokenExpiresAtUtc) <= Date.now() ? 'истёк' : 'истекает'} {new Date(store.tokenExpiresAtUtc).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. Замените его, чтобы получать новые данные.
+      </Alert>)}
       {Date.parse(`${filters.endDate}T00:00:00Z`) - Date.parse(`${filters.startDate}T00:00:00Z`) > 30 * 86400000 ?
         <Alert severity="info" action={<Button component={Link} to={appRoutes.wbStores}>Загрузить историю</Button>}>
           Для годовых графиков загрузите историю рекламы, расходов и заказов в кабинете WB. Заказы собираются по дням и могут загружаться несколько дней из-за лимита WB.
@@ -89,9 +98,11 @@ export function DashboardPage() {
         />
       ) : null}
 
-      {!campaignsQuery.isLoading && !campaignsQuery.isError ? (
+      {!campaignsQuery.isLoading && !campaignsQuery.isError ? storesQuery.data?.length === 0 && campaigns.length === 0 ? (
+        <Card><CardContent><CampaignsTable hasStores={false} campaigns={[]} priorCampaigns={[]} filters={filters} /></CardContent></Card>
+      ) : (
         <>
-          {campaignsWithData === 0 && latestAvailable ? <Alert severity="info" action={<Button onClick={() => applyPeriod(latestAvailable)}>Показать</Button>}>
+          {campaignsWithData === 0 && latestAvailable && (latestAvailable.startDate !== filters.startDate || latestAvailable.endDate !== filters.endDate) ? <Alert severity="info" action={<Button onClick={() => applyPeriod(latestAvailable)}>Показать</Button>}>
             За выбранный период данных нет. Доступный период: {latestAvailable.startDate} – {latestAvailable.endDate}.
           </Alert> : null}
           <Stack spacing={0.75}>
@@ -104,23 +115,7 @@ export function DashboardPage() {
           </Accordion> : null}
           {recommendations.isLoading ? <Typography>Расчёт рекомендаций…</Typography> : null}
           {recommendations.isError ? <Alert severity="error">Не удалось получить рекомендации. <Button onClick={() => void recommendations.refetch()}>Повторить</Button></Alert> : null}
-          {recommendations.data ? <Card><CardContent><Stack spacing={1.5}>
-            <Typography variant="h6" fontWeight={700}>Требуют внимания · топ-5 рекомендаций</Typography>
-            <Typography variant="body2">Рекомендации за 14 дней: {recommendations.data.window.startDate} — {recommendations.data.window.endDate}, МСК. Остатки и бюджет — по отдельным оперативным окнам.</Typography>
-            {recommendations.data.top.map(({ runId, card }) => <Stack key={`${runId}:${card.evaluationId}:${card.rule.ruleId}`} spacing={.5}>
-              <Button component={Link} sx={{ alignSelf: 'flex-start' }} to={`/campaign/${card.subject.campaignId}?startDate=${filters.startDate}&endDate=${filters.endDate}`}>Открыть кампанию</Button>
-              <ClusterRecommendationCard runId={runId} card={card} />
-            </Stack>)}
-            {recommendations.data.remaining ? <Typography>Ещё {recommendations.data.remaining} рекомендаций — на экранах кампаний.</Typography> : null}
-            {!recommendations.data.top.length ? <Typography variant="body2">{recommendations.data.enabled ? 'Карточек за расчётные 14 дней нет. Для отдельных кампаний данные могут быть неполными.' : 'Рекомендации отключены или нет подключённых кабинетов.'}</Typography> : null}
-            {recommendations.data.campaigns.some(c => c.status !== 'no_deviations') ? <Accordion disableGutters elevation={0}>
-              <AccordionSummary expandIcon="⌄"><Typography variant="body2">Итоги по кампаниям и ограничения данных</Typography></AccordionSummary>
-              <AccordionDetails><Stack spacing={1}>{recommendations.data.campaigns.map(c => <Stack key={c.campaignId ?? c.name} spacing={.5}>
-                <Typography variant="body2">{c.name}: {c.count} рекомендаций · {c.message}</Typography>
-                {c.campaignId ? <Button size="small" component={Link} sx={{ alignSelf: 'flex-start' }} to={`/campaign/${c.campaignId}?startDate=${filters.startDate}&endDate=${filters.endDate}`}>Подробнее</Button> : null}
-              </Stack>)}</Stack></AccordionDetails>
-            </Accordion> : null}
-          </Stack></CardContent></Card> : null}
+          {recommendations.data ? <DashboardRecommendations data={recommendations.data} campaigns={campaigns} filters={filters} /> : null}
           </Stack>
 
           <DashboardKpiGrid campaigns={campaigns} priorCampaigns={includeToday ? [] : priorCampaignsQuery.data ?? []}
@@ -133,13 +128,14 @@ export function DashboardPage() {
               <DailyChart days={dailyQuery.data ?? []} previousDays={includeToday ? [] : priorQuery.data ?? []} selectedMetrics={selectedMetrics} storeLevel />}
           </CardContent></Card>
 
-          <Card>
+          <Card component="section" id="campaigns" sx={{ scrollMarginTop: 80 }}>
             <CardContent>
               <Stack spacing={2}>
-                <Typography variant="h6" fontWeight={700}>
+                <Typography component="h2" variant="h6" fontWeight={700}>
                   Рекламные кампании
                 </Typography>
-                <CampaignsTable campaigns={campaigns} priorCampaigns={includeToday ? [] : priorCampaignsQuery.data ?? []} filters={filters} />
+                <Typography variant="caption" color="text.secondary">За {dateLabel} · нажмите на столбец, чтобы отсортировать</Typography>
+                <CampaignsTable hasStores={storesQuery.data?.length !== 0} campaigns={campaigns} priorCampaigns={includeToday ? [] : priorCampaignsQuery.data ?? []} filters={filters} />
               </Stack>
             </CardContent>
           </Card>

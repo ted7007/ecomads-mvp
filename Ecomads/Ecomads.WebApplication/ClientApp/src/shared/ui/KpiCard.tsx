@@ -22,11 +22,12 @@ export type KpiCardProps = {
   hint?: string;
 };
 
-export function KpiGrid({ children }: { children: ReactNode }) {
+export function KpiGrid({ children, hideLastOnMobile = false }: { children: ReactNode; hideLastOnMobile?: boolean }) {
   return <Box sx={{
     display: 'grid', width: '100%', gap: { xs: '10px', sm: '14px' },
     gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' },
-    '& > :last-child:nth-of-type(odd)': { gridColumn: { xs: 'span 2', md: 'auto' } }
+    '& > :last-child:nth-of-type(odd)': { gridColumn: hideLastOnMobile ? 'auto' : { xs: 'span 2', md: 'auto' } },
+    ...(hideLastOnMobile ? { '& > :last-child': { display: { xs: 'none', sm: 'flex' } } } : {})
   }}>{children}</Box>;
 }
 

@@ -1,4 +1,4 @@
-import { Button, Stack, TextField, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { Button, MenuItem, Select, Stack, TextField, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { useState } from 'react';
 import type { LoadedPeriod } from '../../../shared/api/apiTypes';
 import { lightUiTokens as ui } from '../../../app/lightUiTokens';
@@ -9,9 +9,10 @@ type Props = {
   periods: LoadedPeriod[];
   onDraftChange: (filters: DashboardFilters) => void;
   onApply: (filters: DashboardFilters) => void;
+  compact?: boolean;
 };
 
-export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
+export function PeriodFilter({ draftFilters, onDraftChange, onApply, compact = false }: Props) {
   const [customOpen, setCustomOpen] = useState(false);
   const today = moscowToday();
   const end = addDays(today, -1);
@@ -25,7 +26,7 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
     (Date.parse(`${draftFilters.endDate}T00:00:00Z`) - Date.parse(`${draftFilters.startDate}T00:00:00Z`)) / 86400000 > 365;
 
   return <Stack spacing={1}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }} justifyContent="space-between">
+    <Stack direction={compact ? 'row' : { xs: 'column', sm: 'row' }} gap={1} alignItems="center" justifyContent="space-between">
       <ToggleButtonGroup exclusive size="small" value={selected} aria-label="Период статистики"
         onChange={(_, value) => {
           if (value === 'today') {
@@ -43,10 +44,19 @@ export function PeriodFilter({ draftFilters, onDraftChange, onApply }: Props) {
           maxWidth: '100%', overflowX: 'auto',
           '& .MuiToggleButton-root': { border: 0, borderRadius: '999px!important', px: { xs: 1, sm: 2.5 },
             fontSize: { xs: 12, sm: 13 }, whiteSpace: 'nowrap', textTransform: 'none' } }}>
-        <ToggleButton value="today">Сегодня</ToggleButton>
-        {presets.map(({ days }) => <ToggleButton key={days} value={days}>{days === 365 ? 'Год' : `${days} дней`}</ToggleButton>)}
-        <ToggleButton value="custom" onClick={() => setCustomOpen(true)}>Свой период</ToggleButton>
+        {!compact ? <ToggleButton value="today">Сегодня</ToggleButton> : null}
+        {presets.filter(({ days }) => !compact || days !== 365).map(({ days }) => <ToggleButton key={days} value={days}>{days === 365 ? 'Год' : `${days} дней`}</ToggleButton>)}
+        <ToggleButton value="custom" onClick={() => setCustomOpen(true)} sx={compact ? { display: { xs: 'none', sm: 'inline-flex' } } : undefined}>Свой период</ToggleButton>
       </ToggleButtonGroup>
+      {compact ? <Select size="small" value={selected === 'today' || selected === 365 ? String(selected) : 'more'}
+        inputProps={{ 'aria-label': 'Другие периоды' }} sx={{ minWidth: 105 }} onChange={event => {
+          const value = event.target.value;
+          if (value === 'custom') { setCustomOpen(true); return; }
+          const next = value === 'today' ? { startDate: today, endDate: today } : presets.find(preset => preset.days === 365)!.filters;
+          setCustomOpen(false); onDraftChange(next); onApply(next);
+        }}>
+        <MenuItem value="more" disabled>Ещё</MenuItem><MenuItem value="today">Сегодня</MenuItem><MenuItem value="365">Год</MenuItem><MenuItem value="custom">Свой период</MenuItem>
+      </Select> : null}
     </Stack>
     {customOpen ? <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
       <TextField id="period-start" label="С даты" type="date" size="small" value={draftFilters.startDate ?? ''}

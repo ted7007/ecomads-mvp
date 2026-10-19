@@ -14,6 +14,8 @@ import type { CurrentUser } from '../auth/authTypes';
 import { clearAuth, setCurrentUser } from '../auth/tokenStorage';
 import { getWbStores } from '../../pages/WbStoresPage/wbStoresApi';
 import { lightUiTokens as ui } from '../../app/lightUiTokens';
+import { DashboardDataStatus } from './DashboardDataStatus';
+import { defaultPeriod } from '../../pages/DashboardPage/components/PeriodFilter';
 
 const navItems = [
   { label: 'Сводка', to: appRoutes.dashboard, icon: <DashboardIcon fontSize="small" /> },
@@ -24,6 +26,9 @@ const navItems = [
 export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const periodParams = new URLSearchParams(location.search);
+  const startDate = periodParams.get('startDate') ?? defaultPeriod().startDate!;
+  const endDate = periodParams.get('endDate') ?? defaultPeriod().endDate!;
   const stores = useQuery({ queryKey: ['wb-stores'], queryFn: getWbStores });
   const currentUserQuery = useQuery({
     queryKey: queryKeys.auth.me,
@@ -121,6 +126,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         ))}
       </List>
 
+      {!mobile && location.pathname === appRoutes.dashboard ? <DashboardDataStatus startDate={startDate} endDate={endDate} sidebar /> : null}
       <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1, flexShrink: 0 }}>
       <ListItemButton
         component="a"

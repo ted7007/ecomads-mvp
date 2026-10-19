@@ -7,8 +7,9 @@ import { formatMoney } from '../lib/formatMoney';
 import { moscowToday } from '../../pages/DashboardPage/components/PeriodFilter';
 
 const labels: Record<string, string> = { accepted: 'Принял', snoozed: 'Отложено', irrelevant: 'Не актуально' };
-export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId }: {
+export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, compact = false }: {
   campaignId: string; runId: string; evaluationIds: string[]; ruleId: string;
+  compact?: boolean;
 }) {
   const [status, setStatus] = useState('');
   const [date, setDate] = useState('');
@@ -22,7 +23,9 @@ export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId }: {
   const invalid = status === 'snoozed' && (!date || date <= moscowToday()) || status === 'irrelevant' && !reason.trim();
   return <>
     <Stack direction="row" gap={1} useFlexGap flexWrap="wrap">{Object.entries(labels).map(([key, label]) =>
-      <Button key={key} size="small" disabled={!evaluationIds.length} onClick={() => { setStatus(key); save.reset(); }}>{label === 'Отложено' ? 'Отложить' : label}</Button>)}</Stack>
+      <Button key={key} size="small" variant={compact ? key === 'accepted' ? 'contained' : 'outlined' : 'text'}
+        sx={compact ? { flex: { xs: 1, md: 'initial' }, px: 1, minWidth: 0, fontSize: 12, whiteSpace: 'nowrap' } : undefined}
+        disabled={!evaluationIds.length} onClick={() => { setStatus(key); save.reset(); }}>{label === 'Отложено' ? 'Отложить' : label}</Button>)}</Stack>
     <Dialog open={Boolean(status)} onClose={() => !save.isPending && setStatus('')} fullWidth maxWidth="sm">
       <DialogTitle>{labels[status]} · выбрано: {evaluationIds.length}</DialogTitle>
       <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
@@ -37,7 +40,7 @@ export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId }: {
   </>;
 }
 
-export function ClusterRecommendationCard({ card, runId }: { card: RecommendationCard; runId: string | null }) {
+export function ClusterRecommendationCard({ card, runId, showDecisionButtons = true }: { card: RecommendationCard; runId: string | null; showDecisionButtons?: boolean }) {
   const p = card.presentation;
   const details = p?.details;
   const titles: Record<string, string> = { R01: 'Реклама и остаток товара', R02: 'Бюджета кампании осталось меньше дня', R03: 'Расход без заказанных единиц', R06: 'ДРР кластера выше нормы', R07: 'ДРР товара при единой ставке выше нормы' };
@@ -80,6 +83,6 @@ export function ClusterRecommendationCard({ card, runId }: { card: Recommendatio
     <Typography variant="caption" color="text.secondary">{!details ? 'Сумма заказов кластера оценена по средней цене единицы товара за фиксированные 14 дней. ' : ''}Данные WB могут уточняться, в том числе после D−2.</Typography>
     {card.decision?.reason ? <Typography variant="body2">Причина: {card.decision.reason}</Typography> : null}
     {card.decision?.comment ? <Typography variant="body2">Комментарий: {card.decision.comment}</Typography> : null}
-    {runId && p ? <DecisionButtons campaignId={card.subject.campaignId} runId={runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}
+    {showDecisionButtons && runId && p ? <DecisionButtons campaignId={card.subject.campaignId} runId={runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}
   </Stack>;
 }
