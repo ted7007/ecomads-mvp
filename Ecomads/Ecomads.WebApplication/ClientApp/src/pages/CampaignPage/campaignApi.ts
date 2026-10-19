@@ -17,7 +17,10 @@ export const wbClusterRowSchema = z.object({
   assessment: z.string(), orderedProducts: z.number().int().nullable(),
   averageOrderedUnitPrice: z.number().nullable(), estimatedOrderSum: z.number().nullable(),
   estimatedDrr: z.number().nullable(), estimateStatus: z.enum(['complete', 'preliminary', 'unavailable']),
-  estimateReason: z.string().nullable()
+  estimateReason: z.string().nullable(),
+  averagePosition: z.number().nullable().default(null), positionDays: z.number().int().default(0),
+  positionStatus: z.enum(['complete', 'preliminary', 'unavailable']).default('unavailable'),
+  positionReason: z.string().nullable().default(null)
 });
 const wbClustersSchema = z.object({ isWbConnected: z.boolean(), isPeriodComplete: z.boolean(), rows: z.array(wbClusterRowSchema),
   storeNormVersion: z.number().int(), campaignNormVersion: z.number().int() });

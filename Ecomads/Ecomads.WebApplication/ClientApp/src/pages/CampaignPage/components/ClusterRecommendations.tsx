@@ -1,100 +1,55 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Checkbox, Stack, TextField, Typography } from '@mui/material';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { getArticleNorms, saveArticleNorm } from '../../../shared/api/clusterRecommendationApi';
-import type { ArticleNorm, ClusterRecommendationResponse } from '../../../shared/api/clusterRecommendationApi';
+import { Accordion, AccordionDetails, AccordionSummary, Box, Button, ButtonBase, Card, CardContent, Checkbox, Chip, Stack, Typography } from '@mui/material';
+import { useState } from 'react';
+import type { ClusterRecommendationResponse, RecommendationCard } from '../../../shared/api/clusterRecommendationApi';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { ClusterRecommendationCard, DecisionButtons } from '../../../shared/ui/ClusterRecommendationCard';
-
-const sources: Record<string, string> = { article: 'товар', campaign: 'кампания', store: 'кабинет', default: 'по умолчанию' };
-
-
+import { PaginationBar } from '../../../shared/ui/PaginationBar';
+import { ArticleNormEditor } from './ArticleNormEditor';
+import { DetailsDrawer } from './DetailsDrawer';
+import { packageCards } from './campaignReportModel';
+const clamp = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as const;
+const titles: Record<string, string> = { R01: 'Реклама и остатки', R02: 'Пополнить бюджет', R03: 'Расход без заказов', R06: 'ДРР кластера выше нормы', R07: 'ДРР товара выше нормы' };
+function CopyButton({ text, label = 'Копировать кластер', disabled = false }: { text: string; label?: string; disabled?: boolean }) {
+  const [status, setStatus] = useState('');
+  return <><Button size="small" disabled={disabled} onClick={async () => { try { await navigator.clipboard.writeText(text); setStatus('Скопировано'); } catch { setStatus('Не скопировано'); } }} title={status === 'Не скопировано' ? 'Откройте подробности и выделите текст вручную' : status || undefined}>{status || label}</Button></>;
+}
 export function ClusterRecommendations({ campaignId, report }: { campaignId: string; report: ClusterRecommendationResponse }) {
-  const unavailable = report.evaluations.filter(row => row.rules.some(rule => rule.status === 'skipped'));
-  return <Stack spacing={2}>
-    <Typography variant="h6" fontWeight={700}>Рекомендации кампании</Typography>
-    <Typography variant="body2" color="text.secondary">
-      Рекомендации за 14 дней: {report.window.startDate} — {report.window.endDate}, МСК. Период отчёта не влияет на расчёт.
-    </Typography>
-    <Alert severity={report.cards.length || unavailable.length ? 'warning' : 'info'}>{report.message}</Alert>
-    <Typography variant="body2">Рекомендаций: {report.cards.length} · расход уникальных кластеров ≈ {formatMoney([...new Map(report.cards.filter(c => c.subject.scope === 'cluster').map(c => [`${c.subject.articleId}:${c.subject.clusterName}`, c])).values()].reduce((sum, c) => sum + (c.presentation?.weeklySpend ?? c.facts.spend / report.window.days * 7), 0))} в неделю.</Typography>
-    {report.packages?.map(bundle => <ExclusionPackage key={bundle.id} report={report} ids={bundle.evaluationIds} />)}
-    {report.cards.filter(card => !report.packages?.some(bundle => bundle.evaluationIds.includes(card.evaluationId))).map(card => <ClusterRecommendationCard key={`${card.evaluationId}:${card.rule.ruleId}`} card={card} runId={report.runId} />)}
-    {unavailable.length ? <Accordion disableGutters elevation={0}>
-      <AccordionSummary expandIcon="⌄"><Typography>Ограничения расчёта · {unavailable.length} объектов</Typography></AccordionSummary>
-      <AccordionDetails><Stack spacing={1}>{unavailable.map(row => <Typography variant="body2" key={row.evaluationId}>
-        {row.subject.clusterName ?? row.subject.nomenclatureName ?? 'Кампания'} {row.subject.nomenclatureId ?? ''}: {row.rules.find(rule => rule.status === 'skipped')?.explanation}
-      </Typography>)}</Stack></AccordionDetails>
-    </Accordion> : null}
-    <Typography variant="caption" color="text.secondary">Проверок: {report.coverage.evaluated} из {report.coverage.enabled} включённых · пропущено: {report.coverage.skipped}
-      {report.calculatedAtUtc ? ` · расчёт ${new Date(report.calculatedAtUtc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : ''}</Typography>
+  const [page, setPage] = useState(0), [size, setSize] = useState(5), [opened, setOpened] = useState<RecommendationCard | null>(null);
+  const bundles = (report.packages ?? []).map(b => ({ ...b, cards: packageCards(report, b.evaluationIds) })).filter(b => b.cards.length);
+  const packaged = new Set(bundles.flatMap(b => b.cards.map(c => `${c.evaluationId}:${c.rule.ruleId}`)));
+  const singles = [...new Map(report.cards.filter(c => !packaged.has(`${c.evaluationId}:${c.rule.ruleId}`)).map(c => [`${c.evaluationId}:${c.rule.ruleId}`, c])).values()];
+  const safePage = Math.min(page, Math.max(0, Math.ceil(singles.length / size) - 1));
+  return <Stack spacing={2}><Typography component="h2" variant="h6" fontWeight={700}>Рекомендации кампании</Typography><Typography variant="caption" color="text.secondary">За 14 дней: {report.window.startDate} — {report.window.endDate}, МСК</Typography>
+    {bundles.map(b => <ExclusionPackage key={`${report.runId}:${b.id}`} report={report} cards={b.cards} onOpen={setOpened} />)}
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>{singles.slice(safePage * size, (safePage + 1) * size).map(card => <Card key={`${card.evaluationId}:${card.rule.ruleId}`}><CardContent sx={{ height: 280, minWidth: 0, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: .5, '& > *': { flexShrink: 0 }, '& .MuiButton-root': { fontSize: 12, minHeight: 28, py: .25 }, '&:last-child': { pb: 2 } }}>
+      <Stack direction="row" gap={1} alignItems="center"><Chip size="small" color="warning" variant="outlined" label={titles[card.rule.ruleId] ?? card.rule.ruleId} />{card.decision ? <Chip size="small" color={card.decision.status === 'accepted' ? 'success' : card.decision.status === 'snoozed' ? 'info' : 'default'} label={card.decision.status === 'accepted' ? 'Принял' : card.decision.status === 'snoozed' ? 'Отложено' : 'Не актуально'} /> : null}</Stack>
+      <ButtonBase onClick={() => setOpened(card)} aria-label={`Открыть рекомендацию: ${card.subject.clusterName ?? card.subject.nomenclatureName ?? 'Вся кампания'}`} sx={{ display: 'block', width: '100%', textAlign: 'left', borderRadius: 1 }}><Typography fontWeight={700} sx={{ fontSize: 14, lineHeight: '20px' }} noWrap title={card.subject.clusterName ?? card.subject.nomenclatureName ?? 'Вся кампания'}>{card.subject.clusterName ?? card.subject.nomenclatureName ?? 'Вся кампания'}</Typography></ButtonBase>
+      <Typography variant="caption" sx={{ fontSize: 11, lineHeight: '16px' }} color="text.secondary">{card.subject.nomenclatureId ? `Артикул ${card.subject.nomenclatureId}` : 'Кампания'} · Расход {formatMoney(card.facts.spend)}</Typography>
+      <Typography variant="body2" sx={{ ...clamp, fontSize: 13, lineHeight: '18px', maxHeight: 36 }}>Почему: {card.rule.explanation}</Typography><Typography variant="body2" sx={{ ...clamp, fontSize: 13, lineHeight: '18px', maxHeight: 36 }}>Действие: {card.presentation?.primary.label ?? card.rule.explanation}</Typography>
+      <Stack direction="row" sx={{ mt: 'auto' }}>{card.subject.clusterName ? <CopyButton text={card.subject.clusterName} /> : null}</Stack>
+      {report.runId && card.presentation ? <DecisionButtons compact campaignId={campaignId} runId={report.runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}
+    </CardContent></Card>)}</Box>
+    {singles.length ? <PaginationBar desktopSizeButtons count={singles.length} page={safePage} rowsPerPage={size} onPageChange={setPage} onRowsPerPageChange={n => { setSize(n); setPage(0); }} /> : null}
+    {!report.cards.length ? <Typography color="text.secondary">{report.message}</Typography> : null}
+    <Accordion disableGutters elevation={0}><AccordionSummary expandIcon="⌄"><Typography>Подробности расчёта</Typography></AccordionSummary><AccordionDetails><Stack spacing={1}><Typography>{report.message}</Typography><Typography>Проверок: {report.coverage.evaluated} из {report.coverage.enabled} · Пропущено: {report.coverage.skipped}</Typography>{report.evaluations.filter(e => e.rules.some(r => r.status === 'skipped')).map(e => <Typography key={e.evaluationId}>{e.subject.clusterName ?? e.subject.nomenclatureName}: {e.rules.find(r => r.status === 'skipped')?.explanation}</Typography>)}<Typography variant="caption">{report.calculatedAtUtc ? new Date(report.calculatedAtUtc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' МСК' : ''}</Typography></Stack></AccordionDetails></Accordion>
     <ArticleNormEditor campaignId={campaignId} />
+    <DetailsDrawer open={!!opened} onClose={() => setOpened(null)} title="Рекомендация">{opened ? <ClusterRecommendationCard card={report.cards.find(c => c.evaluationId === opened.evaluationId && c.rule.ruleId === opened.rule.ruleId) ?? opened} runId={report.runId} /> : null}</DetailsDrawer>
   </Stack>;
 }
-
-function ArticleNormEditor({ campaignId }: { campaignId: string }) {
-  const [open, setOpen] = useState(false);
-  const query = useQuery({ queryKey: ['wb-article-norms', campaignId], queryFn: () => getArticleNorms(campaignId), enabled: open });
-  return <Accordion expanded={open} onChange={(_, expanded) => setOpen(expanded)} disableGutters elevation={0}>
-    <AccordionSummary expandIcon="⌄"><Typography>Нормы и даты запуска товаров</Typography></AccordionSummary>
-    <AccordionDetails><Stack spacing={2}>
-      <Typography variant="body2" color="text.secondary">Норма товара важнее нормы кампании и кабинета. Пустое поле наследует значение.</Typography>
-      {query.isLoading ? <Typography>Загрузка норм…</Typography> : null}
-      {query.isError ? <Alert severity="error">Не удалось загрузить нормы. <Button onClick={() => void query.refetch()}>Повторить</Button></Alert> : null}
-      {query.data?.map(row => <ArticleNormField key={row.articleId} campaignId={campaignId} row={row} />)}
-    </Stack></AccordionDetails>
-  </Accordion>;
-}
-
-function ArticleNormField({ campaignId, row }: { campaignId: string; row: ArticleNorm }) {
-  const [value, setValue] = useState(row.targetDrr?.toString() ?? '');
-  const [launchDate, setLaunchDate] = useState(row.launchDate ?? '');
-  useEffect(() => setLaunchDate(row.launchDate ?? ''), [row.launchDate]);
-  useEffect(() => setValue(row.targetDrr?.toString() ?? ''), [row.targetDrr]);
-  const cache = useQueryClient();
-  const numeric = value === '' ? null : Number(value);
-  const invalid = numeric !== null && (!Number.isFinite(numeric) || numeric < 0 || numeric > 1000 || Math.round(numeric * 100) / 100 !== numeric);
-  const save = useMutation({ mutationFn: () => saveArticleNorm(campaignId, row.articleId, numeric, launchDate || null),
-    onSuccess: async () => { await Promise.all([
-      cache.invalidateQueries({ queryKey: ['wb-recommendation-summary'] }),
-      cache.invalidateQueries({ queryKey: ['wb-article-norms', campaignId] }),
-      cache.invalidateQueries({ queryKey: ['wb-cluster-recommendations', campaignId] })
-    ]); } });
-  return <Stack spacing={0.5}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }}>
-      <Typography variant="body2" sx={{ flex: 1 }}>{row.nomenclatureId} · {row.name}</Typography>
-      <TextField label="Норма ДРР, %" type="number" size="small" value={value} error={invalid}
-        placeholder={String(row.effectiveTargetDrr)} inputProps={{ min: 0, max: 1000, step: 0.01 }}
-        onChange={event => setValue(event.target.value)} helperText={`Сейчас ${row.effectiveTargetDrr}% · ${sources[row.source]}`} />
-      <TextField type="date" label="Запуск товара" size="small" value={launchDate} InputLabelProps={{ shrink: true }}
-        helperText={row.effectiveLaunchDate ? `Сейчас ${row.effectiveLaunchDate}` : 'Пусто: наследуется дата кампании'} onChange={e => setLaunchDate(e.target.value)} />
-      <Button disabled={invalid || save.isPending || numeric === row.targetDrr && launchDate === (row.launchDate ?? '')} onClick={() => save.mutate()}>Сохранить</Button>
-    </Stack>
-    {save.isError ? <Alert severity="error">Не удалось сохранить норму.</Alert> : null}
-  </Stack>;
-}
-
-function ExclusionPackage({ report, ids }: { report: ClusterRecommendationResponse; ids: string[] }) {
-  const [selected, setSelected] = useState<string[]>(ids);
-  const [copied, setCopied] = useState('');
-  const cards = report.cards.filter(c => ids.includes(c.evaluationId));
+function ExclusionPackage({ report, cards, onOpen }: { report: ClusterRecommendationResponse; cards: RecommendationCard[]; onOpen: (card: RecommendationCard) => void }) {
+  const [selected, setSelected] = useState(() => cards.map(c => c.evaluationId));
+  const [page, setPage] = useState(0), [size, setSize] = useState(5);
   const chosen = cards.filter(c => selected.includes(c.evaluationId));
-  useEffect(() => setSelected(ids), [ids]);
-  return <Stack spacing={1} sx={{ border: '1px solid', borderColor: 'primary.main', borderRadius: 2, p: 2 }}>
-    <Typography fontWeight={700}>Пакет исключений · {cards.length} кластеров</Typography>
-    <Typography variant="body2">Выберите кластеры. Список сгруппирован по товарам; исключения в WB задаются для конкретного артикула.</Typography>
-    {cards.map(c => <Stack key={c.evaluationId} direction="row" alignItems="center"><Checkbox checked={selected.includes(c.evaluationId)}
-      onChange={(_, checked) => setSelected(old => checked ? [...old, c.evaluationId] : old.filter(id => id !== c.evaluationId))} inputProps={{ 'aria-label': `Выбрать ${c.subject.clusterName}` }} />
-      <Accordion sx={{ flex: 1 }} disableGutters elevation={0}><AccordionSummary expandIcon="⌄"><Typography variant="body2">{c.subject.nomenclatureId} · {c.subject.clusterName} · {formatMoney(c.facts.spend)}</Typography></AccordionSummary>
-        <AccordionDetails><ClusterRecommendationCard card={c} runId={report.runId} /></AccordionDetails></Accordion></Stack>)}
-    <Typography variant="body2">Выбрано {chosen.length} · расход выбранных кластеров ≈ {formatMoney(chosen.reduce((sum, c) => sum + (c.presentation?.weeklySpend ?? 0), 0))} в неделю</Typography>
-    <Button disabled={!chosen.length} onClick={async () => { try {
-      const groups = new Map<string, string[]>();
-      chosen.forEach(c => groups.set(c.subject.nomenclatureId!, [...(groups.get(c.subject.nomenclatureId!) ?? []), c.subject.clusterName!]));
-      await navigator.clipboard.writeText([...groups].map(([nm, names]) => `Артикул ${nm}\n${names.join('\n')}`).join('\n\n'));
-      setCopied('Список скопирован');
-    } catch { setCopied('Не удалось скопировать. Выделите список вручную.'); } }}>Копировать выбранные</Button>
-    {copied ? <Typography variant="caption">{copied}</Typography> : null}
-    {report.runId ? <DecisionButtons campaignId={cards[0].subject.campaignId} runId={report.runId} evaluationIds={selected} ruleId="R03" /> : null}
-  </Stack>;
+  const groups = new Map<string, string[]>(); chosen.forEach(c => { const article = c.subject.nomenclatureId ?? '—'; groups.set(article, [...(groups.get(article) ?? []), c.subject.clusterName ?? '']); });
+  const text = [...groups].map(([a, n]) => `Артикул ${a}\n${n.join('\n')}`).join('\n\n');
+  const safePage = Math.min(page, Math.max(0, Math.ceil(cards.length / size) - 1));
+  return <Card role="region" aria-label="Пакет исключений" sx={{ borderColor: 'warning.main' }}><CardContent><Stack spacing={1.5}><Typography variant="h6">Пакет исключений · {cards.length} кластеров</Typography>
+    <Typography variant="body2">Расход без заказанных единиц. Выберите кластеры для исключения вручную в WB.</Typography>
+    {cards.slice(safePage * size, (safePage + 1) * size).map(c => <Stack key={c.evaluationId} direction="row" alignItems="center" gap={1}><Checkbox checked={selected.includes(c.evaluationId)} inputProps={{ 'aria-label': `Выбрать ${c.subject.clusterName}` }} onChange={(_, yes) => setSelected(old => yes ? [...new Set([...old, c.evaluationId])] : old.filter(id => id !== c.evaluationId))} /><Box sx={{ flex: 1, minWidth: 0 }}><ButtonBase onClick={() => onOpen(c)} aria-label={`Открыть рекомендацию: ${c.subject.clusterName}`} sx={{ display: 'block', textAlign: 'left', borderRadius: 1, fontWeight: 700, overflowWrap: 'anywhere' }}>{c.subject.clusterName}</ButtonBase><Typography variant="caption">Арт. {c.subject.nomenclatureId} · {formatMoney(c.facts.spend)}</Typography>{c.decision ? <Chip size="small" color={c.decision.status === 'accepted' ? 'success' : c.decision.status === 'snoozed' ? 'info' : 'default'} label={c.decision.status === 'accepted' ? 'Принял' : c.decision.status === 'snoozed' ? 'Отложено' : 'Не актуально'} /> : null}</Box></Stack>)}
+    <PaginationBar desktopSizeButtons count={cards.length} page={safePage} rowsPerPage={size} onPageChange={setPage} onRowsPerPageChange={n => { setSize(n); setPage(0); }} />
+    <Typography>Выбрано {chosen.length} из {cards.length} · ≈ {formatMoney(chosen.reduce((s, c) => s + (c.presentation?.weeklySpend ?? 0), 0))} в неделю</Typography>
+    <CopyButton text={text} label="Копировать выбранные" disabled={!chosen.length} />
+    {report.runId && cards.length ? <DecisionButtons compact campaignId={cards[0].subject.campaignId} runId={report.runId} evaluationIds={chosen.map(c => c.evaluationId)} ruleId="R03" /> : null}
+    <Accordion disableGutters elevation={0}><AccordionSummary expandIcon="⌄"><Typography variant="caption">Список для ручного копирования</Typography></AccordionSummary><AccordionDetails><Typography component="pre" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', userSelect: 'text' }}>{text}</Typography></AccordionDetails></Accordion>
+  </Stack></CardContent></Card>;
 }

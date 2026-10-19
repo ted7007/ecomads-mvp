@@ -1,5 +1,6 @@
 # EcomAds docs
 
+- [Задача 3 — план страницы рекламной кампании по макету v10](scenario-plans/campaign-ui-task-3.md)
 - [Реализованный первый спринт рекомендаций и доступность в сервисе](recommendations-sprint-1.md)
 - [План первого спринта с решениями пользователя](scenario-plans/recommendations-sprint-1-plan.md)
 
@@ -54,3 +55,9 @@
 
 - [Автоматическое обновление, история и подготовка Telegram](wb-automatic-refresh.md)
 - [Ручная загрузка и источники данных](wb-data-loading-guide.md)
+
+- [Задача 3 — реализация страницы кампании: отчёт и скриншоты](scenario-plans/campaign-ui-task-3-report.md).
+
+- [Задача 4 — кабинет WB и Telegram: аудит блоков и план реализации](scenario-plans/stores-telegram-ui-task-4.md).
+
+- [Задача 4 — реализация кабинета WB и Telegram: отчёт и скриншоты](scenario-plans/stores-telegram-ui-task-4-report.md).

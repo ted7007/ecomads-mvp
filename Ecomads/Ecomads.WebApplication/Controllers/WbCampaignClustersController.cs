@@ -16,7 +16,8 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
     public sealed record ClusterRow(string NomenclatureId, string NomenclatureName, string ClusterName,
         decimal Spend, int? Views, int? Clicks, int? Carts, int? Orders, decimal? Cpc,
         string Assessment, int? OrderedProducts, decimal? AverageOrderedUnitPrice,
-        decimal? EstimatedOrderSum, decimal? EstimatedDrr, string EstimateStatus, string? EstimateReason);
+        decimal? EstimatedOrderSum, decimal? EstimatedDrr, string EstimateStatus, string? EstimateReason,
+        decimal? AveragePosition = null, int PositionDays = 0, string PositionStatus = "unavailable", string? PositionReason = null);
     public sealed record ClusterResponse(bool IsWbConnected, bool IsPeriodComplete, IReadOnlyList<ClusterRow> Rows,
         int StoreNormVersion, int CampaignNormVersion);
 
@@ -117,6 +118,8 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                         articleById[articleId].ToList(), group.Select(x => x.stat).ToList(), fullStatsComplete,
                         pairComplete, endDate.Value >= WbSyncPlanner.Today())
                     : new WbClusterOrderEstimate(null, null, null, "unavailable", "Выберите начало и конец периода.");
+                var position = WbClusterPositionCalculator.Calculate(startDate, endDate, group.Select(x => x.stat).ToArray(),
+                    pairComplete, endDate.HasValue && endDate.Value >= WbSyncPlanner.Today());
                 return new ClusterRow(group.Key.WbNomenclatureId, group.Key.Name, group.Key.ClusterName,
                     spend,
                     group.All(x => x.stat.Views.HasValue) ? group.Sum(x => x.stat.Views!.Value) : null,
@@ -126,7 +129,8 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                     clicks is > 0 ? Math.Round(spend / clicks.Value, 2) : null,
                     staleArticles.Contains(articleId) ? "Данные устарели: последний ответ WB не подтвердил полный снимок." :
                         pairComplete && fullStatsComplete ? "Статистика выбранного периода" : "Неполная статистика выбранного периода", orderedProducts, estimate.AverageOrderedUnitPrice,
-                    estimate.EstimatedOrderSum, estimate.EstimatedDrr, estimate.Status, estimate.Reason);
+                    estimate.EstimatedOrderSum, estimate.EstimatedDrr, estimate.Status, estimate.Reason,
+                    position.AveragePosition, position.Days, position.Status, position.Reason);
             })
             .OrderByDescending(x => x.Spend)
             .ToList();

@@ -1,0 +1,69 @@
+{
+  "calls": [
+    {
+      "method": "POST",
+      "path": "/api/telegram/stores/00000000-0000-4000-8000-000000000001/send-yesterday",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/wb/stores/connect",
+      "tokenPresent": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/wb/stores/00000000-0000-4000-8000-000000000001/sync-jobs/00000000-0000-4000-8000-000000000542/pause",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/stores/00000000-0000-4000-8000-000000000001/send-period",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/link",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/stores/00000000-0000-4000-8000-000000000001/send-yesterday",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/stores/00000000-0000-4000-8000-000000000001/send-yesterday",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/stores/00000000-0000-4000-8000-000000000001/send-yesterday",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/link",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/wb/stores/00000000-0000-4000-8000-000000000001/refresh",
+      "tokenPresent": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/wb/stores/00000000-0000-4000-8000-000000000001/history/year",
+      "tokenPresent": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/wb/stores/00000000-0000-4000-8000-000000000001/auto-refresh"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/telegram/chats/00000000-0000-4000-8000-000000000300"
+    }
+  ],
+  "stores": 2,
+  "chatCount": 0
+}

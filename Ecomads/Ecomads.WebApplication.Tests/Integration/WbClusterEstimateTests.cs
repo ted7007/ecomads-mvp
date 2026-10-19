@@ -48,7 +48,7 @@ public sealed class WbClusterEstimateTests(PostgresFixture postgres)
             new() { CampaignId = campaign.Id, NomenclatureId = article.Id, Date = basis.Date.AddDays(-1), Revenue = 99999, OrderedProducts = 1 },
             new() { CampaignId = second.Id, NomenclatureId = article.Id, Date = basis.Date, Revenue = 99999, OrderedProducts = 1 });
         db.WbClusterStatistics.Add(new() { Id = Guid.NewGuid(), CampaignId = campaign.Id,
-            NomenclatureId = article.Id, Date = date, ClusterName = "cluster", Spend = 80, OrderedProducts = 2, Orders = 99, Clicks = 40 });
+            NomenclatureId = article.Id, Date = date, ClusterName = "cluster", Spend = 80, OrderedProducts = 2, Orders = 99, Clicks = 40, AveragePosition = 5.4m });
         db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed",
             StartDate = date, EndDate = date, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
         await db.SaveChangesAsync();
@@ -58,6 +58,9 @@ public sealed class WbClusterEstimateTests(PostgresFixture postgres)
         var response = Assert.IsType<WbCampaignClustersController.ClusterResponse>(
             Assert.IsType<OkObjectResult>(await controller.Get(campaign.Id, date, date, CancellationToken.None)).Value);
         var row = Assert.Single(response.Rows);
+        Assert.Equal(5.4m, row.AveragePosition);
+        Assert.Equal(1, row.PositionDays);
+        Assert.Equal("complete", row.PositionStatus);
         Assert.Equal(160m, row.AverageOrderedUnitPrice);
         Assert.Equal(320m, row.EstimatedOrderSum);
         Assert.Equal(25m, row.EstimatedDrr);

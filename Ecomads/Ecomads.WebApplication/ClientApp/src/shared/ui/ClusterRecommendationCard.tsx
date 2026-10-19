@@ -51,27 +51,27 @@ export function ClusterRecommendationCard({ card, runId, showDecisionButtons = t
       <Typography fontWeight={700}>{titles[card.rule.ruleId] ?? card.rule.explanation}</Typography>
       {card.preliminary ? <Chip size="small" label="Предварительно" color="warning" variant="outlined" /> : null}
       {p?.isKey ? <Chip size="small" label={`Ключевой · ${((p.keyShare ?? 0) * 100).toFixed(1)}%`} /> : null}
-      {card.decision ? <Chip size="small" color="success" variant="outlined" label={`${labels[card.decision.status] ?? card.decision.status}${card.decision.snoozeUntil ? ` до ${card.decision.snoozeUntil}` : ''}`} /> : null}
+      {card.decision ? <Chip size="small" color={card.decision.status === 'accepted' ? 'success' : card.decision.status === 'snoozed' ? 'info' : 'default'} variant="outlined" label={`${labels[card.decision.status] ?? card.decision.status}${card.decision.snoozeUntil ? ` до ${card.decision.snoozeUntil}` : ''}`} /> : null}
     </Stack>
     <Typography>{card.subject.scope === 'campaign' ? 'Вся кампания' : `${card.subject.clusterName ? `${card.subject.clusterName} · ` : ''}артикул ${card.subject.nomenclatureId}`}</Typography>
     {details ? <>
       <Typography variant="body2">Данные за {details.window.startDate} — {details.window.endDate}, МСК.</Typography>
       {details.kind === 'stock' ? <>
         <Typography variant="body2">Доступно FBW/FBO: {number(details.fbw)} · FBS: {number(details.fbs)} · запаса на {number(details.stockDays)} дн.</Typography>
-        <Typography variant="body2">Заказанные единицы по всем каналам за 14 дней: в среднем {number(details.dailyUnits)} в день. Рекламный расход за последние 3 полных дня: в среднем {formatMoney(details.dailySpend ?? 0)} в день.</Typography>
+        <Typography variant="body2">Заказанные единицы по всем каналам за 14 дней: в среднем {number(details.dailyUnits)} в день. Рекламный расход за последние 3 полных дня: в среднем {formatMoney(details.dailySpend)} в день.</Typography>
         {details.blockGrowth ? <Typography variant="body2">Усиление рекламы ограничено остатком.</Typography> : null}
       </> : details.kind === 'budget' ? <>
-        <Typography variant="body2">Бюджет {formatMoney(details.budget ?? 0)} · хватит на {number(details.budgetDays)} дн. · пополнение {formatMoney(details.topUp ?? 0)}.</Typography>
-        <Typography variant="body2">В среднем в день: расход {formatMoney(details.dailySpend ?? 0)}, заказы {number(details.dailyUnits)}. ДРР {number(card.economy.drr == null ? null : card.economy.drr * 100)}% при норме {number(card.norm.value * 100)}%.</Typography>
+        <Typography variant="body2">Бюджет {formatMoney(details.budget)} · хватит на {number(details.budgetDays)} дн. · пополнение {formatMoney(details.topUp)}.</Typography>
+        <Typography variant="body2">В среднем в день: расход {formatMoney(details.dailySpend)}, заказы {number(details.dailyUnits)}. ДРР {number(card.economy.drr == null ? null : card.economy.drr * 100)}% при норме {number(card.norm.value * 100)}%.</Typography>
         <Typography variant="body2">Общий баланс счёта: {details.balance == null ? 'не подтверждён' : formatMoney(details.balance)}.</Typography>
       </> : <>
-        <Typography variant="body2">Расход {formatMoney(card.facts.spend)} · сумма рекламных заказов {formatMoney(card.economy.estimatedOrderSum ?? 0)} · заказы O: {number(card.facts.orders)}.</Typography>
+        <Typography variant="body2">Расход {formatMoney(card.facts.spend)} · сумма рекламных заказов {formatMoney(card.economy.estimatedOrderSum)} · заказы O: {number(card.facts.orders)}.</Typography>
         <Typography variant="body2">Фактический ДРР {number(card.economy.drr == null ? null : card.economy.drr * 100)}% · норма {number(card.norm.value * 100)}%. Затронутые товары: {details.affectedArticles?.join(', ')}.</Typography>
       </>}
       {details.sources.map(s => <Typography key={s.source} variant="caption" color="text.secondary">{sources[s.source] ?? s.source}: {s.state === 'ready' ? 'получено' : s.state === 'collecting' ? 'загрузка не завершена' : 'данные недоступны'}{s.receivedAtUtc ? ` ${new Date(s.receivedAtUtc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : ''}{s.errorCode ? ` (${s.errorCode})` : ''}.</Typography>)}
     </> : <>
     <Typography variant="body2">Расход {formatMoney(card.facts.spend)} · заказанные единицы {card.facts.orderedProducts ?? '—'} · норма ДРР {(card.norm.value * 100).toFixed(2)}%.</Typography>
-    <Typography variant="body2">{card.rule.ruleId === 'R03' ? `Порог расхода ${formatMoney(card.rule.threshold ?? 0)}` : `Оценочный ДРР ${((card.economy.drr ?? 0) * 100).toFixed(2)}% · сценарный диапазон ${((card.economy.drrMin ?? 0) * 100).toFixed(2)} — ${((card.economy.drrMax ?? 0) * 100).toFixed(2)}% · с одной дополнительной единицей ${((card.economy.drrPlusOne ?? 0) * 100).toFixed(2)}%`}</Typography>
+    <Typography variant="body2">{card.rule.ruleId === 'R03' ? `Порог расхода ${formatMoney(card.rule.threshold ?? 0)}` : `Оценочный ДРР ${number(card.economy.drr == null ? null : card.economy.drr * 100)}% · сценарный диапазон ${number(card.economy.drrMin == null ? null : card.economy.drrMin * 100)} — ${number(card.economy.drrMax == null ? null : card.economy.drrMax * 100)}% · с одной дополнительной единицей ${number(card.economy.drrPlusOne == null ? null : card.economy.drrPlusOne * 100)}%`}</Typography>
     </>}
     <Typography fontWeight={700}>{p?.primary.label ?? card.rule.explanation}</Typography>
     {p?.alternatives.map(a => <Typography key={a.kind} variant="body2">или {a.label.toLocaleLowerCase('ru-RU')}</Typography>)}
