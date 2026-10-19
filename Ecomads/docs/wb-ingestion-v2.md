@@ -11,7 +11,8 @@ Expenses use target parts of at most 29 calendar days. `WbExpenseWindow` pads ea
 one day on each side, with the right edge capped at the current Moscow day. This gives at
 most 31 requested days. Rows outside the target are retained in `wb_cost_observations`.
 Two identical rows in one response remain two operations. Responses for overlapping
-windows are alternative snapshots and are never added together.
+windows are alternative snapshots and are never added together. New expense jobs start
+with the latest 29-day part so the current summary does not wait for older history.
 
 The HTTP handler captures request parameters, job state, attempt/page, UTC instants, status,
 body, checksum and parser version. Authorization headers and tokens are not journal fields.
@@ -46,6 +47,12 @@ or order totals produce an unavailable account DRR. Site, Telegram and recommend
 consume source quality. Telegram reads a consistent database snapshot before claiming
 a delivery; the existing delivery record prevents automatic duplicate sends.
 
+Cluster planning rechecks legacy completions that have no v2 quality evidence. A processed
+sparse response counts as an attempt and waits for normal scheduled refresh/retry rather
+than creating another historical job on every recommendation pass. Recommendation gaps
+show the number of unconfirmed days instead of promising an unspecified background load.
+Fresh fullstats/cluster versions also invalidate the recommendation cards in the browser.
+
 An empty/partial cluster response cannot erase the previously retained snapshot. Jam is
 a limited list of search queries; it does not certify all search traffic. Funnel product
 pages are accumulated privately and published only after a terminal page; repeated product
@@ -78,7 +85,9 @@ responses, decision evidence and required pagination ancestors remain protected.
 3. Set `WB_INGESTION_RECHECK_DAYS=31`. The planner submits legacy expenses, advertising
    and order totals for the last 31 closed Moscow days through the existing monthly queues.
    It waits for active work, preserves pauses and reserves no WB quota while planning.
-   Failed rechecks remain visible and use the ordinary retry action.
+   Fresh seven-day orders are queued separately through `funnel_recent`, even if the
+   historical monthly job is already running. Expense parts and monthly order pairs start
+   with the latest dates. Failed rechecks remain visible and use the ordinary retry action.
 4. Keep the 06:15 and 18:15 Moscow slots and existing per-method limits. Follow the selected
    store for a complete daily cycle. Resolve unexplained differences using saved evidence;
    missing responses remain explicit missing data.

@@ -3,6 +3,8 @@ namespace Ecomads.WebApplication.Services.Recommendations;
 public sealed class RecommendationOptions
 {
     public bool Enabled { get; set; } = true;
+    // Deferred from sprint 3 until both FBW and FBS are available with supported access.
+    public bool Rule01Enabled { get; set; } = false;
     public bool SourcesComparable { get; set; } = true;
     public bool Rule03Enabled { get; set; } = true;
     public bool Rule06Enabled { get; set; } = true;

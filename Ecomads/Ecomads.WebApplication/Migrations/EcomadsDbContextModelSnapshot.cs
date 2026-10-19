@@ -793,6 +793,10 @@ namespace Ecomads.WebApplication.Migrations
                     b.Property<decimal?>("OrderClickConversion")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("RecommendationMode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<decimal?>("TargetDrr")
                         .HasColumnType("decimal(8,2)")
                         .HasColumnName("target_drr");
@@ -1127,6 +1131,50 @@ namespace Ecomads.WebApplication.Migrations
                     b.HasIndex("StoreId", "CampaignId", "Version");
 
                     b.ToTable("wb_norm_revisions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbOperationalSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CoverageStartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EntityKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("ReceivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("StoreId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StoreId", "Source", "EntityKey", "RequestedAtUtc");
+
+                    b.ToTable("wb_operational_snapshots", (string)null);
                 });
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbRecommendationDecision", b =>
@@ -1950,6 +1998,15 @@ namespace Ecomads.WebApplication.Migrations
                         .HasForeignKey("CampaignId")
                         .OnDelete(DeleteBehavior.Cascade);
 
+                    b.HasOne("Ecomads.WebApplication.Data.Models.Store", null)
+                        .WithMany()
+                        .HasForeignKey("StoreId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbOperationalSnapshot", b =>
+                {
                     b.HasOne("Ecomads.WebApplication.Data.Models.Store", null)
                         .WithMany()
                         .HasForeignKey("StoreId")

@@ -5,6 +5,7 @@ namespace Ecomads.WebApplication.Data;
 
 public class EcomadsDbContext : DbContext
 {
+    public DbSet<WbOperationalSnapshot> WbOperationalSnapshots { get; set; }
     public DbSet<WbResponseSnapshot> WbResponseSnapshots { get; set; }
     public DbSet<WbSourceQuality> WbSourceQualities { get; set; }
     public DbSet<WbCostObservation> WbCostObservations { get; set; }
@@ -44,6 +45,14 @@ public class EcomadsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<WbOperationalSnapshot>(entity =>
+        {
+            entity.ToTable("wb_operational_snapshots");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.StoreId, x.Source, x.EntityKey, x.RequestedAtUtc });
+            entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<WbResponseSnapshot>(e => {
             e.ToTable("wb_response_snapshots"); e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.StoreId, x.RequestedAtUtc });

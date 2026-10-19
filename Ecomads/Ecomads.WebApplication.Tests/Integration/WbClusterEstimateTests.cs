@@ -62,7 +62,7 @@ public sealed class WbClusterEstimateTests(PostgresFixture postgres)
         Assert.Equal(320m, row.EstimatedOrderSum);
         Assert.Equal(25m, row.EstimatedDrr);
         Assert.Equal("complete", row.EstimateStatus);
-        Assert.Equal("Наблюдать: выручка кластера недоступна", row.Assessment);
+        Assert.Equal("Статистика выбранного периода", row.Assessment);
         var unbounded = Assert.IsType<WbCampaignClustersController.ClusterResponse>(
             Assert.IsType<OkObjectResult>(await controller.Get(campaign.Id, null, null, CancellationToken.None)).Value);
         Assert.Null(Assert.Single(unbounded.Rows).EstimatedOrderSum);

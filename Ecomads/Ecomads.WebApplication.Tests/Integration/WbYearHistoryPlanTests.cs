@@ -40,8 +40,8 @@ public sealed class WbYearHistoryPlanTests(PostgresFixture postgres)
         Assert.All(batches, x => Assert.InRange(x.EndDate.DayNumber - x.StartDate.DayNumber, 0, 30));
         var expenseBatches = JsonSerializer.Deserialize<WbHistoryBatch[]>(expenses.PairIdsJson!)!;
         Assert.Equal(13, expenseBatches.Length);
-        Assert.Equal(start, expenseBatches[0].StartDate);
-        Assert.Equal(end, expenseBatches[^1].EndDate);
+        Assert.Equal(end, expenseBatches[0].EndDate);
+        Assert.Equal(start, expenseBatches[^1].StartDate);
         Assert.All(expenseBatches, x => Assert.InRange(x.EndDate.DayNumber - x.StartDate.DayNumber, 0, 28));
         Assert.Equal(179, WbSyncJobUnits.Total(orders));
         Assert.Equal("fullstats", WbRateLimits.MethodFor(stats.Kind));

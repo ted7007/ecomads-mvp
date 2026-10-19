@@ -12,18 +12,18 @@ const sources: Record<string, string> = { article: 'товар', campaign: 'ка
 export function ClusterRecommendations({ campaignId, report }: { campaignId: string; report: ClusterRecommendationResponse }) {
   const unavailable = report.evaluations.filter(row => row.rules.some(rule => rule.status === 'skipped'));
   return <Stack spacing={2}>
-    <Typography variant="h6" fontWeight={800}>Рекомендации по кластерам</Typography>
+    <Typography variant="h6" fontWeight={800}>Рекомендации кампании</Typography>
     <Typography variant="body2" color="text.secondary">
-      {report.window.startDate} — {report.window.endDate} · даты по МСК · тот же период, что в таблице
+      Рекомендации за 14 дней: {report.window.startDate} — {report.window.endDate}, МСК. Период отчёта не влияет на расчёт.
     </Typography>
     <Alert severity={report.cards.length || unavailable.length ? 'warning' : 'info'}>{report.message}</Alert>
-    <Typography variant="body2">Рекомендаций: {report.cards.length} · расход уникальных кластеров ≈ {formatMoney([...new Map(report.cards.map(c => [`${c.subject.articleId}:${c.subject.clusterName}`, c])).values()].reduce((sum, c) => sum + (c.presentation?.weeklySpend ?? c.facts.spend / report.window.days * 7), 0))} в неделю.</Typography>
+    <Typography variant="body2">Рекомендаций: {report.cards.length} · расход уникальных кластеров ≈ {formatMoney([...new Map(report.cards.filter(c => c.subject.scope === 'cluster').map(c => [`${c.subject.articleId}:${c.subject.clusterName}`, c])).values()].reduce((sum, c) => sum + (c.presentation?.weeklySpend ?? c.facts.spend / report.window.days * 7), 0))} в неделю.</Typography>
     {report.packages?.map(bundle => <ExclusionPackage key={bundle.id} report={report} ids={bundle.evaluationIds} />)}
     {report.cards.filter(card => !report.packages?.some(bundle => bundle.evaluationIds.includes(card.evaluationId))).map(card => <ClusterRecommendationCard key={`${card.evaluationId}:${card.rule.ruleId}`} card={card} runId={report.runId} />)}
     {unavailable.length ? <Accordion disableGutters elevation={0}>
       <AccordionSummary expandIcon="⌄"><Typography>Ограничения расчёта · {unavailable.length} объектов</Typography></AccordionSummary>
       <AccordionDetails><Stack spacing={1}>{unavailable.map(row => <Typography variant="body2" key={row.evaluationId}>
-        {row.subject.clusterName} · {row.subject.nomenclatureId}: {row.rules.find(rule => rule.status === 'skipped')?.explanation}
+        {row.subject.clusterName ?? row.subject.nomenclatureName ?? 'Кампания'} {row.subject.nomenclatureId ?? ''}: {row.rules.find(rule => rule.status === 'skipped')?.explanation}
       </Typography>)}</Stack></AccordionDetails>
     </Accordion> : null}
     <Typography variant="caption" color="text.secondary">Проверок: {report.coverage.evaluated} из {report.coverage.enabled} включённых · пропущено: {report.coverage.skipped}
@@ -90,7 +90,7 @@ function ExclusionPackage({ report, ids }: { report: ClusterRecommendationRespon
     <Typography variant="body2">Выбрано {chosen.length} · расход выбранных кластеров ≈ {formatMoney(chosen.reduce((sum, c) => sum + (c.presentation?.weeklySpend ?? 0), 0))} в неделю</Typography>
     <Button disabled={!chosen.length} onClick={async () => { try {
       const groups = new Map<string, string[]>();
-      chosen.forEach(c => groups.set(c.subject.nomenclatureId, [...(groups.get(c.subject.nomenclatureId) ?? []), c.subject.clusterName]));
+      chosen.forEach(c => groups.set(c.subject.nomenclatureId!, [...(groups.get(c.subject.nomenclatureId!) ?? []), c.subject.clusterName!]));
       await navigator.clipboard.writeText([...groups].map(([nm, names]) => `Артикул ${nm}\n${names.join('\n')}`).join('\n\n'));
       setCopied('Список скопирован');
     } catch { setCopied('Не удалось скопировать. Выделите список вручную.'); } }}>Копировать выбранные</Button>

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Ecomads.WebApplication.Controllers;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
@@ -19,7 +20,9 @@ namespace Ecomads.WebApplication.Tests.Integration;
 public sealed class RecommendationFoundationTests(PostgresFixture postgres)
 {
     private static readonly DateOnly Start = new(2026, 9, 27);
-    private static readonly RecommendationWindow Window = new(Start, Start.AddDays(1));
+    private static readonly RecommendationWindow Window = new(Start, Start.AddDays(13));
+    private sealed class FixedClock : TimeProvider
+    { public override DateTimeOffset GetUtcNow() => new(Window.EndDate.AddDays(2).ToDateTime(new TimeOnly(7, 0), DateTimeKind.Utc)); }
     private sealed record SeedData(Seller Seller, Store Store, Campaign Campaign, Nomenclature Article);
 
     private static async Task<SeedData> SeedAsync(EcomadsDbContext db)
@@ -34,13 +37,13 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
             var date = Start.AddDays(i);
             TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, date);
             db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
-                Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 10000, OrderedProducts = 5,
+                Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = i < 2 ? 10000 : 0, OrderedProducts = i < 2 ? 5 : 0,
                 RecommendationFieldsVerified = true, Orders = 999 });
             db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = date, Result = "data", Spend = 1400 });
             db.WbClusterStatistics.AddRange(new() { Id = Guid.NewGuid(), CampaignId = campaign.Id, NomenclatureId = article.Id,
-                Date = date, ClusterName = "no units", Spend = 400, OrderedProducts = 0, Orders = 99, Clicks = 5 },
+                Date = date, ClusterName = "no units", Spend = i < 2 ? 400 : 0, OrderedProducts = 0, Orders = 99, Clicks = 5 },
                 new() { Id = Guid.NewGuid(), CampaignId = campaign.Id, NomenclatureId = article.Id,
-                    Date = date, ClusterName = "high drr", Spend = 1000, OrderedProducts = i == 0 ? 1 : 2 });
+                    Date = date, ClusterName = "high drr", Spend = i < 2 ? 1000 : 0, OrderedProducts = i == 0 ? 1 : i == 1 ? 2 : 0 });
             db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed",
                 StartDate = date, EndDate = date, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
         }
@@ -50,7 +53,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
 
     private static RecommendationService Service(EcomadsDbContext db, Guid storeId, bool comparable = true) => new(db,
         Options.Create(new RecommendationOptions { SourcesComparable = comparable }),
-        NullLogger<RecommendationService>.Instance);
+        NullLogger<RecommendationService>.Instance, new FixedClock());
 
     private static ControllerContext Context(Guid sellerId) => new() { HttpContext = new DefaultHttpContext
     { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, sellerId.ToString())], "test")) } };
@@ -62,7 +65,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         var first = await SeedAsync(db);
         var second = await SeedAsync(db);
         var service = new RecommendationService(db, Options.Create(new RecommendationOptions()),
-            NullLogger<RecommendationService>.Instance);
+            NullLogger<RecommendationService>.Instance, new FixedClock());
         var firstReport = (await service.CalculateAsync(first.Seller.Id, first.Campaign.Id, Window, default))!;
         var secondReport = (await service.CalculateAsync(second.Seller.Id, second.Campaign.Id, Window, default))!;
         Assert.True(firstReport.Enabled);
@@ -71,6 +74,28 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.Equal(2, secondReport.Cards.Count);
         Assert.All(secondReport.Cards, card => Assert.Equal(second.Store.Id, card.Subject.StoreId));
         Assert.Null(await service.CalculateAsync(first.Seller.Id, second.Campaign.Id, Window, default));
+    }
+
+    [Fact]
+    public async Task MissingArticleDayAndSparseClustersExplainGapsWithoutPromisingBackgroundLoading()
+    {
+        await using var db = await postgres.CreateMigratedDbContextAsync();
+        var seed = await SeedAsync(db);
+        var missingDate = Window.EndDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        await db.CampaignNomenclatureStatistics.Where(x => x.CampaignId == seed.Campaign.Id && x.Date == missingDate).ExecuteDeleteAsync();
+        await db.WbSourceQualities.Where(x => x.StoreId == seed.Store.Id && x.Source == "clusters" && x.StartDate == Window.EndDate)
+            .ExecuteUpdateAsync(x => x.SetProperty(q => q.State, "no_data"));
+        var report = (await Service(db, seed.Store.Id).CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
+        Assert.NotEmpty(report.Evaluations);
+        Assert.Empty(report.Cards);
+        Assert.All(report.Evaluations.Where(x => x.Subject.Scope == "cluster").SelectMany(x => x.Rules).Where(x => x.Status == "skipped"), rule => {
+            Assert.Contains("1 из 14 дней", rule.Explanation);
+            Assert.Contains("Последний ответ WB", rule.Explanation);
+            Assert.DoesNotContain("ожидается фоновая загрузка", rule.Explanation);
+        });
+        await db.WbSourceQualities.Where(x => x.StoreId == seed.Store.Id && x.Source == "clusters").ExecuteDeleteAsync();
+        var legacy = (await Service(db, seed.Store.Id).CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
+        Assert.Contains(legacy.Evaluations.Where(x => x.Subject.Scope == "cluster").SelectMany(x => x.Rules), x => x.Explanation.Contains("прежним обработчиком"));
     }
 
     [Fact]
@@ -88,7 +113,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         await db.SaveChangesAsync();
         var after = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
         Assert.Empty(after.Cards);
-        Assert.All(after.Evaluations, x => Assert.False(x.Quality.ClustersComplete));
+        Assert.All(after.Evaluations.Where(x => x.Subject.Scope == "cluster"), x => Assert.False(x.Quality.ClustersComplete));
         Assert.NotEqual(before.RunId, after.RunId);
         Assert.Equal(rowCount, await db.WbClusterStatistics.CountAsync());
     }
@@ -103,19 +128,19 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.Equal(2, first.Cards.Count);
         Assert.All(first.Cards, x => Assert.True(x.Preliminary));
         Assert.Equal(800m, first.Cards.Single(x => x.Rule.RuleId == "R03").Rule.Threshold);
-        Assert.Equal(0, first.Coverage.Skipped);
+        Assert.Equal(0, first.Evaluations.Where(x => x.Subject.Scope == "cluster").SelectMany(x => x.Rules).Count(x => x.Status == "skipped"));
         Assert.Equal(first.RunId, (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!.RunId);
         Assert.Equal(1, await db.WbRecommendationRuns.CountAsync());
         var shorter = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, new(Start, Start), default))!;
-        Assert.Empty(shorter.Cards); // S=400 below R03; Q=1 below R06.
-        Assert.NotEqual(first.RunId, shorter.RunId);
+        Assert.True(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(first.Cards), JsonSerializer.SerializeToNode(shorter.Cards))); // Compare the full payload, including deserialized collections.
+        Assert.Equal(first.RunId, shorter.RunId);
         Assert.Null(await service.CalculateAsync(Guid.NewGuid(), seed.Campaign.Id, Window, default));
         Assert.Null(await service.SnapshotAsync(Guid.NewGuid(), seed.Campaign.Id, first.RunId!.Value, default));
         var controller = new WbArticleNormsController(db) { ControllerContext = Context(seed.Seller.Id) };
         Assert.IsType<OkObjectResult>(await controller.Put(seed.Campaign.Id, seed.Article.Id, new(40), default));
         var changed = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
         Assert.Empty(changed.Cards);
-        Assert.All(changed.Evaluations, x => Assert.Equal("article", x.Norm.Source));
+        Assert.All(changed.Evaluations.Where(x => x.Subject.Scope != "campaign"), x => Assert.Equal("article", x.Norm.Source));
         var snapshot = (await service.SnapshotAsync(seed.Seller.Id, seed.Campaign.Id, first.RunId.Value, default))!;
         Assert.Equal(2, snapshot.Cards.Count);
         Assert.All(snapshot.Evaluations, x => Assert.Equal(0.2m, x.Norm.Value));
@@ -134,15 +159,18 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         await using var db = await postgres.CreateMigratedDbContextAsync();
         var seed = await SeedAsync(db);
         var service = Service(db, seed.Store.Id);
+        await db.WbCampaignDailyChecks.Where(x => x.CampaignId == seed.Campaign.Id && x.Date == Start).ExecuteDeleteAsync();
+        db.ChangeTracker.Clear();
         var expanded = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, new(Start, Window.EndDate.AddDays(1)), default))!;
         Assert.Empty(expanded.Cards);
         Assert.Equal("limited", expanded.Status);
-        Assert.All(expanded.Evaluations.SelectMany(x => x.Rules), x => Assert.Equal("incomplete_data", x.ReasonCode));
+        Assert.All(expanded.Evaluations.Where(x => x.Subject.Scope == "cluster").SelectMany(x => x.Rules), x => Assert.Equal("incomplete_data", x.ReasonCode));
+        db.WbCampaignDailyChecks.Add(new() { CampaignId = seed.Campaign.Id, Date = Start, Result = "data", Spend = 1400 });
         var basis = await db.CampaignNomenclatureStatistics.FirstAsync();
         basis.RecommendationFieldsVerified = null;
         await db.SaveChangesAsync();
         var legacy = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
-        Assert.All(legacy.Evaluations.SelectMany(x => x.Rules), x => Assert.Equal("fields_unverified", x.ReasonCode));
+        Assert.All(legacy.Evaluations.Where(x => x.Subject.Scope == "cluster").SelectMany(x => x.Rules), x => Assert.Equal("fields_unverified", x.ReasonCode));
         basis.RecommendationFieldsVerified = true;
         var cluster = await db.WbClusterStatistics.FirstAsync(x => x.ClusterName == "no units");
         cluster.OrderedProducts = null;
@@ -152,7 +180,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.Equal("units_missing", missing.Evaluations.Single(x => x.Subject.ClusterName == "no units").Rules[0].ReasonCode);
         var unverified = (await Service(db, seed.Store.Id, false).CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
         Assert.Empty(unverified.Cards);
-        Assert.All(unverified.Evaluations.SelectMany(x => x.Rules), x => Assert.Equal("sources_unverified", x.ReasonCode));
+        Assert.All(unverified.Evaluations.Where(x => x.Subject.Scope == "cluster").SelectMany(x => x.Rules), x => Assert.Equal("sources_unverified", x.ReasonCode));
     }
 
     [Fact]
@@ -161,10 +189,8 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         await using var db = await postgres.CreateMigratedDbContextAsync();
         var seed = await SeedAsync(db);
         var controller = new WbRecommendationsController(Service(db, seed.Store.Id)) { ControllerContext = Context(seed.Seller.Id) };
-        Assert.IsType<BadRequestObjectResult>(await controller.Get(seed.Campaign.Id, null, Window.EndDate, default));
-        Assert.IsType<BadRequestObjectResult>(await controller.Get(seed.Campaign.Id, Window.EndDate, Start, default));
-        Assert.IsType<BadRequestObjectResult>(await controller.Get(seed.Campaign.Id, Start, Start.AddDays(366), default));
-        Assert.IsType<NotFoundResult>(await controller.Get(Guid.NewGuid(), Start, Window.EndDate, default));
+        Assert.IsType<OkObjectResult>(await controller.Get(seed.Campaign.Id, default));
+        Assert.IsType<NotFoundResult>(await controller.Get(Guid.NewGuid(), default));
         var norms = new WbArticleNormsController(db) { ControllerContext = Context(Guid.NewGuid()) };
         Assert.IsType<NotFoundResult>(await norms.Put(seed.Campaign.Id, seed.Article.Id, new(1), default));
         norms.ControllerContext = Context(seed.Seller.Id);
@@ -201,6 +227,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         services.AddSingleton<IOptions<RecommendationOptions>>(Options.Create(new RecommendationOptions
             { SourcesComparable = true }));
         services.AddSingleton<Microsoft.Extensions.Logging.ILogger<RecommendationService>>(NullLogger<RecommendationService>.Instance);
+        services.AddSingleton<TimeProvider>(new FixedClock());
         services.AddScoped<RecommendationService>();
         using var provider = services.BuildServiceProvider();
         var worker = new RecommendationWorker(provider.GetRequiredService<IServiceScopeFactory>(),
@@ -208,11 +235,9 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         var now = new DateTime(2026, 10, 12, 7, 0, 0, DateTimeKind.Utc);
         await worker.RunOnceAsync(now, default);
         await worker.RunOnceAsync(now.AddMinutes(2), default);
-        Assert.Equal(2, await db.WbRecommendationRuns.CountAsync());
-        var background = await db.WbRecommendationRuns.SingleAsync(x => x.Id != interactive.RunId);
-        Assert.Equal(new DateOnly(2026, 9, 27), background.StartDate);
-        Assert.Equal(new DateOnly(2026, 10, 10), background.EndDate);
-        Assert.Equal(Window, (await Service(db, seed.Store.Id).SnapshotAsync(seed.Seller.Id, seed.Campaign.Id, interactive.RunId!.Value, default))!.Window);
+        Assert.Equal(1, await db.WbRecommendationRuns.CountAsync());
+        Assert.Equal(interactive.RunId, (await Service(db, seed.Store.Id).CalculateAsync(seed.Seller.Id, seed.Campaign.Id, new(Start.AddDays(-30), Start), default))!.RunId);
+
     }
 
     [Fact]
@@ -294,8 +319,8 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.Equal(report.RunId, batch.RunId);
         Assert.Equal(report.Rows, batch.Rows);
         var controller = new WbRecommendationSummaryController(service, db) { ControllerContext = Context(seed.Seller.Id) };
-        Assert.IsType<OkObjectResult>(await controller.Get(Start, Window.EndDate, seed.Store.Id, default));
-        Assert.IsType<NotFoundResult>(await controller.Get(Start, Window.EndDate, foreign.Store.Id, default));
+        Assert.IsType<OkObjectResult>(await controller.Get(seed.Store.Id, default));
+        Assert.IsType<NotFoundResult>(await controller.Get(foreign.Store.Id, default));
         Assert.Empty(await service.CalculateManyAsync(seed.Seller.Id, foreign.Store.Id, Window, default));
     }
 
@@ -309,7 +334,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         var service = Service(db, seed.Store.Id);
         var protectedReport = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
         Assert.Empty(protectedReport.Cards);
-        Assert.All(protectedReport.Evaluations, e => Assert.Contains(e.Presentation!.Restrictions, r => r.Code == "launch"));
+        Assert.All(protectedReport.Evaluations.Where(x => x.Subject.Scope == "cluster"), e => Assert.Contains(e.Presentation!.Restrictions, r => r.Code == "launch"));
         db.WbArticleNorms.Add(new() { CampaignId = seed.Campaign.Id, NomenclatureId = seed.Article.Id, LaunchDate = Start.AddDays(-30) });
         await db.SaveChangesAsync();
         Assert.Equal(2, (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!.Cards.Count);
@@ -330,10 +355,10 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
             var date = Start.AddDays(i);
             TestData.AddConfirmedClusterDay(db, seed.Store.Id, seed.Campaign.Id, seed.Article.Id, date);
             db.CampaignNomenclatureStatistics.Add(new() { CampaignId = seed.Campaign.Id, NomenclatureId = seed.Article.Id,
-                Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 20000, OrderedProducts = 5, RecommendationFieldsVerified = true });
+                Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = i >= -2 ? 20000 : 0, OrderedProducts = i >= -2 ? 5 : 0, RecommendationFieldsVerified = true });
             db.WbCampaignDailyChecks.Add(new() { CampaignId = seed.Campaign.Id, Date = date, Result = "data", Spend = 1000 });
             db.WbClusterStatistics.Add(new() { Id = Guid.NewGuid(), CampaignId = seed.Campaign.Id, NomenclatureId = seed.Article.Id,
-                Date = date, ClusterName = "high drr", Spend = 1000, Orders = 3, OrderedProducts = i == -1 ? 2 : 1 });
+                Date = date, ClusterName = "high drr", Spend = i >= -2 ? 1000 : 0, Orders = 3, OrderedProducts = i == -1 ? 2 : i == -2 ? 1 : 0 });
         }
         db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = seed.Store.Id, Kind = "clusters", Status = "completed",
             StartDate = Start.AddDays(-Window.Days), EndDate = Start.AddDays(-1), PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });

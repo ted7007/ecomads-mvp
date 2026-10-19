@@ -7,7 +7,8 @@ public sealed record RecommendationAction(string Kind, string Label, decimal? Re
 public sealed record RecommendationRestriction(string Code, string Label);
 public sealed record RecommendationPresentation(RecommendationAction Primary, IReadOnlyList<RecommendationAction> Alternatives,
     decimal? KeyShare, bool IsKey, decimal WeeklySpend, IReadOnlyList<RecommendationRestriction> Restrictions,
-    IReadOnlyList<RecommendationDiagnostic> Diagnostics, string? Warning = null, AdvertisingControl? Control = null);
+    IReadOnlyList<RecommendationDiagnostic> Diagnostics, string? Warning = null, AdvertisingControl? Control = null,
+    OperationalDetails? Details = null, int Priority = 4);
 public sealed record RecommendationDiagnostic(string Code, string Label, string Basis);
 public sealed record RecommendationDecisionState(string Status, DateOnly? SnoozeUntil, string? Reason, string? Comment,
     DateTime CreatedAtUtc);

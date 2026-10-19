@@ -5,7 +5,7 @@ const valuesSchema = z.object({ targetDrr: z.number(), minClicks: z.number().int
   minOrders: z.number().int(), deviationPercent: z.number(), minCtr: z.number(), minViews: z.number(), minCarts: z.number(), cartConversion: z.number().nullable(), orderCartConversion: z.number().nullable(), orderClickConversion: z.number().nullable() });
 const storeNormSchema = z.object({ storeId: z.string().uuid(), values: valuesSchema,
   version: z.number().int(), updatedAtUtc: z.string().nullable() });
-const overridesSchema = z.object({ customName: z.string().nullable(), goal: z.string().nullable(),
+const overridesSchema = z.object({ recommendationMode: z.enum(['profit','growth','clearance']).default('profit'), customName: z.string().nullable(), goal: z.string().nullable(),
   targetDrr: z.number().nullable(), minClicks: z.number().int().nullable(),
   minSpend: z.number().nullable(), minOrders: z.number().int().nullable(), deviationPercent: z.number().nullable(),
   minCtr: z.number().nullable(), launchDate: z.string().nullable(), minViews: z.number().nullable(), minCarts: z.number().nullable(), cartConversion: z.number().nullable(), orderCartConversion: z.number().nullable(), orderClickConversion: z.number().nullable() });

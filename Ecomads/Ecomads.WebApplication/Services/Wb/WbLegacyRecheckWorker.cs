@@ -44,6 +44,18 @@ public sealed class WbLegacyRecheckWorker(IServiceScopeFactory scopes, IConfigur
                 await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({store.ToString()}, 0))", ct);
                 var sources = await db.WbSourceQualities.Where(x => x.StoreId == store && x.State == "legacy" &&
                     x.StartDate <= end && x.EndDate >= start).Select(x => x.Source).Distinct().ToArrayAsync(ct);
+                // Fresh daily orders use a separate WB method and must not wait behind
+                // sixteen historical two-day requests during a migration recheck.
+                var recentStart = end.AddDays(-6);
+                var recheckDayStart = TimeZoneInfo.ConvertTimeToUtc(
+                    end.AddDays(1).ToDateTime(TimeOnly.MinValue), WbRefreshClock.Moscow);
+                if (sources.Contains("orders") && await db.WbSourceQualities.AnyAsync(x =>
+                    x.StoreId == store && x.Source == "orders" && x.State == "legacy" &&
+                    x.StartDate <= end && x.EndDate >= recentStart, ct) &&
+                    !await db.WbSyncJobs.AnyAsync(x => x.StoreId == store && x.Kind == "funnel_recent" &&
+                        ((x.Status == "pending" || x.Status == "running") ||
+                         x.StartDate == recentStart && x.EndDate == end && x.CreatedAtUtc >= recheckDayStart), ct))
+                    await planner.QueueAsync(store, "funnel_recent", recentStart, end, "[]", null, null, ct);
                 foreach (var source in sources.Where(x => x is "expenses" or "orders" or "fullstats"))
                 {
                     var kind = source == "expenses" ? "expenses_month" : source == "orders" ? "funnel_month" : "fullstats_month";
@@ -71,7 +83,7 @@ public sealed class WbLegacyRecheckWorker(IServiceScopeFactory scopes, IConfigur
                             var pairStart = date == end && days > 1 ? date.AddDays(-1) : date;
                             dates.Add(long.Parse(pairStart.ToString("yyyyMMdd")));
                         }
-                        ids = dates.Distinct().ToArray();
+                        ids = dates.Distinct().OrderByDescending(x => x).ToArray();
                     }
                     await planner.QueueAsync(store, kind, start, end, JsonSerializer.Serialize(ids), pairs, null, ct);
                     var slot = WbRefreshClock.LatestSlot(now, true);

@@ -12,8 +12,8 @@ using Npgsql;
 
 namespace Ecomads.WebApplication.Services.Recommendations;
 
-public sealed record RecommendationSubject(Guid StoreId, Guid CampaignId, Guid ArticleId,
-    string NomenclatureId, string NomenclatureName, string ClusterName);
+public sealed record RecommendationSubject(Guid StoreId, Guid CampaignId, Guid? ArticleId,
+    string? NomenclatureId, string? NomenclatureName, string? ClusterName, string Scope = "cluster");
 public sealed record ClusterEvaluation(Guid EvaluationId, RecommendationSubject Subject,
     RecommendationFacts Facts, RecommendationNorm Norm, RecommendationQuality Quality,
     RecommendationEconomy Economy, IReadOnlyList<RuleEvaluation> Rules, RecommendationPresentation? Presentation = null);
@@ -28,41 +28,49 @@ public sealed record RecommendationResponse(bool Enabled, bool IsWbConnected, Gu
     IReadOnlyList<RecommendationPackage>? Packages = null, Guid? CampaignId = null, string? CampaignName = null);
 
 public sealed class RecommendationService(EcomadsDbContext db, IOptions<RecommendationOptions> options,
-    ILogger<RecommendationService> logger)
+    ILogger<RecommendationService> logger, TimeProvider? clock = null)
 {
+    private DateTime Now => (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private sealed record RawCluster(WbClusterStatistic Stat, Nomenclature Article);
     private sealed record Batch(IReadOnlyList<RawCluster> Raw, IReadOnlyList<CampaignNomenclatureStatistics> Articles,
         IReadOnlyList<WbCampaignDailyCheck> Checks, IReadOnlyList<WbSyncJob> Jobs, IReadOnlyList<WbStoreNorms> Stores,
         IReadOnlyList<WbCampaignNorms> Campaigns, IReadOnlyList<WbArticleNorm> Norms, IReadOnlyList<WbAdvertisingSettings> Controls,
-        IReadOnlyList<WbSourceQuality> SourceQuality);
+        IReadOnlyList<WbSourceQuality> SourceQuality, IReadOnlyList<CampaignStatistics> CampaignStats,
+        IReadOnlyList<Nomenclature> Catalog, IReadOnlyList<WbOperationalSnapshot> Operational);
 
     private async Task<Batch> LoadAsync(Guid[] campaignIds, Guid[] storeIds, RecommendationWindow window, CancellationToken ct)
     {
         var begin = window.StartDate.AddDays(-window.Days);
         var from = begin.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-        var to = window.EndDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var to = window.EndDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        string[] operationalSources = options.Value.Rule01Enabled
+            ? ["budgets", "balance", "advertising", "stocks_fbw", "stocks_fbs", "demand"]
+            : ["budgets", "balance", "advertising"];
         var raw = await (from stat in db.WbClusterStatistics.AsNoTracking()
             join article in db.Nomenclatures.AsNoTracking() on stat.NomenclatureId equals article.Id
             join campaign in db.Campaigns.AsNoTracking() on stat.CampaignId equals campaign.Id
             where campaignIds.Contains(stat.CampaignId) && article.StoreId == campaign.StoreId && stat.Date >= begin && stat.Date <= window.EndDate
             orderby stat.NomenclatureId, stat.ClusterName, stat.Date select new RawCluster(stat, article)).ToListAsync(ct);
         return new(raw, await db.CampaignNomenclatureStatistics.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId) && x.Date >= from && x.Date <= to).ToListAsync(ct),
-            await db.WbCampaignDailyChecks.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId) && x.Date >= begin && x.Date <= window.EndDate).ToListAsync(ct),
+            await db.WbCampaignDailyChecks.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId) && x.Date >= begin && x.Date <= window.EndDate.AddDays(1)).ToListAsync(ct),
             await db.WbSyncJobs.AsNoTracking().Where(x => storeIds.Contains(x.StoreId) && x.Kind == "clusters" && x.Status == "completed" && x.StartDate <= window.EndDate && x.EndDate >= begin).ToListAsync(ct),
             await db.WbStoreNorms.AsNoTracking().Where(x => storeIds.Contains(x.StoreId)).ToListAsync(ct),
             await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId)).ToListAsync(ct),
             await db.WbArticleNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId)).ToListAsync(ct),
             await db.WbAdvertisingSettings.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId)).ToListAsync(ct),
             await db.WbSourceQualities.AsNoTracking().Where(x => storeIds.Contains(x.StoreId) &&
-                x.StartDate <= window.EndDate && x.EndDate >= begin).ToListAsync(ct));
+                x.StartDate <= window.EndDate.AddDays(1) && x.EndDate >= begin).ToListAsync(ct),
+            await db.CampaignStatistics.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId) && x.Date >= from && x.Date <= to).ToListAsync(ct),
+            await db.Nomenclatures.AsNoTracking().Where(x => storeIds.Contains(x.StoreId)).ToListAsync(ct),
+            await db.WbOperationalSnapshots.AsNoTracking().Where(x => storeIds.Contains(x.StoreId) && operationalSources.Contains(x.Source) && x.ReceivedAtUtc > Now.AddDays(-2)).ToListAsync(ct));
     }
 
     public async Task<IReadOnlyList<RecommendationResponse>> CalculateManyAsync(Guid sellerId, Guid? storeId,
         RecommendationWindow window, CancellationToken ct)
     {
-        if (!window.IsValid) throw new ArgumentException("Выберите период от 1 до 366 дней.");
+        window = RecommendationPeriods.Economic(Now);
         var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.Store.SellerId == sellerId &&
             (storeId == null || x.StoreId == storeId)).Select(x => new { x.Id, x.StoreId }).ToListAsync(ct);
         var batch = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
@@ -82,40 +90,42 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
     }
 
     public async Task<RecommendationResponse?> CalculateAsync(Guid sellerId, Guid campaignId,
-        RecommendationWindow window, CancellationToken ct) => await CalculateAsync(sellerId, campaignId, window, ct, null);
+        RecommendationWindow window, CancellationToken ct) => await CalculateAsync(sellerId, campaignId, RecommendationPeriods.Economic(Now), ct, null);
 
     private async Task<RecommendationResponse?> CalculateAsync(Guid sellerId, Guid campaignId,
         RecommendationWindow window, CancellationToken ct, Batch? batch)
     {
-        if (!window.IsValid) throw new ArgumentException("Выберите период от 1 до 366 дней.");
+        var now = Now;
         return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
             var campaign = await db.Campaigns.AsNoTracking().Where(x => x.Id == campaignId && x.Store.SellerId == sellerId)
-                .Select(x => new { x.StoreId, x.WbCampaignId, x.Name, Connected = x.Store.ApiKey != null }).SingleOrDefaultAsync(ct);
+                .Select(x => new { x.StoreId, x.WbCampaignId, x.Name, x.WbStatus, Connected = x.Store.ApiKey != null }).SingleOrDefaultAsync(ct);
             if (campaign == null) return null;
             var settings = options.Value;
             RecommendationResponse Empty(bool enabled, string status, string message) => new(enabled,
-                campaign.Connected, null, 2, window, null, status, message, [], [], [], new(0, 0, 0, 0), [], campaignId, campaign.Name);
+                campaign.Connected, null, 3, window, null, status, message, [], [], [], new(0, 0, 0, 0), [], campaignId, campaign.Name);
             if (!settings.Enabled) return Empty(false, "disabled", "Расчёт рекомендаций отключён в настройках сервиса.");
             if (!campaign.Connected) return Empty(true, "not_connected", "Подключите кабинет WB.");
 
             batch ??= await LoadAsync([campaignId], [campaign.StoreId], window, ct);
+            WbSourceQuality? LatestQuality(string kind, string entity, DateOnly day) => batch.SourceQuality
+                .Where(x => x.StoreId == campaign.StoreId && x.Source == kind &&
+                    (x.Entity == "" || x.Entity == entity) && x.StartDate <= day && x.EndDate >= day)
+                .OrderByDescending(x => x.LastAttemptAtUtc).FirstOrDefault();
             bool SourceConfirmed(string kind, string entity, DateOnly start, DateOnly end)
             {
                 for (var day = start; day <= end; day = day.AddDays(1))
                 {
-                    var latest = batch.SourceQuality.Where(x => x.StoreId == campaign.StoreId && x.Source == kind &&
-                        (x.Entity == "" || x.Entity == entity) && x.StartDate <= day && x.EndDate >= day)
-                        .OrderByDescending(x => x.LastAttemptAtUtc).FirstOrDefault();
+                    var latest = LatestQuality(kind, entity, day);
                     if (latest == null && kind == "clusters") return false;
                     if (latest != null && !WbQuality.Confirmed(latest.State)) return false;
                 }
                 return true;
             }
             var raw = batch.Raw.Where(x => x.Stat.CampaignId == campaignId && x.Stat.Date >= window.StartDate).ToList();
-            var articleRows = batch.Articles.Where(x => x.CampaignId == campaignId && DateOnly.FromDateTime(x.Date) >= window.StartDate).OrderBy(x => x.NomenclatureId).ThenBy(x => x.Date).ToList();
-            var checks = batch.Checks.Where(x => x.CampaignId == campaignId && x.Date >= window.StartDate).OrderBy(x => x.Date).ToList();
+            var articleRows = batch.Articles.Where(x => x.CampaignId == campaignId && DateOnly.FromDateTime(x.Date) >= window.StartDate && DateOnly.FromDateTime(x.Date) <= window.EndDate).OrderBy(x => x.NomenclatureId).ThenBy(x => x.Date).ToList();
+            var checks = batch.Checks.Where(x => x.CampaignId == campaignId && x.Date >= window.StartDate && x.Date <= window.EndDate).OrderBy(x => x.Date).ToList();
             var checkedDays = checks.Where(x => x.Result is "data" or "zero" &&
                 !(x.LastAttemptResult == "no_data" && x.LastAttemptAtUtc >= x.CheckedAtUtc) &&
                 SourceConfirmed("fullstats", campaignId.ToString(), x.Date, x.Date)).Select(x => x.Date).ToHashSet();
@@ -127,7 +137,7 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             var campaignNorm = batch.Campaigns.SingleOrDefault(x => x.CampaignId == campaignId);
             var articleNorms = batch.Norms.Where(x => x.CampaignId == campaignId).ToDictionary(x => x.NomenclatureId);
             var advertising = batch.Controls.SingleOrDefault(x => x.CampaignId == campaignId);
-            var today = WbSyncPlanner.Today();
+            var today = WbSyncPlanner.Today(now);
             var basisByArticle = articleRows.ToLookup(x => x.NomenclatureId);
             var evaluations = new List<ClusterEvaluation>();
             var table = new List<WbCampaignClustersController.ClusterRow>();
@@ -140,8 +150,13 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                     ? stat.Sum(x => field(x)!.Value) : null;
                 // Missing article rows on a positively spending day cannot silently become zero.
                 var articleDates = basis.Select(x => DateOnly.FromDateTime(x.Date)).ToHashSet();
-                var articleComplete = fullComplete && checks.All(x => articleDates.Contains(x.Date) ||
-                    x.Result == "zero" && x.Spend == 0);
+                var missingArticleDays = Enumerable.Range(0, window.Days).Count(i =>
+                {
+                    var day = window.StartDate.AddDays(i);
+                    return !checkedDays.Contains(day) || !(articleDates.Contains(day) ||
+                        checks.Any(x => x.Date == day && x.Result == "zero" && x.Spend == 0));
+                });
+                var articleComplete = missingArticleDays == 0;
                 var fieldsVerified = basis.Length > 0 && basis.All(x => x.RecommendationFieldsVerified == true && x.Revenue >= 0);
                 var pairComplete = long.TryParse(campaign.WbCampaignId, out var advertId) &&
                     long.TryParse(group.Key.WbNomenclatureId, out var nmId) && RecommendationCoverage.Covers(window, advertId, nmId, intervals) &&
@@ -149,7 +164,7 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                 var price = WbClusterOrderEstimateCalculator.CalculateExact(window.StartDate, window.EndDate,
                     basis, stat, articleComplete && fieldsVerified, pairComplete, true).AverageOrderedUnitPrice;
                 var quality = new RecommendationQuality(articleComplete, pairComplete, fieldsVerified,
-                    settings.SourcesComparable, window.EndDate >= WbSyncPlanner.Today() ? "open_day" : "unverified");
+                    settings.SourcesComparable, window.EndDate >= today ? "open_day" : "unverified");
                 articleNorms.TryGetValue(group.Key.Id, out var articleNorm);
                 var norm = RecommendationEngine.ResolveNorm(articleNorm?.TargetDrr, campaignNorm?.TargetDrr, storeNorm?.TargetDrr,
                     articleNorm?.Version ?? 0, campaignNorm?.Version ?? 0, storeNorm?.Version ?? 0);
@@ -158,8 +173,18 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                 var economy = RecommendationEngine.Economy(facts, norm, settings.PriceScenario);
                 var rules = RecommendationEngine.Evaluate(facts, norm, quality, settings);
                 var gaps = new List<string>();
-                if (!articleComplete) gaps.Add("Не подтверждены все дни товарной статистики WB за выбранный период.");
-                if (!pairComplete) gaps.Add("Кластеры за выбранный период ещё не загружены полностью; ожидается фоновая загрузка.");
+                if (!articleComplete) gaps.Add($"Товарная статистика WB не подтверждена за {missingArticleDays} из {window.Days} дней. Пропуски не считаются нулями.");
+                if (!pairComplete)
+                {
+                    var clusterQuality = Enumerable.Range(0, window.Days).Select(i =>
+                        LatestQuality("clusters", $"{campaignId}:{group.Key.Id}", window.StartDate.AddDays(i))).ToArray();
+                    var unconfirmed = clusterQuality.Count(q => q == null || !WbQuality.Confirmed(q.State));
+                    gaps.Add(clusterQuality.All(q => q == null || q.State == "legacy")
+                        ? "Кластеры получены прежним обработчиком; требуется перепроверка полноты."
+                        : unconfirmed > 0
+                            ? $"Полнота кластеров не подтверждена за {unconfirmed} из {window.Days} дней. Последний ответ WB содержит пропуски или ошибки; сохранённые строки доступны."
+                            : "Обработка загрузки кластеров за выбранный период не завершена.");
+                }
                 if (!fieldsVerified) gaps.Add("Старые товарные строки требуют повторной загрузки для проверки суммы заказов и заказанных единиц.");
                 if (gaps.Count > 0) rules = rules.Select(r => r.Status == "skipped" ? r with { Explanation = string.Join(" ", gaps) } : r).ToArray();
                 var launch = articleNorm?.LaunchDate ?? campaignNorm?.LaunchDate;
@@ -167,7 +192,7 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                     rules = rules.Select(x => x.Enabled ? x with { Status = "skipped", ReasonCode = "launch", Explanation = "Защита запуска: выбранный период пересекает первые 21 день или запуск ещё продолжается." } : x).ToArray();
                 int? articleUnits = basis.Length > 0 && basis.All(x => x.OrderedProducts.HasValue) && articleComplete && fieldsVerified
                     ? basis.Sum(x => x.OrderedProducts!.Value) : null;
-                var control = AdvertisingSettingsPayload.Control(advertising, group.Key.WbNomenclatureId, group.Key.ClusterName, DateTime.UtcNow);
+                var control = AdvertisingSettingsPayload.Control(advertising, group.Key.WbNomenclatureId, group.Key.ClusterName, now);
                 var presentation = RecommendationActions.Select(rules.FirstOrDefault(x => x.Status == "triggered") ?? rules[0],
                     facts, norm, quality, economy, control, articleUnits, launch, window, today);
                 var subject = new RecommendationSubject(campaign.StoreId, campaignId, group.Key.Id,
@@ -215,12 +240,17 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                     previous is null ? null : RecommendationEngine.Economy(previous, e.Norm, settings.PriceScenario), thresholds);
                 return e with { Presentation = e.Presentation! with { Diagnostics = diagnostics } };
             }).ToList();
+            evaluations.AddRange(OperationalEvaluator.Evaluate(campaign.StoreId, campaignId, campaign.WbCampaignId, campaign.WbStatus,
+                batch.Catalog, batch.Articles.Where(x => x.CampaignId == campaignId).ToArray(),
+                batch.CampaignStats.Where(x => x.CampaignId == campaignId).ToArray(), batch.Checks.Where(x => x.CampaignId == campaignId).ToArray(),
+                batch.SourceQuality.Where(x => x.StoreId == campaign.StoreId).ToArray(), batch.Operational.Where(x => x.StoreId == campaign.StoreId).ToArray(),
+                advertising, storeNorm, campaignNorm, articleNorms.Values.ToArray(), evaluations, window, now, settings.Rule01Enabled));
             // Hash includes coverage/empty results too, avoiding stale "no data" snapshots after imports.
             var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
             {
-                sellerId, campaignId, window, engineVersion = 2,
+                sellerId, campaignId, window, engineVersion = 3,
                 settings.PriceScenario, settings.NoUnitsSpendFloor, settings.HighDrrMinimumUnits,
-                settings.Rule03Enabled, settings.Rule06Enabled, settings.SourcesComparable,
+                settings.Rule01Enabled, settings.Rule03Enabled, settings.Rule06Enabled, settings.SourcesComparable,
                 checks = checks.Select(x => new { x.Date, x.Result, x.Spend }), intervals,
                 storeVersion = storeNorm?.Version, campaignVersion = campaignNorm?.Version,
                 evaluations
@@ -232,8 +262,8 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             evaluations = evaluations.Select(x => x with { EvaluationId = Guid.NewGuid() }).ToList();
             var cards = evaluations.SelectMany(x => x.Rules.Where(rule => rule.Status == "triggered")
                 .Select(rule => new RecommendationCard(x.EvaluationId, x.Subject, rule, x.Facts, x.Norm, x.Economy,
-                    window.EndDate > today.AddDays(-2) || !x.Quality.Complete || x.Presentation?.Control?.Status != "ready", x.Presentation)))
-                .OrderBy(x => x.Rule.Group).ThenByDescending(x => x.Facts.Spend)
+                      window.EndDate > today.AddDays(-2) || !x.Quality.Complete || (x.Subject.Scope == "cluster" && x.Presentation?.Control?.Status != "ready"), x.Presentation)))
+                .OrderBy(x => x.Rule.Group).ThenBy(x => x.Presentation?.Priority ?? 4).ThenByDescending(x => x.Presentation?.WeeklySpend ?? 0)
                 .ThenBy(x => x.Subject.NomenclatureId, StringComparer.Ordinal).ThenBy(x => x.Subject.ClusterName, StringComparer.Ordinal).ToArray();
             var allRules = evaluations.SelectMany(x => x.Rules).ToArray();
             var coverage = new RecommendationCoverageSummary(allRules.Count(x => x.Enabled),
@@ -242,25 +272,25 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             var knownPairs = intervals.SelectMany(x => x.Pairs).Where(x => x.AdvertId.ToString() == campaign.WbCampaignId).Distinct().ToArray();
             var emptyConfirmed = fullComplete && knownPairs.Length > 0 &&
                 knownPairs.All(pair => RecommendationCoverage.Covers(window, pair.AdvertId, pair.NmId, intervals));
-            var status = raw.Count == 0 ? emptyConfirmed ? "empty" : "not_ready" : coverage.Skipped > 0 ? "limited" :
+            var status = cards.Length > 0 ? coverage.Skipped > 0 ? "limited" : "preliminary" : raw.Count == 0 ? emptyConfirmed ? "empty" : "not_ready" : coverage.Skipped > 0 ? "limited" :
                 coverage.Evaluated == 0 ? "unavailable" : cards.Length > 0 ? "preliminary" :
                 allRules.Any(x => x.Enabled && x.ReasonCode == "low_sample") ? "low_sample" : "no_deviations";
             var message = status switch
             {
-                "empty" => "За выбранный период в загруженной статистике нет поисковых кластеров.",
-                "not_ready" => "Данные за выбранный период ещё не готовы. Проверьте загрузку статистики.",
+                "empty" => "За фиксированные 14 дней в загруженной статистике нет поисковых кластеров.",
+                "not_ready" => "Данные за фиксированные 14 дней ещё не готовы. Причины ограничений указаны отдельно.",
                 "limited" => "Часть объектов не прошла проверку данных. Причины указаны отдельно.",
                 "unavailable" => "Включённые правила недоступны для проверки.",
                 "low_sample" => "Для части объектов мало заказанных единиц для проверки высокого ДРР. Порог расхода без результата проверяется отдельно.",
                 "no_deviations" => "По проверенным правилам отклонений не найдено. Данные могут уточняться.",
                 _ => "Предварительные диагностические рекомендации. Данные WB могут уточняться."
             };
-            var response = new RecommendationResponse(true, true, runId, 2, window, DateTime.UtcNow, status, message,
+            var response = new RecommendationResponse(true, true, runId, 3, window, now, status, message,
                 cards, evaluations, table.OrderByDescending(x => x.Spend).ThenBy(x => x.NomenclatureId, StringComparer.Ordinal)
                     .ThenBy(x => x.ClusterName, StringComparer.Ordinal).ToArray(), coverage, RecommendationActions.Packages(cards), campaignId, campaignNorm?.CustomName ?? campaign.Name);
             var run = new WbRecommendationRun { Id = runId, SellerId = sellerId, StoreId = campaign.StoreId,
                 CampaignId = campaignId, StartDate = window.StartDate, EndDate = window.EndDate, Fingerprint = fingerprint,
-                SchemaVersion = 2, CalculatedAtUtc = response.CalculatedAtUtc!.Value, SnapshotJson = JsonSerializer.Serialize(response, Json) };
+                SchemaVersion = 3, CalculatedAtUtc = response.CalculatedAtUtc!.Value, SnapshotJson = JsonSerializer.Serialize(response, Json) };
             db.WbRecommendationRuns.Add(run);
             try
             {

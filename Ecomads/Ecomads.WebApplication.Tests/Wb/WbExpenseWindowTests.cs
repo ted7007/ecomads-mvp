@@ -27,6 +27,9 @@ public sealed class WbExpenseWindowTests
             .Select(i => part.StartDate.AddDays(i))).ToArray();
         Assert.Equal(days, covered.Length); Assert.Equal(days, covered.Distinct().Count());
         Assert.Equal(start, covered.Min()); Assert.Equal(end, covered.Max());
+        Assert.Equal(end, parts[0].EndDate);
+        Assert.Equal(start, parts[^1].StartDate);
+        Assert.Equal(Math.Min(29, days), parts[0].EndDate.DayNumber - parts[0].StartDate.DayNumber + 1);
         Assert.All(parts, part => Assert.InRange(part.EndDate.DayNumber - part.StartDate.DayNumber + 1, 1, 29));
         Assert.All(parts, part => Assert.InRange(WbExpenseWindow.Create(part.StartDate, part.EndDate,
             new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)).RequestEnd.DayNumber - part.StartDate.DayNumber + 2, 1, 31));

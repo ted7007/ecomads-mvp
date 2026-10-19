@@ -1,0 +1,3 @@
+\pset pager off
+SELECT j.id,j.status,j.start_date,j.end_date,j.started_at_utc,j.last_request_at_utc,j.next_campaign_offset,j.next_attempt_at_utc AT TIME ZONE 'Europe/Moscow' AS next_msk FROM wb_sync_jobs j WHERE j.store_id='218f4679-4dc1-4543-b0e7-426e6f11d080' AND j.kind='clusters' AND j.status IN ('pending','running');
+SELECT c.wb_campaign_id,n.wb_nomenclature_id,count(DISTINCT d.date) AS product_days FROM campaign_nomenclature_statistics d JOIN campaigns c ON c.id=d.campaign_id JOIN nomenclatures n ON n.id=d.nomenclature_id WHERE c.store_id='218f4679-4dc1-4543-b0e7-426e6f11d080' AND c.wb_status=9 AND d.date>='2026-10-12' AND d.date<'2026-10-19' GROUP BY 1,2 ORDER BY 1,2;

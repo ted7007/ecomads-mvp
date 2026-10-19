@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace Ecomads.WebApplication.Services.Recommendations;
 
-/// <summary>The same engine serves interactive periods and an independent standard background window.</summary>
+/// <summary>The same fixed Moscow window and engine serve the API, summary and background.</summary>
 public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<RecommendationOptions> options,
     ILogger<RecommendationWorker> logger) : BackgroundService
 {
@@ -35,13 +35,12 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
         {
             var cutoff = nowUtc.AddDays(-options.Value.RetentionDays);
             await db.WbRecommendationRuns.Where(x => x.CalculatedAtUtc < cutoff &&
-                !db.WbSnapshotDecisions.Any(d => d.RunId == x.Id)).ExecuteDeleteAsync(ct);
+                !db.WbSnapshotDecisions.Any(d => d.RunId == x.Id) &&
+                !(x.SchemaVersion < 3 && db.WbRecommendationDecisions.Any(d => d.SellerId == x.SellerId))).ExecuteDeleteAsync(ct);
             await db.WbArticleObservations.Where(x => x.ObservedAtUtc < cutoff).ExecuteDeleteAsync(ct);
             cleanedOn = today;
         }
-        // Begin only at/after the existing nightly 06:15 Moscow slot.
-        var slot = WbRefreshClock.LatestSlot(nowUtc, true);
-        var window = new RecommendationWindow(WbSyncPlanner.Today(slot).AddDays(-15), WbSyncPlanner.Today(slot).AddDays(-2));
+        var window = RecommendationPeriods.Economic(nowUtc);
         foreach (var store in stores)
         {
             try
@@ -50,12 +49,10 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
                     (x.WbStatus == 7 || x.WbStatus == 9 || x.WbStatus == 11)).ToListAsync(ct);
                 if (store.AutoRefreshEnabled && !store.AutoRefreshBlocked && (store.TokenExpiresAtUtc == null || store.TokenExpiresAtUtc > nowUtc))
                 {
+                    try { await scope.ServiceProvider.GetRequiredService<OperationalSync>().RefreshAsync(store, nowUtc, ct); }
+                    catch (Exception error) when (error is not OperationCanceledException) { logger.LogWarning(error, "Operational import failed for {StoreId}", store.Id); }
                     await scope.ServiceProvider.GetRequiredService<AdvertisingSettingsSync>().RefreshAsync(store, nowUtc, ct);
-                    var requested = await db.WbRecommendationRuns.AsNoTracking().Where(x => x.StoreId == store.Id &&
-                        x.SchemaVersion >= 2 && x.CalculatedAtUtc > nowUtc.AddDays(-1) && x.EndDate <= today.AddDays(-1))
-                        .Select(x => new { x.StartDate, x.EndDate }).Distinct().OrderByDescending(x => x.EndDate)
-                        .ThenByDescending(x => x.StartDate).Take(4).ToListAsync(ct);
-                    var windows = requested.Select(x => new RecommendationWindow(x.StartDate, x.EndDate)).Append(window).Distinct().ToArray();
+                    var windows = new[] { window, new RecommendationWindow(window.StartDate.AddDays(-14), window.StartDate.AddDays(-1)) };
                     var planner = scope.ServiceProvider.GetRequiredService<WbSyncPlanner>();
                     var queued = false;
                     foreach (var target in windows)

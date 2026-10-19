@@ -18,8 +18,6 @@ import { WbClusterTable } from './components/WbClusterTable';
 import { WbJamTable } from './components/WbJamTable';
 import { getDailySeries } from '../DashboardPage/dashboardApi';
 import { DailyChart } from '../../shared/ui/DailyChart';
-import { RecommendationList } from '../../shared/ui/RecommendationList';
-import { campaignRecommendations, clusterRecommendations } from '../../shared/lib/recommendations';
 import type { MetricKey } from '../../shared/ui/DailyChart';
 import { previousPeriod } from '../../shared/lib/previousPeriod';
 import { WbDataFreshness } from '../../shared/ui/WbDataFreshness';
@@ -50,8 +48,8 @@ export function CampaignPage() {
     queryFn: () => getCampaignSummary(id, filters), enabled: Boolean(id) });
   const clusters = useQuery({ queryKey: ['wb-clusters', id, filters],
     queryFn: () => getWbClusters(id, filters), enabled: Boolean(id) });
-  const clusterReport = useQuery({ queryKey: ['wb-cluster-recommendations', id, filters],
-    queryFn: () => getClusterRecommendations(id, filters), enabled: Boolean(id && filters.startDate && filters.endDate) });
+  const clusterReport = useQuery({ queryKey: ['wb-cluster-recommendations', id],
+    queryFn: () => getClusterRecommendations(id), enabled: Boolean(id) });
   const jam = useQuery({ queryKey: ['wb-jam', id, jamPeriod],
     queryFn: () => getWbJam(id, jamPeriod ?? {}), enabled: Boolean(id),
     placeholderData: (previous) => previous });
@@ -72,10 +70,7 @@ export function CampaignPage() {
   if (!id) return <Navigate to={appRoutes.dashboard} replace />;
   const loading = summary.isLoading || clusters.isLoading || articles.isLoading;
   const error = summary.error ?? clusters.error ?? articles.error;
-  const recommendations = [
-    ...campaignRecommendations(summary.data ? [summary.data] : []),
-    ...clusterRecommendations(id, summary.data?.wbStatus === 9 && clusters.data?.isPeriodComplete ? clusters.data.rows : [])
-  ];
+
 
   return <Stack spacing={2.5}>
     <Breadcrumbs aria-label="Навигация"><Link href={`${appRoutes.dashboard}?startDate=${filters.startDate}&endDate=${filters.endDate}`} underline="hover">Сводка</Link>
@@ -128,11 +123,12 @@ export function CampaignPage() {
       </CardContent></Card>
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые кластеры</Typography>
-        {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete && !clusterReport.data?.enabled ?
-          <Alert severity="info" sx={{ mb: 2 }}>Сбор кластеров за весь выбранный период ещё не завершён. Строки ниже могут быть неполными; рекомендации по ним пока скрыты.</Alert> : null}
+        {clusters.data?.isWbConnected && !clusters.data.isPeriodComplete ?
+            <Alert severity="info" sx={{ mb: 2 }}>Сбор кластеров за весь выбранный период ещё не завершён. Строки отчёта могут быть неполными. Рекомендации рассчитываются отдельно за фиксированные 14 дней.</Alert> : null}
         {clusters.data?.isWbConnected ? <>
-          <WbClusterTable rows={clusterReport.data?.enabled ? clusterReport.data.rows : clusters.data.rows}
-            emptyText={clusterReport.data?.enabled ? clusterReport.data.message : undefined} jamRows={jam.data &&
+          <WbClusterTable rows={clusters.data.rows} report={clusterReport.data}
+            assessmentLoading={clusterReport.isLoading} assessmentError={clusterReport.isError}
+            emptyText={undefined} jamRows={jam.data &&
             jam.data.startDate === filters.startDate && jam.data.endDate === filters.endDate ? jam.data.rows : []} />
           {jam.data?.rows.length && (jam.data.startDate !== filters.startDate || jam.data.endDate !== filters.endDate) ?
             <Typography variant="caption" color="text.secondary">Джем загружен за другой период; его показатели показаны ниже отдельно.</Typography> : null}
@@ -140,20 +136,14 @@ export function CampaignPage() {
           : <Alert severity="info">Подключите кабинет WB для просмотра кластеров.</Alert>}
       </CardContent></Card>
       {clusterReport.data?.enabled && clusterReport.isFetching ?
-        <Alert severity="info">Пересчитываем рекомендации за выбранный период…</Alert> : null}
-      {clusterReport.isError ? <Alert severity="error">Не удалось рассчитать рекомендации за выбранный период.
+        <Alert severity="info">Обновляем рекомендации за 14 дней…</Alert> : null}
+      {clusterReport.isError ? <Alert severity="error">Не удалось рассчитать рекомендации за 14 дней.
         <Link component="button" onClick={() => void clusterReport.refetch()}>Повторить</Link></Alert> :
-        clusterReport.isLoading ? <LoadingState title="Проверяем кластеры за выбранный период" /> :
+        clusterReport.isLoading ? <LoadingState title="Проверяем рекомендации за 14 дней" /> :
         clusterReport.data?.enabled ? <Card><CardContent>
           <ClusterRecommendations campaignId={id} report={clusterReport.data} />
-        </CardContent></Card> : recommendations.length ? <Card><CardContent>
-        <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>Рекомендации</Typography>
-        <RecommendationList startDate={filters.startDate} endDate={filters.endDate} items={recommendations} emptyText="" />
-      </CardContent></Card> : <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>
-        {summary.data?.wbStatus === 9 ?
-          'Рекомендаций пока нет: подтверждённых отклонений по выбранному периоду не найдено или данных недостаточно.' :
-          'Рекомендации формируются только для активных кампаний.'}
-      </Typography>}
+        </CardContent></Card> : <Typography variant="body2" color="text.secondary">Рекомендации отключены или кабинет не подключён.</Typography>}
+
       <Card><CardContent>
         <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>Поисковые запросы Джема</Typography>
         {jam.isLoading ? <LoadingState title="Загружаем запросы Джема" /> :

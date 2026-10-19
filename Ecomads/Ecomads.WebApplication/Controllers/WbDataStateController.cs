@@ -132,7 +132,11 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                 Source("orders", ["funnel_month", "funnel_recent", "funnel_backfill", "funnel_year"], orderDays, allDays,
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.LoadedAtUtc),
                     orderChecks.Length == 0 ? null : orderChecks.Min(x => x.Date),
-                    orderChecks.Length == 0 ? null : orderChecks.Max(x => x.Date)) };
+                    orderChecks.Length == 0 ? null : orderChecks.Max(x => x.Date)),
+                Source("clusters", ["clusters"], clusterDates.Length > 0 ? 1 : 0, 1,
+                    jobs.FirstOrDefault(x => x.Kind == "clusters" && x.Status == "completed")?.CompletedAtUtc,
+                    clusterDates.Length == 0 ? null : clusterDates.Min(),
+                    clusterDates.Length == 0 ? null : clusterDates.Max()) };
         return Ok(new { sources, quality, reportingTimeZone = "МСК", isPreliminary = endDate >= WbSyncPlanner.Today(), active = jobs.Any(x => x.Status is "pending" or "running") });
     }
 }

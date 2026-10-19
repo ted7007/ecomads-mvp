@@ -48,9 +48,7 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
             .SingleOrDefaultAsync(x => x.StoreId == campaign.StoreId, cancellationToken);
         var campaignNorms = await db.WbCampaignNorms.AsNoTracking()
             .SingleOrDefaultAsync(x => x.CampaignId == campaignId, cancellationToken);
-        var minClicks = campaignNorms?.MinClicks ?? storeNorms?.MinClicks ?? 30;
-        var minSpend = campaignNorms?.MinSpend ?? storeNorms?.MinSpend ?? 500m;
-        var minOrders = campaignNorms?.MinOrders ?? storeNorms?.MinOrders ?? 3;
+
 
         var query = from stat in db.WbClusterStatistics.AsNoTracking()
             join article in db.Nomenclatures.AsNoTracking() on stat.NomenclatureId equals article.Id
@@ -98,6 +96,7 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                 JsonSerializer.Deserialize<WbNormQueryPair[]>(x.PairIdsJson ?? "[]") ?? [])).ToList();
         }
         var articleById = articleRows.ToLookup(x => x.NomenclatureId);
+        var confirmedPairs = new Dictionary<Guid, bool>();
         var rows = raw.GroupBy(x => new { x.WbNomenclatureId, x.Name, x.stat.ClusterName })
             .Select(group =>
             {
@@ -112,6 +111,7 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                         .All(offset => estimateJobs.Any(job => job.Start <= startDate.Value.AddDays(offset) &&
                             job.End >= startDate.Value.AddDays(offset) &&
                             job.Pairs.Any(pair => pair.AdvertId == wbCampaignId && pair.NmId == nmId)));
+                confirmedPairs[articleId] = pairComplete;
                 var estimate = startDate.HasValue && endDate.HasValue
                     ? WbClusterOrderEstimateCalculator.Calculate(startDate.Value, endDate.Value,
                         articleById[articleId].ToList(), group.Select(x => x.stat).ToList(), fullStatsComplete,
@@ -124,24 +124,14 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                     group.All(x => x.stat.Carts.HasValue) ? group.Sum(x => x.stat.Carts!.Value) : null,
                     group.All(x => x.stat.Orders.HasValue) ? group.Sum(x => x.stat.Orders!.Value) : null,
                     clicks is > 0 ? Math.Round(spend / clicks.Value, 2) : null,
-                    staleArticles.Contains(articleId) ? "Данные устарели: последний ответ WB не подтвердил полный снимок." : Assess(spend, clicks,
-                        group.All(x => x.stat.Orders.HasValue) ? group.Sum(x => x.stat.Orders!.Value) : null,
-                        minSpend, minClicks, minOrders), orderedProducts, estimate.AverageOrderedUnitPrice,
+                    staleArticles.Contains(articleId) ? "Данные устарели: последний ответ WB не подтвердил полный снимок." :
+                        pairComplete && fullStatsComplete ? "Статистика выбранного периода" : "Неполная статистика выбранного периода", orderedProducts, estimate.AverageOrderedUnitPrice,
                     estimate.EstimatedOrderSum, estimate.EstimatedDrr, estimate.Status, estimate.Reason);
             })
             .OrderByDescending(x => x.Spend)
             .ToList();
+        if (rows.Count > 0) isPeriodComplete = confirmedPairs.Values.All(x => x) && fullStatsComplete;
         return Ok(new ClusterResponse(true, isPeriodComplete, rows, storeNorms?.Version ?? 0, campaignNorms?.Version ?? 0));
     }
 
-    private static string Assess(decimal spend, int? clicks, int? orders,
-        decimal minSpend, int minClicks, int minOrders)
-    {
-        if (!clicks.HasValue || !orders.HasValue) return "Показатели неполные";
-        if (spend >= minSpend && clicks >= minClicks && orders == 0)
-            return "Расход без заказов — проверить";
-        if (spend < minSpend && clicks < minClicks && orders < minOrders)
-            return "Недостаточно данных";
-        return "Наблюдать: выручка кластера недоступна";
-    }
 }

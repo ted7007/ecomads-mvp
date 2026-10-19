@@ -1,0 +1,3 @@
+SELECT now() AT TIME ZONE 'Europe/Moscow' AS now_msk;
+SELECT kind,status,next_campaign_offset, jsonb_array_length(COALESCE(pair_ids_json,'[]'::jsonb)) AS expense_parts, jsonb_array_length(campaign_ids_json) AS items, next_attempt_at_utc AT TIME ZONE 'Europe/Moscow' AS next_msk,error_code,wait_reason FROM wb_sync_jobs WHERE store_id='218f4679-4dc1-4543-b0e7-426e6f11d080' AND kind IN ('expenses_month','funnel_recent','funnel_month') ORDER BY created_at_utc DESC LIMIT 5;
+SELECT "Source","State",count(*) FROM wb_source_quality WHERE "StoreId"='218f4679-4dc1-4543-b0e7-426e6f11d080' AND "Entity"='' AND "StartDate">='2026-10-12' AND "EndDate"<='2026-10-18' AND "Source" IN ('expenses','orders') GROUP BY 1,2 ORDER BY 1,2;

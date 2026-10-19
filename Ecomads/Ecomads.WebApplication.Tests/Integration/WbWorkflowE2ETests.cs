@@ -358,6 +358,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         using var state = await client.GetAsync($"/api/wb/data-state?{query}");
         using var stateJson = JsonDocument.Parse(await state.Content.ReadAsStringAsync());
         Assert.True(stateJson.RootElement.GetProperty("isPreliminary").GetBoolean());
+        Assert.Contains(stateJson.RootElement.GetProperty("sources").EnumerateArray(),
+            source => source.GetProperty("kind").GetString() == "clusters");
         using var future = await client.GetAsync($"/api/statistics/daily?startDate={today:yyyy-MM-dd}&endDate={today.AddDays(1):yyyy-MM-dd}");
         Assert.Equal(HttpStatusCode.BadRequest, future.StatusCode);
         using var readiness = await client.GetAsync($"/api/wb/stores/{storeId}/report-readiness");
@@ -565,7 +567,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         var cluster = Assert.Single(clustersJson.RootElement.GetProperty("rows").EnumerateArray());
         Assert.Equal("пример", cluster.GetProperty("clusterName").GetString());
         Assert.Equal(JsonValueKind.Null, cluster.GetProperty("views").ValueKind);
-        Assert.Equal("Недостаточно данных", cluster.GetProperty("assessment").GetString());
+        Assert.Equal("Неполная статистика выбранного периода", cluster.GetProperty("assessment").GetString());
 
         using var jam = await client.GetAsync($"/api/wb/campaigns/{campaignId}/jam?startDate=2026-07-01&endDate=2026-07-01");
         Assert.Equal(HttpStatusCode.OK, jam.StatusCode);

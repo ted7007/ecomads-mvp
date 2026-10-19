@@ -19,6 +19,7 @@ public sealed class WbApiException : Exception
     }
 }
 
+public sealed record WbArticleBid(long NmId, decimal? SearchRubles, decimal? RecommendationRubles);
 public sealed record WbCampaignInfo(
     long Id,
     string Name,
@@ -28,7 +29,8 @@ public sealed record WbCampaignInfo(
     DateTime? CreatedAtUtc = null,
     DateTime? StartedAtUtc = null,
     DateTime? DeletedAtUtc = null,
-    DateTime? UpdatedAtUtc = null, string? BidType = null, IReadOnlyList<string>? TimestampIssues = null);
+    DateTime? UpdatedAtUtc = null, string? BidType = null, IReadOnlyList<string>? TimestampIssues = null,
+    IReadOnlyList<WbArticleBid>? ArticleBids = null, bool CanChangeArticles = false);
 
 public sealed record WbNormQueryPair(long AdvertId, long NmId);
 
@@ -187,6 +189,7 @@ public sealed class WbPromotionClient(HttpClient httpClient, TimeProvider? clock
                 ? payment.GetString()
                 : null;
             var nms = new List<long>();
+            var articleBids = new List<WbArticleBid>();
             if (advert.TryGetProperty("nm_settings", out var nmSettings) && nmSettings.ValueKind == JsonValueKind.Array)
             {
                 foreach (var nm in nmSettings.EnumerateArray())
@@ -194,6 +197,11 @@ public sealed class WbPromotionClient(HttpClient httpClient, TimeProvider? clock
                     if (nm.TryGetProperty("nm_id", out var nmId) && nmId.TryGetInt64(out var value))
                     {
                         nms.Add(value);
+                        if (nm.TryGetProperty("bids_kopecks", out var bids))
+                        {
+                            decimal? Bid(string key) => bids.TryGetProperty(key, out var amount) && amount.TryGetDecimal(out var number) && number > 0 ? number / 100m : null;
+                            articleBids.Add(new(value, Bid("search"), Bid("recommendations")));
+                        }
                     }
                 }
             }
@@ -208,7 +216,8 @@ public sealed class WbPromotionClient(HttpClient httpClient, TimeProvider? clock
             }
             result.Add(new WbCampaignInfo(id, name, status, paymentType, nms,
                 Timestamp("created"), Timestamp("started"), Timestamp("deleted"), Timestamp("updated"),
-                advert.TryGetProperty("bid_type", out var bidType) ? bidType.GetString() : null, timestampIssues));
+                advert.TryGetProperty("bid_type", out var bidType) ? bidType.GetString() : null, timestampIssues, articleBids,
+                advert.TryGetProperty("restrictions", out var restrictions) && restrictions.TryGetProperty("can_change_nms", out var canChange) && canChange.ValueKind == JsonValueKind.True));
         }
 
         if (result.Select(x => x.Id).Distinct().Count() != result.Count) throw new JsonException("Повторный ID кампании WB.");

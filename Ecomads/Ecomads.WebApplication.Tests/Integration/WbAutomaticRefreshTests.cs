@@ -251,12 +251,42 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
             StartDate = start, EndDate = start.AddDays(1), CampaignIdsJson = "[123]" });
         db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed",
             StartDate = start, EndDate = start, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
+        TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, start);
         await db.SaveChangesAsync();
         Assert.Null((await Planner(db).EnqueueMissingClustersAsync(store, start, start, default)).Job);
         var next = (await Planner(db).EnqueueMissingClustersAsync(store, start.AddDays(1), start.AddDays(1), default)).Job;
         Assert.NotNull(next);
         Assert.Equal(start.AddDays(1), next.StartDate);
         Assert.Equal(new WbNormQueryPair(123, 1), Assert.Single(JsonSerializer.Deserialize<WbNormQueryPair[]>(next.PairIdsJson!)!));
+    }
+
+    [Fact]
+    public async Task LegacyClusterCompletionIsRecheckedOnceAndSparseResponseDoesNotLoop()
+    {
+        await using var db = await postgres.CreateMigratedDbContextAsync();
+        var store = await SeedAsync(db);
+        var campaign = await db.Campaigns.SingleAsync();
+        var article = new Nomenclature { Id = Guid.NewGuid(), StoreId = store.Id, WbNomenclatureId = "1", Name = "P" };
+        var end = WbSyncPlanner.Yesterday(); var start = end.AddDays(-6);
+        db.Nomenclatures.Add(article);
+        db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
+            Date = end.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) });
+        db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = end, Result = "data" });
+        db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "fullstats", Status = "completed",
+            StartDate = start, EndDate = end, CampaignIdsJson = "[123]" });
+        db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed",
+            StartDate = start, EndDate = end, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
+        await db.SaveChangesAsync();
+        var recheck = (await Planner(db).EnqueueMissingClustersAsync(store, start, end, default)).Job;
+        Assert.NotNull(recheck);
+        Assert.Equal(new WbNormQueryPair(123, 1), Assert.Single(JsonSerializer.Deserialize<WbNormQueryPair[]>(recheck.PairIdsJson!)!));
+        recheck.Status = "completed";
+        for (var day = start; day <= end; day = day.AddDays(1)) db.WbSourceQualities.Add(new() {
+            StoreId = store.Id, Source = "clusters", Entity = $"{campaign.Id}:{article.Id}", StartDate = day,
+            EndDate = day, State = "no_data", LastAttemptAtUtc = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        Assert.Null((await Planner(db).EnqueueMissingClustersAsync(store, start, end, default)).Job);
+        Assert.Equal(2, await db.WbSyncJobs.CountAsync(x => x.Kind == "clusters"));
     }
 
     [Fact]

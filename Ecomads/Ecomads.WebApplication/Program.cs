@@ -76,6 +76,10 @@ builder.Services.AddOptions<RecommendationOptions>().Bind(builder.Configuration.
     .ValidateOnStart();
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<AdvertisingSettingsSync>();
+builder.Services.AddScoped<OperationalSync>();
+builder.Services.AddScoped<IWbOperationsClient, WbOperationsClient>();
+builder.Services.AddHttpClient("wb-operations-analytics", client => { client.BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru"); client.Timeout = TimeSpan.FromMinutes(2); });
+builder.Services.AddHttpClient("wb-operations-promotion", client => { client.BaseAddress = new Uri("https://advert-api.wildberries.ru"); client.Timeout = TimeSpan.FromMinutes(2); });
 builder.Services.AddHostedService<RecommendationWorker>();
 builder.Services.AddHostedService<WbSyncWorker>();
 builder.Services.AddHostedService<WbJournalRetentionWorker>();

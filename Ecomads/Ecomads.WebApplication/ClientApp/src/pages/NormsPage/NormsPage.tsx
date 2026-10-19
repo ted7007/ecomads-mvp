@@ -8,7 +8,7 @@ import { PaginationBar } from '../../shared/ui/PaginationBar';
 
 const defaults: StoreNormValues = { targetDrr: 20, minClicks: 30, minSpend: 500,
   minOrders: 3, deviationPercent: 40, minCtr: 3, minViews: 1000, minCarts: 20, cartConversion: null, orderCartConversion: null, orderClickConversion: null };
-const emptyOverrides: CampaignNormOverrides = { customName: null, goal: null, targetDrr: null,
+const emptyOverrides: CampaignNormOverrides = { recommendationMode: 'profit', customName: null, goal: null, targetDrr: null,
   minClicks: null, minSpend: null, minOrders: null, deviationPercent: null, minCtr: null, launchDate: null, minViews: null, minCarts: null, cartConversion: null, orderCartConversion: null, orderClickConversion: null };
 const numericFields = [
   { key: 'targetDrr', label: 'Целевой рекламный ДРР, %' },
@@ -143,7 +143,9 @@ export function NormsPage() {
               onClick={(event) => { event.stopPropagation(); saveCampaign.mutate(); }}>Сохранить</Button> : null}</TableCell>
           </TableRow>
           {row.campaignId === campaignId ? <TableRow sx={{ display: { xs: 'none', md: 'table-row' } }}><TableCell colSpan={4} sx={{ bgcolor: 'rgba(0,122,255,.04)' }}><Stack spacing={1.5} sx={{ py: 1 }}>
-            <Typography variant="caption" color="text.secondary">Дополнительные настройки кампании</Typography>
+            <Typography variant="caption" color="text.secondary">Дополнительные настройки кампании</Typography><TextField select label="Режим рекомендаций" size="small" value={overrides.recommendationMode} onChange={e => setOverrides(old => ({ ...old, recommendationMode: e.target.value as CampaignNormOverrides['recommendationMode'] }))}>
+              <MenuItem value="profit">Прибыль</MenuItem><MenuItem value="growth">Рост</MenuItem><MenuItem value="clearance">Распродажа</MenuItem>
+            </TextField>
             <TextField type="date" size="small" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
               onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Первые 21 день защищены. Дата товара важнее даты кампании." />
             <TextField label="Своё название" size="small" sx={{ maxWidth: 320 }} value={overrides.customName ?? ''} onChange={(event) => setOverrides((previous) => ({ ...previous, customName: event.target.value || null }))} />
@@ -166,7 +168,9 @@ export function NormsPage() {
       {campaignId ? <>
         <TextField type="date" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
           onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Защита первых 21 дня; дата товара имеет приоритет." />
-        <Typography variant="body2" color="text.secondary">Пустое числовое поле наследует норму кабинета. Версия кампании: {campaignNorms.data?.version ?? 0}.</Typography>
+        <TextField select label="Режим рекомендаций" size="small" value={overrides.recommendationMode} onChange={e => setOverrides(old => ({ ...old, recommendationMode: e.target.value as CampaignNormOverrides['recommendationMode'] }))}>
+              <MenuItem value="profit">Прибыль</MenuItem><MenuItem value="growth">Рост</MenuItem><MenuItem value="clearance">Распродажа</MenuItem>
+            </TextField><Typography variant="body2" color="text.secondary">Пустое числовое поле наследует норму кабинета. Версия кампании: {campaignNorms.data?.version ?? 0}.</Typography>
         {campaignDirty ? <Typography variant="caption" color="warning.main">Есть несохранённые изменения</Typography> : null}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
           <TextField label="Своё название" value={overrides.customName ?? ''}

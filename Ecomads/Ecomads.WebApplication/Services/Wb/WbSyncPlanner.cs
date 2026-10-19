@@ -371,13 +371,14 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         IReadOnlySet<DateOnly> loaded)
     {
         var batches = new List<WbHistoryBatch>();
-        for (var current = start; current <= end; current = current.AddDays(29))
+        for (var chunkEnd = end; chunkEnd >= start;)
         {
-            var chunkEnd = current.AddDays(28);
-            if (chunkEnd > end) chunkEnd = end;
+            var current = chunkEnd.DayNumber - start.DayNumber > 28 ? chunkEnd.AddDays(-28) : start;
             if (Enumerable.Range(0, chunkEnd.DayNumber - current.DayNumber + 1)
                 .Any(offset => !loaded.Contains(current.AddDays(offset))))
                 batches.Add(new WbHistoryBatch(current, chunkEnd, []));
+            if (current == start) break;
+            chunkEnd = current.AddDays(-1);
         }
         return batches.ToArray();
     }
@@ -436,13 +437,28 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         if (active != null) return new(active);
         var loaded = await LoadedCampaignIdsAsync(store.Id, start, end, ct);
         var eligible = (await ObservedAsync(store.Id, start, end, ct)).Where(x => loaded.Contains(x.AdvertId)).ToArray();
-        var completed = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == store.Id && x.Kind == "clusters" &&
-            x.Status == "completed" && x.StartDate <= end && x.EndDate >= start)
-            .Select(x => new { x.StartDate, x.EndDate, x.PairIdsJson }).ToListAsync(ct);
-        var intervals = completed.Select(x => new Services.Recommendations.ClusterCoverageInterval(x.StartDate, x.EndDate,
-            JsonSerializer.Deserialize<WbNormQueryPair[]>(x.PairIdsJson ?? "[]") ?? [])).ToArray();
-        var missing = eligible.Where(x => !Services.Recommendations.RecommendationCoverage.Covers(new(start, end), x.AdvertId, x.NmId, intervals)).ToArray();
-        if (missing.Length == 0) return new(null, "Все доступные пары за период уже загружены; остальные ожидают fullstats.");
+        var fromUtc = start.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var toUtc = end.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var entities = await (from stat in db.CampaignNomenclatureStatistics.AsNoTracking()
+            join campaign in db.Campaigns.AsNoTracking() on stat.CampaignId equals campaign.Id
+            join article in db.Nomenclatures.AsNoTracking() on stat.NomenclatureId equals article.Id
+            where campaign.StoreId == store.Id && article.StoreId == store.Id && stat.Date >= fromUtc && stat.Date <= toUtc
+            select new { campaign.WbCampaignId, article.WbNomenclatureId, CampaignId = campaign.Id, ArticleId = article.Id }).Distinct().ToListAsync(ct);
+        var entityMap = entities.Where(x => long.TryParse(x.WbCampaignId, out _) && long.TryParse(x.WbNomenclatureId, out _))
+            .ToDictionary(x => new WbNormQueryPair(long.Parse(x.WbCampaignId), long.Parse(x.WbNomenclatureId)), x => $"{x.CampaignId}:{x.ArticleId}");
+        var quality = await db.WbSourceQualities.AsNoTracking().Where(x => x.StoreId == store.Id && x.Source == "clusters" &&
+            x.StartDate <= end && x.EndDate >= start).ToArrayAsync(ct);
+        // A legacy completed job does not establish v2 coverage. Conversely a processed
+        // sparse/error response is an attempt, not a reason to create retries every pass.
+        var missing = eligible.Where(pair => !entityMap.TryGetValue(pair, out var entity) ||
+            Enumerable.Range(0, end.DayNumber - start.DayNumber + 1).Any(offset =>
+            {
+                var day = start.AddDays(offset);
+                var latest = quality.Where(q => (q.Entity == "" || q.Entity == entity) && q.StartDate <= day && q.EndDate >= day)
+                    .OrderByDescending(q => q.LastAttemptAtUtc).FirstOrDefault();
+                return latest == null || latest.State == "legacy";
+            })).ToArray();
+        if (missing.Length == 0) return new(null, "Период уже обработан. Неподтверждённые данные ожидают обычного обновления или ручного повтора.");
         return new(await QueueAsync(store.Id, "clusters", start, end, "[]", JsonSerializer.Serialize(missing), null, ct));
     }
 

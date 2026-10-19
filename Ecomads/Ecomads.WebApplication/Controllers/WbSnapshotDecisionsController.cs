@@ -18,7 +18,7 @@ public sealed class WbSnapshotDecisionsController(EcomadsDbContext db, Recommend
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var seller)) return Unauthorized();
         if (request.EvaluationIds is null || request.EvaluationIds.Count is < 1 or > 1000 ||
-            request.Status is not ("accepted" or "snoozed" or "irrelevant") || request.RuleId is not ("R03" or "R06") ||
+            request.Status is not ("accepted" or "snoozed" or "irrelevant") || request.RuleId is not ("R01" or "R02" or "R03" or "R06" or "R07") ||
             request.Status == "snoozed" && (!request.SnoozeUntil.HasValue || request.SnoozeUntil <= Services.Wb.WbSyncPlanner.Today()) ||
             request.Status == "irrelevant" && string.IsNullOrWhiteSpace(request.Reason) || request.Reason?.Length > 1000 || request.Comment?.Length > 2000)
             return BadRequest(new { message = "Для откладывания нужна будущая дата, для отказа — причина. Проверьте решение." });

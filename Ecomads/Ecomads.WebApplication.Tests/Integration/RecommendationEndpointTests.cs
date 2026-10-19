@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Ecomads.WebApplication.Data;
+using Ecomads.WebApplication.Services.Recommendations;
 using Ecomads.WebApplication.Data.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -33,7 +34,7 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
-            var date = new DateOnly(2026, 10, 1);
+            var date = RecommendationPeriods.Economic(DateTime.UtcNow).EndDate;
             TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, date);
             db.Sellers.Add(seller); db.Stores.Add(store); db.Campaigns.Add(campaign); db.Nomenclatures.Add(article);
             db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
@@ -43,6 +44,12 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
                 Date = date, ClusterName = "zero", Spend = 800, Clicks = 10, Orders = 99, OrderedProducts = 0 });
             db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed",
                 StartDate = date, EndDate = date, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
+            for (var day = date.AddDays(-13); day < date; day = day.AddDays(1))
+            {
+                TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, day);
+                db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = day, Result = "zero", Spend = 0 });
+                db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed", StartDate = day, EndDate = day, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
+            }
             await db.SaveChangesAsync();
         }
         var url = $"/api/wb/campaigns/{campaign.Id}/recommendations?startDate=2026-10-01&endDate=2026-10-01";
@@ -53,7 +60,9 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         using var first = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var body = first.RootElement;
         Assert.True(body.GetProperty("enabled").GetBoolean());
-        Assert.Equal("2026-10-01", body.GetProperty("window").GetProperty("startDate").GetString());
+        Assert.Equal(RecommendationPeriods.Economic(DateTime.UtcNow).StartDate.ToString("yyyy-MM-dd"), body.GetProperty("window").GetProperty("startDate").GetString());
+        using var otherDates = JsonDocument.Parse(await client.GetStringAsync(url.Replace("2026-10-01", "2025-01-01")));
+        Assert.Equal(body.GetProperty("runId").GetGuid(), otherDates.RootElement.GetProperty("runId").GetGuid());
         var card = Assert.Single(body.GetProperty("cards").EnumerateArray());
         Assert.Equal("R03", card.GetProperty("rule").GetProperty("ruleId").GetString());
         Assert.Equal(800, card.GetProperty("rule").GetProperty("threshold").GetDecimal());
@@ -70,7 +79,7 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         Assert.NotEqual(runId, changed.RootElement.GetProperty("runId").GetString());
         using var snapshot = JsonDocument.Parse(await client.GetStringAsync($"/api/wb/campaigns/{campaign.Id}/recommendations/runs/{runId}"));
         Assert.Single(snapshot.RootElement.GetProperty("cards").EnumerateArray());
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(url.Replace("startDate=2026-10-01", "startDate=invalid"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(url.Replace("startDate=2026-10-01", "startDate=invalid"))).StatusCode); // Obsolete query fields are ignored.
         client.DefaultRequestHeaders.Remove("X-Test-Seller");
         client.DefaultRequestHeaders.Add("X-Test-Seller", Guid.NewGuid().ToString());
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(url)).StatusCode);
@@ -87,7 +96,7 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         var store = new Store { Id = Guid.NewGuid(), SellerId = seller.Id, Name = "S", ApiKey = "test", AutoRefreshEnabled = false };
         var campaign = new Campaign { Id = Guid.NewGuid(), StoreId = store.Id, WbCampaignId = "123", Name = "C", WbStatus = 9 };
         var article = new Nomenclature { Id = Guid.NewGuid(), StoreId = store.Id, WbNomenclatureId = "1", Name = "P" };
-        var date = new DateOnly(2026, 10, 1);
+        var date = RecommendationPeriods.Economic(DateTime.UtcNow).EndDate;
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
@@ -101,16 +110,22 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
             db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed", StartDate = date, EndDate = date, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
             db.WbAdvertisingSettings.Add(new() { CampaignId = campaign.Id, Status = "ready", BidType = "unified", PaymentType = "cpm", ReceivedAtUtc = DateTime.UtcNow,
                 PayloadJson = "{\"bids\":[],\"minus\":[{\"nomenclatureId\":\"1\",\"clusters\":[]}]}" });
+            for (var day = date.AddDays(-13); day < date; day = day.AddDays(1))
+            {
+                TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, day);
+                db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = day, Result = "zero", Spend = 0 });
+                db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed", StartDate = day, EndDate = day, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
+            }
             await db.SaveChangesAsync();
         }
         client.DefaultRequestHeaders.Add("X-Test-Seller", seller.Id.ToString());
         var url = $"/api/wb/campaigns/{campaign.Id}/recommendations?startDate=2026-10-01&endDate=2026-10-01";
         using var initial = JsonDocument.Parse(await client.GetStringAsync(url));
         var report = initial.RootElement;
-        Assert.Equal(2, report.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, report.GetProperty("schemaVersion").GetInt32());
         var bundle = Assert.Single(report.GetProperty("packages").EnumerateArray());
         Assert.Equal(6, bundle.GetProperty("evaluationIds").GetArrayLength());
-        Assert.Equal(42000m, bundle.GetProperty("weeklySpend").GetDecimal());
+        Assert.Equal(3000m, bundle.GetProperty("weeklySpend").GetDecimal());
         var ids = bundle.GetProperty("evaluationIds").EnumerateArray().Take(2).Select(x => x.GetGuid()).ToArray();
         var run = report.GetProperty("runId").GetGuid();
         var decisionUrl = $"/api/wb/campaigns/{campaign.Id}/recommendations/runs/{run}/decisions";

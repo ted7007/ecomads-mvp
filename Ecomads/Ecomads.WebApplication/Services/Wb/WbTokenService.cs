@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.DataProtection;
 
 namespace Ecomads.WebApplication.Services.Wb;
 
-public sealed record WbTokenClaims(string SellerId, DateTime ExpiresAtUtc, bool HasAnalytics, bool HasStatistics);
+public sealed record WbTokenClaims(string SellerId, DateTime ExpiresAtUtc, bool HasAnalytics, bool HasStatistics, int TokenType = 1);
 
 public interface IWbTokenService
 {
@@ -57,7 +57,7 @@ public sealed class WbTokenService(IDataProtectionProvider provider) : IWbTokenS
             }
 
             return new WbTokenClaims(sellerId!, DateTimeOffset.FromUnixTimeSeconds(exp).UtcDateTime,
-                (scopes & (1L << 2)) != 0, (scopes & (1L << 5)) != 0);
+                (scopes & (1L << 2)) != 0, (scopes & (1L << 5)) != 0, tokenType);
         }
         catch (Exception error) when (error is FormatException or JsonException or KeyNotFoundException or InvalidOperationException)
         {
