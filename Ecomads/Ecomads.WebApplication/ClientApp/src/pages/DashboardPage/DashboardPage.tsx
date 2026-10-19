@@ -1,4 +1,4 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Card, CardContent, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Button, Card, CardContent, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
@@ -51,8 +51,6 @@ export function DashboardPage() {
 
   const campaigns = campaignsQuery.data ?? [];
   const campaignsWithData = campaigns.filter((campaign) => campaign.kpi.coverageDays > 0).length;
-  const hasIncompleteDays = campaigns.some((campaign) =>
-    campaign.kpi.coverageDays > 0 && campaign.kpi.coverageDays < campaign.kpi.expectedDays);
   const recommendations = useQuery({ queryKey: ['wb-recommendation-summary', recommendationStore], queryFn: () => getRecommendationSummary(recommendationStore || undefined) });
   const demoFeedbackSuccess = (location.state as { demoFeedbackSuccess?: string } | null)?.demoFeedbackSuccess;
 
@@ -62,7 +60,6 @@ export function DashboardPage() {
   const expiringTokens = (storesQuery.data ?? []).filter(store => Date.parse(store.tokenExpiresAtUtc) <= Date.now() + 14 * 86400000);
   const cabinetLabel = (storesQuery.data?.length ?? 0) > 1 ? 'Все подключённые кабинеты' : storesQuery.data?.[0]?.name || 'Кабинет WB';
   const dateLabel = `${new Date(`${filters.startDate}T00:00:00Z`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })} – ${new Date(`${filters.endDate}T00:00:00Z`).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })}`;
-  const incomplete = campaigns.length > 0 && (campaignsWithData < campaigns.length || hasIncompleteDays);
   const latestAvailable = [...(loadedPeriods.data ?? [])].sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
 
   return (
@@ -109,10 +106,6 @@ export function DashboardPage() {
           {(storesQuery.data?.length ?? 0) > 1 ? <TextField select label="Кабинет рекомендаций" size="small" value={recommendationStore} onChange={e => setRecommendationStore(e.target.value)} sx={{ maxWidth: 320 }}>
             <MenuItem value="">Все подключённые кабинеты</MenuItem>{storesQuery.data?.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
           </TextField> : null}
-          {incomplete ? <Accordion disableGutters elevation={0} sx={{ bgcolor: 'rgba(255,255,255,.48)', border: '1px solid', borderColor: 'divider', boxShadow: 'none', '&:before': { display: 'none' } }}>
-            <AccordionSummary sx={{ minHeight: 44, '& .MuiAccordionSummary-content': { my: 1 } }}><Typography variant="body2" color="warning.main">⚠ Данные неполные: {campaignsWithData} из {campaigns.length} кампаний. Подробнее</Typography></AccordionSummary>
-            <AccordionDetails><Typography variant="body2">Показатели относятся только к загруженным кампаниям. {hasIncompleteDays ? 'Для части кампаний загружены не все дни.' : ''} Сбор можно проверить в разделе «Кабинет WB и Telegram».</Typography></AccordionDetails>
-          </Accordion> : null}
           {recommendations.isLoading ? <Typography>Расчёт рекомендаций…</Typography> : null}
           {recommendations.isError ? <Alert severity="error">Не удалось получить рекомендации. <Button onClick={() => void recommendations.refetch()}>Повторить</Button></Alert> : null}
           {recommendations.data ? <DashboardRecommendations data={recommendations.data} campaigns={campaigns} filters={filters} /> : null}

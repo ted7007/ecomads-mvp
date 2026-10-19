@@ -1,11 +1,11 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { lightUiTokens as ui } from '../../../app/lightUiTokens';
 import { appRoutes } from '../../../app/routes';
 import type { ProjectDashboard } from '../../../shared/api/apiTypes';
 import type { RecommendationCard } from '../../../shared/api/clusterRecommendationApi';
 import { getRecommendationSummary } from '../../../shared/api/clusterRecommendationApi';
-import { ClusterRecommendationCard, DecisionButtons } from '../../../shared/ui/ClusterRecommendationCard';
+import { DecisionButtons } from '../../../shared/ui/ClusterRecommendationCard';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
 import type { DashboardFilters } from '../dashboardApi';
@@ -32,53 +32,52 @@ function AttentionCard({ card, runId, name, to }: { card: RecommendationCard; ru
   const item = signal(card);
   const decision = card.decision;
   const decisionLabel = decision?.status === 'accepted' ? 'Принято' : decision?.status === 'snoozed' ? 'Отложено' : decision?.status === 'irrelevant' ? 'Не актуально' : decision?.status;
-  return <Card component="article" sx={{ height: '100%' }}><CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-    <Stack spacing={1}>
-      <Stack direction="row" gap={.75} alignItems="flex-start">
-        <Chip size="small" label={item.tag} sx={{ ...item.tone, height: 21, borderRadius: ui.radius.badge, fontWeight: 700, fontSize: 11 }} />
-        <Typography fontSize={14} fontWeight={700} sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{name}</Typography>
-        <Button component={Link} to={to} size="small" sx={{ minWidth: 0, p: 0, fontSize: 12 }}>Открыть</Button>
+  const action = card.presentation?.primary.label ?? card.rule.explanation;
+  const subject = card.subject.clusterName ?? card.subject.nomenclatureName;
+  const note = [subject && card.subject.scope !== 'campaign' ? subject : '', card.preliminary ? 'Предварительно' : '',
+    decision ? `${decisionLabel}${decision.snoozeUntil ? ` до ${decision.snoozeUntil.split('-').reverse().join('.')}` : ''}` : ''].filter(Boolean).join(' · ');
+  return <Card component="article" sx={{ height: 176, minWidth: 0, scrollSnapAlign: 'start' }}><CardContent sx={{ height: '100%', boxSizing: 'border-box', p: 1.75, '&:last-child': { pb: 1.75 } }}>
+    <Stack spacing={.5} sx={{ height: '100%', minWidth: 0 }}>
+      <Stack direction="row" gap={.75} alignItems="center" sx={{ minHeight: 22 }}>
+        <Chip size="small" label={item.tag} sx={{ ...item.tone, height: 21, maxWidth: '45%', borderRadius: ui.radius.badge, fontWeight: 700, fontSize: 11 }} />
+        <Typography fontSize={14} fontWeight={700} noWrap title={name} sx={{ flex: 1, minWidth: 0 }}>{name}</Typography>
+        <Button component={Link} to={to} size="small" sx={{ minWidth: 0, p: 0, fontSize: 12, flexShrink: 0 }}>Открыть</Button>
       </Stack>
-      {card.subject.scope !== 'campaign' && (card.subject.clusterName || card.subject.nomenclatureName) ? <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
-        {card.subject.clusterName ?? card.subject.nomenclatureName}</Typography> : null}
-      <Typography variant="body2"><Box component="span" sx={{ color: item.tone.color, fontWeight: 700 }}>{item.value}</Box>
-        {item.norm ? <Box component="span" color="text.secondary"> · {item.norm}</Box> : null}</Typography>
-      <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{card.presentation?.primary.label ?? card.rule.explanation}</Typography>
-      {card.preliminary ? <Typography variant="caption" color="warning.main">Предварительная рекомендация</Typography> : null}
-      {decision ? <Typography variant="caption" sx={{ fontWeight: 700, color: decision.status === 'accepted' ? 'success.main' : 'text.secondary' }}>
-        {decisionLabel}{decision.snoozeUntil ? ` до ${decision.snoozeUntil.split('-').reverse().join('.')}` : ''}</Typography> : null}
-      {card.presentation ? <DecisionButtons compact campaignId={card.subject.campaignId} runId={runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}
-      <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', boxShadow: 'none', '&:before': { display: 'none' } }}>
-        <AccordionSummary expandIcon="⌄" sx={{ p: 0, minHeight: 28, '& .MuiAccordionSummary-content': { my: .5 } }}><Typography variant="caption">Почему и на каких данных</Typography></AccordionSummary>
-        <AccordionDetails sx={{ px: 0, pb: 0 }}><ClusterRecommendationCard card={card} runId={runId} showDecisionButtons={false} /></AccordionDetails>
-      </Accordion>
+      <Typography variant="body2" noWrap title={`${item.value}${item.norm ? ` · ${item.norm}` : ''}`}>
+        <Box component="span" sx={{ color: item.tone.color, fontWeight: 700 }}>{item.value}</Box>
+        {item.norm ? <Box component="span" color="text.secondary"> · {item.norm}</Box> : null}
+      </Typography>
+      <Tooltip title={action}><Typography variant="body2" sx={{ fontSize: 13, lineHeight: '18px', height: 36, flexShrink: 0,
+        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{action}</Typography></Tooltip>
+      <Typography variant="caption" noWrap title={note} sx={{ height: 16, lineHeight: '16px', color: decision?.status === 'accepted' ? 'success.main' : 'text.secondary' }}>{note || '\u00a0'}</Typography>
+      {card.presentation ? <Box sx={{ mt: 'auto !important' }}><DecisionButtons compact campaignId={card.subject.campaignId} runId={runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /></Box> : null}
     </Stack>
   </CardContent></Card>;
+
 }
 
 export function DashboardRecommendations({ data, campaigns, filters }: { data: Summary; campaigns: ProjectDashboard[]; filters: DashboardFilters }) {
   const names = new Map([...data.campaigns.filter(c => c.campaignId).map(c => [c.campaignId!, c.name] as const), ...campaigns.map(c => [c.id, c.name] as const)]);
   const allClear = data.enabled && data.campaigns.length > 0 && data.remaining === 0 && data.top.length === 0 && data.campaigns.every(c => c.status === 'no_deviations');
   const campaignLink = (id: string) => `${appRoutes.campaignPath(id)}?${new URLSearchParams({ startDate: filters.startDate ?? '', endDate: filters.endDate ?? '' })}`;
-  return <Stack component="section" aria-label="Требуют внимания" spacing={1.5}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} gap={.75} alignItems={{ sm: 'baseline' }}>
-      <Typography component="h2" variant="h6" fontWeight={700}>Требуют внимания</Typography>
-      <Typography variant="caption" color="text.secondary">{data.top.length + data.remaining} · за {data.window.startDate.split('-').reverse().join('.')} — {data.window.endDate.split('-').reverse().join('.')} · МСК</Typography>
+  const visible = data.top.slice(0, 3);
+  const remaining = data.remaining + data.top.length - visible.length;
+  return <Stack component="section" aria-label="Требуют внимания" spacing={1}>
+    <Stack direction="row" gap={1} alignItems="baseline" sx={{ minWidth: 0 }}>
+      <Typography component="h2" variant="h6" fontWeight={700} sx={{ flexShrink: 0 }}>Требуют внимания</Typography>
+      <Tooltip title={`За фиксированные 14 дней: ${data.window.startDate} — ${data.window.endDate}, МСК. Остатки и бюджет — по отдельным оперативным окнам.`}>
+        <Typography variant="caption" color="text.secondary" noWrap>{data.top.length + data.remaining} · за 14 дней</Typography>
+      </Tooltip>
     </Stack>
-    <Typography variant="caption" color="text.secondary">Рекомендации за фиксированные 14 дней. Остатки и бюджет — по отдельным оперативным окнам.</Typography>
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: '14px' }}>
-      {data.top.map(({ runId, card }) => <AttentionCard key={`${runId}:${card.evaluationId}:${card.rule.ruleId}`} card={card} runId={runId}
+    {visible.length ? <Box sx={{ display: 'grid', gridAutoFlow: 'column',
+      gridAutoColumns: { xs: 'minmax(280px, 90%)', sm: 'calc((100% - 14px) / 2)', md: 'minmax(0, 1fr)' },
+      gridTemplateColumns: { md: `repeat(${visible.length}, minmax(0, 1fr))` }, gap: '14px',
+      overflowX: 'auto', scrollSnapType: 'x mandatory', pb: .5 }}>
+      {visible.map(({ runId, card }) => <AttentionCard key={`${runId}:${card.evaluationId}:${card.rule.ruleId}`} card={card} runId={runId}
         name={names.get(card.subject.campaignId) ?? 'Кампания WB'} to={campaignLink(card.subject.campaignId)} />)}
-    </Box>
-    {data.remaining > 0 ? <Typography variant="body2" color="text.secondary">Ещё {data.remaining} рекомендаций — на экранах кампаний.</Typography> : null}
-    {!data.top.length ? <Alert severity={allClear ? 'success' : 'info'}>{allClear ? 'Все кампании в норме. По выполненным проверкам отклонений не найдено.' :
-      !data.enabled ? 'Рекомендации отключены или нет подключённых кабинетов.' : 'Рекомендаций пока нет. Проверьте итоги по кампаниям: данные или проверки могут быть неполными.'}</Alert> : null}
-    {data.campaigns.some(c => c.status !== 'no_deviations') ? <Accordion disableGutters elevation={0}>
-      <AccordionSummary expandIcon="⌄"><Typography variant="body2">Итоги по кампаниям и ограничения данных</Typography></AccordionSummary>
-      <AccordionDetails><Stack spacing={1}>{data.campaigns.map((c, index) => <Stack key={c.campaignId ?? `${c.name}:${index}`} spacing={.5}>
-        <Typography variant="body2">{c.name}: {c.count} рекомендаций · {c.message}</Typography>
-        {c.campaignId ? <Button component={Link} to={campaignLink(c.campaignId)} size="small" sx={{ alignSelf: 'flex-start' }}>Подробнее</Button> : null}
-      </Stack>)}</Stack></AccordionDetails>
-    </Accordion> : null}
+    </Box> : null}
+    {remaining > 0 ? <Typography variant="caption" color="text.secondary">Ещё {remaining} рекомендаций — на экранах кампаний.</Typography> : null}
+    {!visible.length ? <Alert severity={allClear ? 'success' : 'info'}>{allClear ? 'Все кампании в норме. По выполненным проверкам отклонений не найдено.' :
+      !data.enabled ? 'Рекомендации отключены или нет подключённых кабинетов.' : 'Рекомендаций пока нет. Данные или проверки могут быть неполными; подробности — на экранах кампаний.'}</Alert> : null}
   </Stack>;
 }
