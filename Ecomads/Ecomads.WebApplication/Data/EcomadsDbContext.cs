@@ -5,6 +5,10 @@ namespace Ecomads.WebApplication.Data;
 
 public class EcomadsDbContext : DbContext
 {
+    public DbSet<WbResponseSnapshot> WbResponseSnapshots { get; set; }
+    public DbSet<WbSourceQuality> WbSourceQualities { get; set; }
+    public DbSet<WbCostObservation> WbCostObservations { get; set; }
+    public DbSet<WbIngestionDecision> WbIngestionDecisions { get; set; }
     public EcomadsDbContext(DbContextOptions<EcomadsDbContext> options) : base(options) { }
 
     public DbSet<Seller> Sellers { get; set; }
@@ -40,6 +44,29 @@ public class EcomadsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<WbResponseSnapshot>(e => {
+            e.ToTable("wb_response_snapshots"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.StoreId, x.RequestedAtUtc });
+            e.HasIndex(x => new { x.JobId, x.Page });
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbSourceQuality>(e => {
+            e.ToTable("wb_source_quality"); e.HasKey(x => new { x.StoreId, x.Source, x.Entity, x.StartDate, x.EndDate });
+            e.HasIndex(x => x.SnapshotId); e.HasIndex(x => x.AcceptedSnapshotId);
+            e.Property(x => x.PreviousValue).HasPrecision(18, 2); e.Property(x => x.ProposedValue).HasPrecision(18, 2);
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbCostObservation>(e => {
+            e.ToTable("wb_cost_observations"); e.HasKey(x => new { x.SnapshotId, x.Ordinal });
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.HasIndex(x => new { x.StoreId, x.MoscowDate });
+            e.HasOne<WbResponseSnapshot>().WithMany().HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbIngestionDecision>(e => {
+            e.ToTable("wb_ingestion_decisions"); e.HasKey(x => x.Id);
+            e.Property(x => x.PreviousValue).HasPrecision(18, 2); e.Property(x => x.AcceptedValue).HasPrecision(18, 2);
+            e.HasIndex(x => new { x.StoreId, x.Date });
+        });
         modelBuilder.Entity<WbAdvertisingSettings>(entity =>
         {
             entity.ToTable("wb_advertising_settings");

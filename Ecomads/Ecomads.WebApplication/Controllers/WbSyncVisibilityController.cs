@@ -173,6 +173,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             "clusters" => "Поисковые кластеры", "jam" => "Поисковые запросы Джема", _ => "Статистика кампаний" };
         if (job.PauseRequestedAtUtc != null) return $"{name} приостановлены. Продолжите загрузку, когда будет удобно.";
         if (job.WaitReason == "priority") return $"{name} ждут завершения загрузки текущих данных.";
+        if (job.WaitReason == "rollout") return "Загрузка для этого кабинета ожидает включения после проверки интеграции.";
         if (job.WaitReason is "rate_limit" or "retry")
         {
             var moscow = TimeZoneInfo.ConvertTimeFromUtc(job.NextAttemptAtUtc, TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow"));

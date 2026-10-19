@@ -58,18 +58,33 @@ public sealed class WbNormQueryImporter(EcomadsDbContext db)
 
         await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await using var transaction = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+            var quality = new WbQuality(db);
+            var acceptedRows = new List<WbClusterStatistic>();
             foreach (var group in pairs.GroupBy(x => x.AdvertId))
             {
                 var campaign = campaigns[group.Key.ToString()];
                 var articleIds = group.Select(x => articles[x.NmId.ToString()].Id).ToArray();
-                await db.WbClusterStatistics.Where(x => x.CampaignId == campaign.Id &&
-                    articleIds.Contains(x.NomenclatureId) && x.Date >= startDate && x.Date <= endDate)
-                    .ExecuteDeleteAsync(cancellationToken);
+                foreach (var articleId in articleIds)
+                for (var date = startDate; date <= endDate; date = date.AddDays(1))
+                {
+                    var received = rows.Where(x => x.CampaignId == campaign.Id && x.NomenclatureId == articleId && x.Date == date).ToArray();
+                    var previousNames = await db.WbClusterStatistics.AsNoTracking().Where(x => x.CampaignId == campaign.Id &&
+                            x.NomenclatureId == articleId && x.Date == date)
+                        .Select(x => x.ClusterName).ToArrayAsync(cancellationToken);
+                    var missingClusters = previousNames.Except(received.Select(x => x.ClusterName), StringComparer.Ordinal).Any();
+                    var state = received.Length == 0 ? "no_data" : missingClusters ? "partial" : "data";
+                    if (!await quality.ObserveAsync(storeId, "clusters", $"{campaign.Id}:{articleId}", date, date,
+                        state, cancellationToken, missingClusters ? "WB не вернул часть ранее полученных кластеров. Прежний снимок сохранён как устаревший." : null)) continue;
+                    if (!WbQuality.Confirmed(state)) continue;
+                    await db.WbClusterStatistics.Where(x => x.CampaignId == campaign.Id &&
+                        x.NomenclatureId == articleId && x.Date == date).ExecuteDeleteAsync(cancellationToken);
+                    acceptedRows.AddRange(received);
+                }
             }
-            db.WbClusterStatistics.AddRange(rows);
+            db.WbClusterStatistics.AddRange(acceptedRows);
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (transaction != null) await transaction.CommitAsync(cancellationToken);
         });
     }
 

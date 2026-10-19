@@ -28,7 +28,7 @@ public sealed record WbCampaignInfo(
     DateTime? CreatedAtUtc = null,
     DateTime? StartedAtUtc = null,
     DateTime? DeletedAtUtc = null,
-    DateTime? UpdatedAtUtc = null, string? BidType = null);
+    DateTime? UpdatedAtUtc = null, string? BidType = null, IReadOnlyList<string>? TimestampIssues = null);
 
 public sealed record WbNormQueryPair(long AdvertId, long NmId);
 
@@ -45,7 +45,7 @@ public interface IWbPromotionClient
         DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken);
 }
 
-public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClient
+public sealed class WbPromotionClient(HttpClient httpClient, TimeProvider? clock = null) : IWbPromotionClient
 {
     public async Task<JsonDocument> GetClusterSettingsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs,
         bool minus, CancellationToken ct)
@@ -55,10 +55,10 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Content = JsonContent.Create(new { items = pairs.Select(x => new { advert_id = x.AdvertId, nm_id = x.NmId }).ToArray() });
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response));
+        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-        if (!document.RootElement.TryGetProperty(minus ? "items" : "bids", out var items) || items.ValueKind != JsonValueKind.Array)
+        if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty(minus ? "items" : "bids", out var items) || items.ValueKind != JsonValueKind.Array)
         {
             document.Dispose();
             throw new JsonException("Неизвестный формат настроек кластеров WB.");
@@ -75,7 +75,7 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response));
+        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         if (document.RootElement.ValueKind != JsonValueKind.Array)
@@ -103,10 +103,10 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
             items = pairs.Select(pair => new { advertId = pair.AdvertId, nmId = pair.NmId }).ToArray()
         });
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response));
+        if (!response.IsSuccessStatusCode) throw new WbApiException(response.StatusCode, GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
         {
             document.Dispose();
             throw new JsonException("Статистика кластеров WB имеет неожиданный формат.");
@@ -129,7 +129,7 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new WbApiException(response.StatusCode, GetRetryAfter(response));
+            throw new WbApiException(response.StatusCode, GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         }
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
@@ -154,12 +154,24 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new WbApiException(response.StatusCode, GetRetryAfter(response));
+            throw new WbApiException(response.StatusCode, GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (!document.RootElement.TryGetProperty("adverts", out var adverts) || adverts.ValueKind != JsonValueKind.Array)
+        return ReadCampaigns(document.RootElement);
+    }
+
+    public static IReadOnlyList<WbCampaignInfo> ReadCampaigns(JsonElement root)
+    {
+        try { return ParseCampaigns(root); }
+        catch (Exception error) when (error is InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
+        { throw new JsonException("Список кампаний WB содержит некорректные обязательные поля.", error); }
+    }
+
+    private static IReadOnlyList<WbCampaignInfo> ParseCampaigns(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("adverts", out var adverts) || adverts.ValueKind != JsonValueKind.Array)
         {
             throw new JsonException("В ответе Wildberries отсутствует массив adverts.");
         }
@@ -185,19 +197,25 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
                     }
                 }
             }
-            DateTime? Timestamp(string property) => advert.TryGetProperty("timestamps", out var timestamps) &&
-                timestamps.ValueKind == JsonValueKind.Object && timestamps.TryGetProperty(property, out var value) &&
-                value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), out var parsed)
-                    ? parsed.UtcDateTime : null;
+            var timestampIssues = new List<string>();
+            DateTime? Timestamp(string property)
+            {
+                if (!advert.TryGetProperty("timestamps", out var timestamps) || timestamps.ValueKind != JsonValueKind.Object ||
+                    !timestamps.TryGetProperty(property, out var value) || value.ValueKind == JsonValueKind.Null) return null;
+                if (value.ValueKind == JsonValueKind.String && WbDates.TryInstant(value.GetString(), out var parsed)) return parsed;
+                var issue = $"campaign {id}, timestamp {property}: ambiguous_time";
+                timestampIssues.Add(issue); WbIngestionContext.Current?.Reject(issue); return null;
+            }
             result.Add(new WbCampaignInfo(id, name, status, paymentType, nms,
                 Timestamp("created"), Timestamp("started"), Timestamp("deleted"), Timestamp("updated"),
-                advert.TryGetProperty("bid_type", out var bidType) ? bidType.GetString() : null));
+                advert.TryGetProperty("bid_type", out var bidType) ? bidType.GetString() : null, timestampIssues));
         }
 
+        if (result.Select(x => x.Id).Distinct().Count() != result.Count) throw new JsonException("Повторный ID кампании WB.");
         return result;
     }
 
-    internal static TimeSpan? GetRetryAfter(HttpResponseMessage response)
+    internal static TimeSpan? GetRetryAfter(HttpResponseMessage response, DateTimeOffset? now = null)
     {
         TimeSpan? custom = null;
         if (response.Headers.TryGetValues("X-Ratelimit-Retry", out var values) &&
@@ -208,7 +226,7 @@ public sealed class WbPromotionClient(HttpClient httpClient) : IWbPromotionClien
         if (header?.Delta is { } delta) return custom > delta ? custom : delta;
         if (header?.Date is { } date)
         {
-            var remaining = date - DateTimeOffset.UtcNow;
+            var remaining = date - (now ?? TimeProvider.System.GetUtcNow());
             return custom > remaining ? custom : remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }
         return custom;

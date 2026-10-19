@@ -21,9 +21,19 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
         var campaigns = await db.Campaigns.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
                 (x.WbStatus == 7 || x.WbStatus == 9 || x.WbStatus == 11) &&
                 (!campaignId.HasValue || x.Id == campaignId.Value))
-            .Select(x => new { x.Id, x.WbCreatedAtUtc, x.WbDeletedAtUtc, x.WbStatus })
+            .Select(x => new { x.Id, x.StoreId, x.WbCreatedAtUtc, x.WbDeletedAtUtc, x.WbStatus })
             .ToArrayAsync(ct);
         var campaignIds = campaigns.Select(x => x.Id).ToArray();
+        var campaignStores = campaigns.ToDictionary(x => x.Id, x => x.StoreId);
+        var quality = await db.WbSourceQualities.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
+            x.StartDate <= end && x.EndDate >= start).ToArrayAsync(ct);
+        bool Accepted(Guid store, string source, string entity, DateOnly day)
+        {
+            var latest = quality.Where(x => x.StoreId == store && x.Source == source &&
+                (x.Entity == entity || x.Entity == "") && x.StartDate <= day && x.EndDate >= day)
+                .OrderByDescending(x => x.LastAttemptAtUtc).FirstOrDefault();
+            return latest == null || WbQuality.Confirmed(latest.State);
+        }
         var checks = await db.WbCampaignDailyChecks.AsNoTracking().Where(x =>
                 campaignIds.Contains(x.CampaignId) && x.Date >= start && x.Date <= end)
             .Select(x => new { x.CampaignId, x.Date, x.Result, x.Spend, x.CheckedAtUtc, x.LastAttemptAtUtc, x.LastAttemptResult })
@@ -50,6 +60,7 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
             }).ToArray();
             var verified = expected.Select(x => checkMap.GetValueOrDefault((x.Id, date)))
                 .Where(x => x != null && (x.Result is "data" or "zero") && x.Spend.HasValue &&
+                    Accepted(campaignStores[x.CampaignId], "fullstats", x.CampaignId.ToString(), date) &&
                     !(x.LastAttemptResult == "no_data" && x.LastAttemptAtUtc >= x.CheckedAtUtc)).ToArray();
             decimal? spend;
             if (campaignId.HasValue)
@@ -57,12 +68,14 @@ public sealed class WbDataCoverageService(EcomadsDbContext db)
                     ? verified.Sum(x => x!.Spend!.Value) : null;
             else
             {
-                var expenseRows = expenseMap.GetValueOrDefault(date) ?? [];
+                var expenseRows = (expenseMap.GetValueOrDefault(date) ?? [])
+                    .Where(x => Accepted(x.StoreId, "expenses", "", date)).ToArray();
                 spend = stores.Length > 0 &&
                     expenseRows.Select(x => x.StoreId).Distinct().Count() == stores.Length
                         ? expenseRows.Sum(x => x.Spend) : null;
             }
-            var orderRows = orderMap.GetValueOrDefault(date) ?? [];
+            var orderRows = (orderMap.GetValueOrDefault(date) ?? [])
+                .Where(x => Accepted(x.StoreId, "orders", "", date)).ToArray();
             decimal? orderSum = !campaignId.HasValue && stores.Length > 0 &&
                 orderRows.Select(x => x.StoreId).Distinct().Count() == stores.Length
                     ? orderRows.Sum(x => x.OrderSum) : null;

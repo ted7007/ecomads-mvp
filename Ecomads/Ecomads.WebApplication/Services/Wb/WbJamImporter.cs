@@ -15,7 +15,7 @@ public sealed class WbJamImporter(EcomadsDbContext db)
         var requested = nmIds.ToHashSet();
         var seen = new HashSet<(long NmId, string Text)>();
         var rows = new List<WbJamSearchQuery>();
-        var loadedAt = DateTime.UtcNow;
+        var loadedAt = WbIngestionContext.Current?.RequestedAtUtc ?? DateTime.UtcNow;
         foreach (var item in root.GetProperty("data").GetProperty("items").EnumerateArray())
         {
             var nmId = item.GetProperty("nmId").GetInt64();
@@ -38,17 +38,23 @@ public sealed class WbJamImporter(EcomadsDbContext db)
         var articleIds = nmIds.Select(x => articles[x.ToString()].Id).ToArray();
         await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-            await db.WbJamSearchQueries.Where(x => x.StoreId == storeId &&
-                articleIds.Contains(x.NomenclatureId) && x.StartDate == startDate && x.EndDate == endDate)
-                .ExecuteDeleteAsync(cancellationToken);
-            db.WbJamSearchQueries.AddRange(rows);
+            await using var transaction = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+            var quality = new WbQuality(db);
             var existingChecks = await db.WbJamArticleChecks.Where(x => x.StoreId == storeId &&
                 articleIds.Contains(x.NomenclatureId) && x.StartDate == startDate && x.EndDate == endDate)
                 .ToDictionaryAsync(x => x.NomenclatureId, cancellationToken);
             var withData = rows.Select(x => x.NomenclatureId).ToHashSet();
             foreach (var articleId in articleIds)
             {
+                if (!await quality.ObserveAsync(storeId, "jam", articleId.ToString(), startDate, endDate,
+                    withData.Contains(articleId) ? "data" : "no_data", cancellationToken,
+                    "Ограниченный список поисковых запросов, не полная статистика поиска.")) continue;
+                if (withData.Contains(articleId))
+                {
+                    await db.WbJamSearchQueries.Where(x => x.StoreId == storeId && x.NomenclatureId == articleId &&
+                        x.StartDate == startDate && x.EndDate == endDate).ExecuteDeleteAsync(cancellationToken);
+                    db.WbJamSearchQueries.AddRange(rows.Where(x => x.NomenclatureId == articleId));
+                }
                 if (!existingChecks.TryGetValue(articleId, out var check))
                 {
                     check = new WbJamArticleCheck { StoreId = storeId, NomenclatureId = articleId,
@@ -60,7 +66,7 @@ public sealed class WbJamImporter(EcomadsDbContext db)
                 check.HasData = withData.Contains(articleId);
             }
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (transaction != null) await transaction.CommitAsync(cancellationToken);
         });
         var countWithData = rows.Select(x => x.NomenclatureId).Distinct().Count();
         return (rows.Count, countWithData, articleIds.Length - countWithData);

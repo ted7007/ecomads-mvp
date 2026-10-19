@@ -35,7 +35,8 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
     private sealed record RawCluster(WbClusterStatistic Stat, Nomenclature Article);
     private sealed record Batch(IReadOnlyList<RawCluster> Raw, IReadOnlyList<CampaignNomenclatureStatistics> Articles,
         IReadOnlyList<WbCampaignDailyCheck> Checks, IReadOnlyList<WbSyncJob> Jobs, IReadOnlyList<WbStoreNorms> Stores,
-        IReadOnlyList<WbCampaignNorms> Campaigns, IReadOnlyList<WbArticleNorm> Norms, IReadOnlyList<WbAdvertisingSettings> Controls);
+        IReadOnlyList<WbCampaignNorms> Campaigns, IReadOnlyList<WbArticleNorm> Norms, IReadOnlyList<WbAdvertisingSettings> Controls,
+        IReadOnlyList<WbSourceQuality> SourceQuality);
 
     private async Task<Batch> LoadAsync(Guid[] campaignIds, Guid[] storeIds, RecommendationWindow window, CancellationToken ct)
     {
@@ -53,7 +54,9 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             await db.WbStoreNorms.AsNoTracking().Where(x => storeIds.Contains(x.StoreId)).ToListAsync(ct),
             await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId)).ToListAsync(ct),
             await db.WbArticleNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId)).ToListAsync(ct),
-            await db.WbAdvertisingSettings.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId)).ToListAsync(ct));
+            await db.WbAdvertisingSettings.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId)).ToListAsync(ct),
+            await db.WbSourceQualities.AsNoTracking().Where(x => storeIds.Contains(x.StoreId) &&
+                x.StartDate <= window.EndDate && x.EndDate >= begin).ToListAsync(ct));
     }
 
     public async Task<IReadOnlyList<RecommendationResponse>> CalculateManyAsync(Guid sellerId, Guid? storeId,
@@ -98,10 +101,24 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             if (!campaign.Connected) return Empty(true, "not_connected", "Подключите кабинет WB.");
 
             batch ??= await LoadAsync([campaignId], [campaign.StoreId], window, ct);
+            bool SourceConfirmed(string kind, string entity, DateOnly start, DateOnly end)
+            {
+                for (var day = start; day <= end; day = day.AddDays(1))
+                {
+                    var latest = batch.SourceQuality.Where(x => x.StoreId == campaign.StoreId && x.Source == kind &&
+                        (x.Entity == "" || x.Entity == entity) && x.StartDate <= day && x.EndDate >= day)
+                        .OrderByDescending(x => x.LastAttemptAtUtc).FirstOrDefault();
+                    if (latest == null && kind == "clusters") return false;
+                    if (latest != null && !WbQuality.Confirmed(latest.State)) return false;
+                }
+                return true;
+            }
             var raw = batch.Raw.Where(x => x.Stat.CampaignId == campaignId && x.Stat.Date >= window.StartDate).ToList();
             var articleRows = batch.Articles.Where(x => x.CampaignId == campaignId && DateOnly.FromDateTime(x.Date) >= window.StartDate).OrderBy(x => x.NomenclatureId).ThenBy(x => x.Date).ToList();
             var checks = batch.Checks.Where(x => x.CampaignId == campaignId && x.Date >= window.StartDate).OrderBy(x => x.Date).ToList();
-            var checkedDays = checks.Where(x => x.Result is "data" or "zero").Select(x => x.Date).ToHashSet();
+            var checkedDays = checks.Where(x => x.Result is "data" or "zero" &&
+                !(x.LastAttemptResult == "no_data" && x.LastAttemptAtUtc >= x.CheckedAtUtc) &&
+                SourceConfirmed("fullstats", campaignId.ToString(), x.Date, x.Date)).Select(x => x.Date).ToHashSet();
             var fullComplete = Enumerable.Range(0, window.Days).All(i => checkedDays.Contains(window.StartDate.AddDays(i)));
             var jobs = batch.Jobs.Where(x => x.StoreId == campaign.StoreId).OrderBy(x => x.StartDate).ThenBy(x => x.Id).ToList();
             var intervals = jobs.Select(x => new ClusterCoverageInterval(x.StartDate, x.EndDate,
@@ -127,7 +144,8 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                     x.Result == "zero" && x.Spend == 0);
                 var fieldsVerified = basis.Length > 0 && basis.All(x => x.RecommendationFieldsVerified == true && x.Revenue >= 0);
                 var pairComplete = long.TryParse(campaign.WbCampaignId, out var advertId) &&
-                    long.TryParse(group.Key.WbNomenclatureId, out var nmId) && RecommendationCoverage.Covers(window, advertId, nmId, intervals);
+                    long.TryParse(group.Key.WbNomenclatureId, out var nmId) && RecommendationCoverage.Covers(window, advertId, nmId, intervals) &&
+                    SourceConfirmed("clusters", $"{campaignId}:{group.Key.Id}", window.StartDate, window.EndDate);
                 var price = WbClusterOrderEstimateCalculator.CalculateExact(window.StartDate, window.EndDate,
                     basis, stat, articleComplete && fieldsVerified, pairComplete, true).AverageOrderedUnitPrice;
                 var quality = new RecommendationQuality(articleComplete, pairComplete, fieldsVerified,
@@ -172,7 +190,9 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                 (campaignNorm?.OrderClickConversion ?? storeNorm?.OrderClickConversion) / 100);
             var priorWindow = new RecommendationWindow(window.StartDate.AddDays(-window.Days), window.StartDate.AddDays(-1));
             var priorChecks = batch.Checks.Where(x => x.CampaignId == campaignId && x.Date < window.StartDate).ToArray();
-            var priorComplete = Enumerable.Range(0, priorWindow.Days).All(i => priorChecks.Any(x => x.Date == priorWindow.StartDate.AddDays(i) && x.Result is "data" or "zero"));
+            var priorComplete = Enumerable.Range(0, priorWindow.Days).All(i => priorChecks.Any(x => x.Date == priorWindow.StartDate.AddDays(i) &&
+                x.Result is "data" or "zero" && !(x.LastAttemptResult == "no_data" && x.LastAttemptAtUtc >= x.CheckedAtUtc) &&
+                SourceConfirmed("fullstats", campaignId.ToString(), x.Date, x.Date)));
             evaluations = evaluations.Select(e =>
             {
                 var previousRows = batch.Raw.Where(x => x.Stat.CampaignId == campaignId && x.Article.Id == e.Subject.ArticleId &&
@@ -181,7 +201,8 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                 var basisDates = priorBasis.Select(x => DateOnly.FromDateTime(x.Date)).ToHashSet();
                 var verified = priorBasis.Length > 0 && priorBasis.All(x => x.RecommendationFieldsVerified == true && x.Revenue >= 0) &&
                     priorChecks.All(x => basisDates.Contains(x.Date) || x.Result == "zero" && x.Spend == 0);
-                var covered = long.TryParse(campaign.WbCampaignId, out var advert) && long.TryParse(e.Subject.NomenclatureId, out var nm) && RecommendationCoverage.Covers(priorWindow, advert, nm, intervals);
+                var covered = long.TryParse(campaign.WbCampaignId, out var advert) && long.TryParse(e.Subject.NomenclatureId, out var nm) && RecommendationCoverage.Covers(priorWindow, advert, nm, intervals) &&
+                    SourceConfirmed("clusters", $"{campaignId}:{e.Subject.ArticleId}", priorWindow.StartDate, priorWindow.EndDate);
                 RecommendationFacts? previous = null;
                 if (priorComplete && verified && covered && previousRows.Length > 0)
                 {

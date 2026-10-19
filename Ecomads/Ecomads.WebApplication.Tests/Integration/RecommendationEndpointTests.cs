@@ -34,6 +34,7 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         {
             var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
             var date = new DateOnly(2026, 10, 1);
+            TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, date);
             db.Sellers.Add(seller); db.Stores.Add(store); db.Campaigns.Add(campaign); db.Nomenclatures.Add(article);
             db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
                 Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 20000, OrderedProducts = 10, RecommendationFieldsVerified = true });
@@ -91,6 +92,7 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         {
             var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
             db.Sellers.Add(seller); db.Stores.Add(store); db.Campaigns.Add(campaign); db.Nomenclatures.Add(article);
+            TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, date);
             db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
                 Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 10000, OrderedProducts = 10, RecommendationFieldsVerified = true });
             db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = date, Result = "data", Spend = 6000 });

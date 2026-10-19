@@ -11,7 +11,7 @@ public interface IWbSalesFunnelClient
         CancellationToken cancellationToken);
 }
 
-public sealed class WbSalesFunnelClient(HttpClient httpClient) : IWbSalesFunnelClient
+public sealed class WbSalesFunnelClient(HttpClient httpClient, TimeProvider? clock = null) : IWbSalesFunnelClient
 {
     public async Task<JsonDocument> GetProductsAsync(string token, DateOnly day, DateOnly pastDay, int offset,
         CancellationToken cancellationToken)
@@ -28,10 +28,10 @@ public sealed class WbSalesFunnelClient(HttpClient httpClient) : IWbSalesFunnelC
         });
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
-            throw new WbApiException(response.StatusCode, WbPromotionClient.GetRetryAfter(response));
+            throw new WbApiException(response.StatusCode, WbPromotionClient.GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object ||
+        if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object ||
             !data.TryGetProperty("products", out var products) || products.ValueKind != JsonValueKind.Array)
         {
             document.Dispose();
@@ -56,10 +56,10 @@ public sealed class WbSalesFunnelClient(HttpClient httpClient) : IWbSalesFunnelC
         });
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
-            throw new WbApiException(response.StatusCode, WbPromotionClient.GetRetryAfter(response));
+            throw new WbApiException(response.StatusCode, WbPromotionClient.GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+        if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
         {
             document.Dispose();
             throw new JsonException("Воронка WB имеет неожиданный формат.");

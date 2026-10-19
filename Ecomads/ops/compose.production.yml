@@ -46,12 +46,16 @@ services:
       JwtSettings__ExpiryMinutes: 1440
       Wb__AutoRefresh__Enabled: ${WB_AUTO_REFRESH_ENABLED:-true}
       Wb__AutoRefresh__StoreIds: ${WB_AUTO_REFRESH_STORE_IDS:-}
+      Wb__Journal__SpoolPath: /var/lib/ecomads/wb-journal
+      Wb__Ingestion__StoreIds: ${WB_INGESTION_STORE_IDS:-}
+      Wb__Ingestion__RecheckLegacyDays: ${WB_INGESTION_RECHECK_DAYS:-0}
       Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
       Telegram__BotUsername: ${TELEGRAM_BOT_USERNAME:-}
     expose:
       - "8080"
     volumes:
       - dataprotection_keys:/root/.aspnet/DataProtection-Keys
+      - wb_response_journal:/var/lib/ecomads/wb-journal
     networks:
       - public
       - backend
@@ -87,6 +91,7 @@ networks:
     internal: true
 
 volumes:
+  wb_response_journal:
   postgres_data:
   caddy_data:
   caddy_config:

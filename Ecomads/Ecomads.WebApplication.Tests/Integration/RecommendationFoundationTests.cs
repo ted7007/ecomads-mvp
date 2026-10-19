@@ -32,6 +32,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         for (var i = 0; i < Window.Days; i++)
         {
             var date = Start.AddDays(i);
+            TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, date);
             db.CampaignNomenclatureStatistics.Add(new() { CampaignId = campaign.Id, NomenclatureId = article.Id,
                 Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 10000, OrderedProducts = 5,
                 RecommendationFieldsVerified = true, Orders = 999 });
@@ -70,6 +71,26 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.Equal(2, secondReport.Cards.Count);
         Assert.All(secondReport.Cards, card => Assert.Equal(second.Store.Id, card.Subject.StoreId));
         Assert.Null(await service.CalculateAsync(first.Seller.Id, second.Campaign.Id, Window, default));
+    }
+
+    [Fact]
+    public async Task IncompleteLatestClusterSnapshotKeepsRowsButDisablesRecommendations()
+    {
+        await using var db = await postgres.CreateMigratedDbContextAsync();
+        var seed = await SeedAsync(db);
+        var service = Service(db, seed.Store.Id);
+        var before = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
+        Assert.NotEmpty(before.Cards);
+        var rowCount = await db.WbClusterStatistics.CountAsync();
+        var quality = await db.WbSourceQualities.SingleAsync(x => x.StartDate == Start);
+        quality.State = "partial"; quality.LastAttemptAtUtc = DateTime.UtcNow.AddSeconds(1);
+        quality.Reason = "WB omitted previously returned clusters.";
+        await db.SaveChangesAsync();
+        var after = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
+        Assert.Empty(after.Cards);
+        Assert.All(after.Evaluations, x => Assert.False(x.Quality.ClustersComplete));
+        Assert.NotEqual(before.RunId, after.RunId);
+        Assert.Equal(rowCount, await db.WbClusterStatistics.CountAsync());
     }
 
     [Fact]
@@ -307,6 +328,7 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         for (var i = -Window.Days; i < 0; i++)
         {
             var date = Start.AddDays(i);
+            TestData.AddConfirmedClusterDay(db, seed.Store.Id, seed.Campaign.Id, seed.Article.Id, date);
             db.CampaignNomenclatureStatistics.Add(new() { CampaignId = seed.Campaign.Id, NomenclatureId = seed.Article.Id,
                 Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 20000, OrderedProducts = 5, RecommendationFieldsVerified = true });
             db.WbCampaignDailyChecks.Add(new() { CampaignId = seed.Campaign.Id, Date = date, Result = "data", Spend = 1000 });

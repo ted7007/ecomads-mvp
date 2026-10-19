@@ -14,9 +14,10 @@ namespace Ecomads.WebApplication.Tests.Integration;
 public sealed class TelegramSummaryTests(PostgresFixture postgres)
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task YesterdaySummaryRequiresCollectionAndDoesNotSendTwice(bool sparse)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task YesterdaySummaryRequiresCollectionAndDoesNotSendTwice(bool sparse, bool uncertainExpense)
     {
         await using var db = await postgres.CreateMigratedDbContextAsync();
         var seller = TestData.CreateRegularSeller();
@@ -49,6 +50,9 @@ public sealed class TelegramSummaryTests(PostgresFixture postgres)
         db.CampaignStatistics.Add(new CampaignStatistics { CampaignId = campaign.Id,
             Date = DateTime.SpecifyKind(yesterday.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc),
             Spend = 100m, Revenue = 500m, Orders = 2 });
+        if (uncertainExpense) db.WbSourceQualities.Add(new() { StoreId = store.Id, Source = "expenses",
+            StartDate = yesterday, EndDate = yesterday, State = "error", Reason = "WB не подтвердил расход.",
+            LastAttemptAtUtc = at, AcceptedAtUtc = at.AddHours(-1), PreviousValue = 100 });
         if (sparse)
         {
             var paused = new Campaign { Id = Guid.NewGuid(), StoreId = store.Id, Name = "Missing paused campaign",
@@ -65,7 +69,8 @@ public sealed class TelegramSummaryTests(PostgresFixture postgres)
         Assert.IsType<OkObjectResult>(await controller.SendYesterday(store.Id, CancellationToken.None));
         Assert.Single(bot.Messages);
         Assert.Contains("100,00", bot.Messages[0]);
-        Assert.Contains("Общий ДРР: 10,0%", bot.Messages[0]);
+        Assert.Contains(uncertainExpense ? "Общий ДРР: —" : "Общий ДРР: 10,0%", bot.Messages[0]);
+        if (uncertainExpense) Assert.Contains("Расход кабинета: —", bot.Messages[0]);
         Assert.Contains("Рекламный ДРР: 20,0%", bot.Messages[0]);
         if (sparse)
         {

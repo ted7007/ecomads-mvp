@@ -14,7 +14,7 @@ public static class WbSyncJobUnits
             (JsonSerializer.Deserialize<WbHistoryBatch[]>(job.PairIdsJson ?? "[]") ?? []).Length,
         "clusters" => (JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []).Length,
         "funnel_recent" => 1,
-        "expenses" => 1,
+        "expenses" => job.PairIdsJson == null ? 1 : (JsonSerializer.Deserialize<WbHistoryBatch[]>(job.PairIdsJson) ?? []).Length,
         "funnel_backfill" or "funnel_month" => (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length,
         _ => (JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? []).Length
     };

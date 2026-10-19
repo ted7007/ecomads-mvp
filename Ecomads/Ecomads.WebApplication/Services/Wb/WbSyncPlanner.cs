@@ -12,8 +12,10 @@ public sealed record WbRefreshRun(Guid RunId, bool CampaignsRefreshed, IReadOnly
     IReadOnlyList<WbSkippedSource> Skipped, bool AlreadyActive);
 
 public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IWbTokenService tokens,
-    ILogger<WbSyncPlanner> logger)
+    ILogger<WbSyncPlanner> logger, TimeProvider? clock = null, WbIngestionRollout? rollout = null)
 {
+    private DateTime UtcNow => (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+    private DateOnly ClosedDay => Today(UtcNow).AddDays(-1);
     public static DateOnly Yesterday()
     {
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
@@ -44,7 +46,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         await Add("expenses", EnqueueExpensesAsync(store, runId, ct));
         await Add("archive", EnqueueArchiveAsync(store, runId, ct));
         await Add("funnel_backfill", EnqueueBackfillAsync(store, runId, ct));
-        var end = Yesterday();
+        var end = ClosedDay;
         var covered = await db.WbSyncJobs.AnyAsync(x => x.StoreId == store.Id && x.Kind == "fullstats" &&
             x.Status == "completed" && x.StartDate <= end.AddDays(-6) && x.EndDate >= end, ct);
         if (covered)
@@ -61,31 +63,66 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
 
     public async Task<bool> RefreshCampaignsAsync(Store store, CancellationToken ct)
     {
+        if (rollout?.Allows(store.Id) == false) return false;
         var campaignsRefreshed = false;
-        if (store.CampaignsRefreshedAtUtc == null || store.CampaignsRefreshedAtUtc < DateTime.UtcNow.AddHours(-1))
+        if (store.CampaignsRefreshedAtUtc == null || store.CampaignsRefreshedAtUtc < UtcNow.AddHours(-1))
         {
+            var now = UtcNow;
+            using var capture = new WbIngestionContext(new() { StoreId = store.Id, Kind = "campaign_list",
+                StartDate = Today(now), EndDate = Today(now) }, now);
+            async Task RecordError(string reason)
+            {
+                await new WbQuality(db, clock).ObserveAsync(store.Id, "campaign_list", "", Today(now), Today(now), "error", ct, reason);
+                if (capture.SnapshotId is { } id)
+                {
+                    var snapshot = await db.WbResponseSnapshots.FindAsync([id], ct);
+                    if (snapshot != null) { snapshot.State = "error"; snapshot.Reason = reason; }
+                }
+                await db.SaveChangesAsync(ct);
+            }
             try
             {
-                var now = DateTime.UtcNow;
                 if (await WbRateLimits.TryReserveAsync(db, store.Id, "campaign_list", 0, now, ct))
                 {
                     var adverts = await wb.GetCampaignsAsync(tokens.Unprotect(store.ApiKey!), ct);
-                    await UpsertCampaignsAsync(store, adverts, ct);
+                    await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+                    {
+                        await using var tx = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(ct) : null;
+                        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"wb-ingest:" + store.Id}, 0))", ct);
+                        await db.Entry(store).ReloadAsync(ct);
+                        await UpsertCampaignsAsync(store, adverts, ct);
+                        if (capture.SnapshotId is { } snapshotId)
+                        {
+                            var snapshot = await db.WbResponseSnapshots.FindAsync([snapshotId], ct);
+                            snapshot!.State = capture.HasIssues ? "partial" : "applied";
+                            snapshot.AppliedAtUtc = UtcNow;
+                        }
+                        await db.SaveChangesAsync(ct);
+                        if (tx != null) await tx.CommitAsync(ct);
+                    });
                     campaignsRefreshed = true;
                 }
             }
             catch (System.Security.Cryptography.CryptographicException)
             {
                 store.AutoRefreshBlocked = true;
+                await RecordError("token_unreadable");
             }
             catch (WbApiException error)
             {
                 if (error.StatusCode == System.Net.HttpStatusCode.Unauthorized) store.AutoRefreshBlocked = true;
                 if (error.RetryAfter.HasValue)
                     await WbRateLimits.DeferUntilAsync(db, store.Id, "campaign_list", 0,
-                        DateTime.UtcNow.Add(error.RetryAfter.Value), ct);
+                        UtcNow.Add(error.RetryAfter.Value), ct);
+                await RecordError($"http_{(int)error.StatusCode}");
                 logger.LogWarning("WB campaign list refresh returned {StatusCode} for store {StoreId}; using saved list",
                     (int)error.StatusCode, store.Id);
+            }
+            catch (Exception error) when (error is JsonException or KeyNotFoundException or FormatException or OverflowException or HttpRequestException ||
+                error is OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                await RecordError(error is HttpRequestException or OperationCanceledException ? "transport_error" : "invalid_response");
+                logger.LogWarning(error, "WB campaign list response could not be accepted for store {StoreId}", store.Id);
             }
         }
 
@@ -96,7 +133,14 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var existing = await db.Campaigns.Where(x => x.StoreId == store.Id).ToDictionaryAsync(x => x.WbCampaignId, ct);
         var settings = await db.WbAdvertisingSettings.Where(x => existing.Values.Select(c => c.Id).Contains(x.CampaignId)).ToDictionaryAsync(x => x.CampaignId, ct);
-        var now = DateTime.UtcNow;
+        var now = WbIngestionContext.Current?.RequestedAtUtc ?? UtcNow;
+        if (store.CampaignsRefreshedAtUtc > now) return;
+        var missing = existing.Values.Any(x => (x.WbStatus == 9 || x.WbStatus == 11) && !adverts.Any(a => a.Id.ToString() == x.WbCampaignId));
+        var ambiguousTime = adverts.Any(x => x.TimestampIssues is { Count: > 0 });
+        await new WbQuality(db).ObserveAsync(store.Id, "campaign_list", "", Today(now), Today(now),
+            ambiguousTime ? "ambiguous" : missing ? "no_data" : "data", ct,
+            ambiguousTime ? "Время операции в списке кампаний WB не содержит однозначного часового пояса." :
+                missing ? "WB не вернул часть известных кампаний." : null);
         foreach (var advert in adverts)
         {
             var wbId = advert.Id.ToString();
@@ -109,10 +153,10 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             campaign.IsActive = advert.Status == 9;
             campaign.WbStatus = advert.Status;
             campaign.LastSeenAt = now;
-            campaign.WbCreatedAtUtc = advert.CreatedAtUtc;
-            campaign.WbStartedAtUtc = advert.StartedAtUtc;
-            campaign.WbDeletedAtUtc = advert.DeletedAtUtc;
-            campaign.WbUpdatedAtUtc = advert.UpdatedAtUtc;
+            campaign.WbCreatedAtUtc = advert.CreatedAtUtc ?? campaign.WbCreatedAtUtc;
+            campaign.WbStartedAtUtc = advert.StartedAtUtc ?? campaign.WbStartedAtUtc;
+            campaign.WbDeletedAtUtc = advert.DeletedAtUtc ?? campaign.WbDeletedAtUtc;
+            campaign.WbUpdatedAtUtc = advert.UpdatedAtUtc ?? campaign.WbUpdatedAtUtc;
             if (!settings.TryGetValue(campaign.Id, out var source))
             {
                 source = new WbAdvertisingSettings { CampaignId = campaign.Id };
@@ -141,10 +185,10 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             .OrderBy(x => x.WbStatus == 9 ? 0 : 1).Select(x => x.WbCampaignId).ToListAsync(ct))
             .Select(x => long.TryParse(x, out var id) ? id : 0).Where(x => x > 0).ToArray();
         var archive = await ActiveAsync(store.Id, "archive", ct) == null
-            ? await EligibleArchiveIdsAsync(store.Id, Yesterday(), ct) : [];
+            ? await EligibleArchiveIdsAsync(store.Id, ClosedDay, ct) : [];
         ids = ids.Concat(archive.Take(Math.Max(0, 50 - ids.Length))).Distinct().ToArray();
         if (ids.Length == 0) return new(null, "нет кампаний");
-        var end = Yesterday();
+        var end = ClosedDay;
         return new(await QueueAsync(store.Id, "fullstats", end.AddDays(-30), end,
             JsonSerializer.Serialize(ids), null, runId, ct));
     }
@@ -155,10 +199,10 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         if (active != null) return new(active);
         var currentCount = await db.Campaigns.CountAsync(x => x.StoreId == store.Id &&
             (x.WbStatus == 9 || x.WbStatus == 11), ct);
-        var ids = (await EligibleArchiveIdsAsync(store.Id, Yesterday(), ct))
+        var ids = (await EligibleArchiveIdsAsync(store.Id, ClosedDay, ct))
             .Skip(Math.Max(0, 50 - currentCount)).ToArray();
         if (ids.Length == 0) return new(null, "архив уже проверен");
-        var end = Yesterday();
+        var end = ClosedDay;
         return new(await QueueAsync(store.Id, "archive", end.AddDays(-30), end,
             JsonSerializer.Serialize(ids), null, runId, ct));
     }
@@ -178,7 +222,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             if (firstDate > end) continue;
             if (firstDate < end.AddDays(-30)) firstDate = end.AddDays(-30);
             var checks = await db.WbCampaignDailyChecks.Where(x => x.CampaignId == campaign.Id &&
-                    x.Date >= firstDate && x.Date <= end && x.CheckedAtUtc > DateTime.UtcNow.AddDays(-7) &&
+                    x.Date >= firstDate && x.Date <= end && x.CheckedAtUtc > UtcNow.AddDays(-7) &&
                     x.Result != "unknown")
                 .CountAsync(ct);
             if (checks == end.DayNumber - firstDate.DayNumber + 1) continue;
@@ -191,7 +235,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var active = await ActiveAsync(store.Id, "expenses", ct);
         if (active != null) return new(active);
-        var end = Yesterday();
+        var end = ClosedDay;
         return new(await QueueAsync(store.Id, "expenses", end.AddDays(-30), end, "[]", null, runId, ct));
     }
 
@@ -199,7 +243,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var active = await ActiveAsync(store.Id, "funnel_recent", ct);
         if (active != null) return new(active);
-        var end = Yesterday();
+        var end = ClosedDay;
         return new(await QueueAsync(store.Id, "funnel_recent", end.AddDays(-6), end, "[]", null, runId, ct));
     }
 
@@ -207,7 +251,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var active = await ActiveAsync(store.Id, "funnel_backfill", ct);
         if (active != null) return new(active);
-        var end = Yesterday();
+        var end = ClosedDay;
         var pairIds = await FunnelPairIdsAsync(store.Id, end, ct);
         if (pairIds.Length == 0) return new(null, "история заказов уже загружена");
         return new(await QueueAsync(store.Id, "funnel_backfill", end.AddDays(-29), end.AddDays(-7),
@@ -358,7 +402,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     {
         var active = await ActiveAsync(store.Id, "clusters", ct);
         if (active != null) return new(active);
-        var end = Yesterday();
+        var end = ClosedDay;
         var start = end.AddDays(-6);
         var loaded = await LoadedCampaignIdsAsync(store.Id, start, end, ct);
         var observed = await ObservedAsync(store.Id, start, end, ct);
@@ -407,7 +451,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
         var active = await ActiveAsync(store.Id, "jam", ct);
         if (active != null) return new(active);
         if (store.JamStatus is "payment_required" or "access_denied") return new(null, "нет подписки Джем");
-        var end = Yesterday();
+        var end = ClosedDay;
         var start = end.AddDays(-6);
         var loaded = await LoadedCampaignIdsAsync(store.Id, start, end, ct);
         var already = (await db.WbSyncJobs.Where(x => x.StoreId == store.Id && x.RunId == runId && x.Kind == "jam")
@@ -476,15 +520,16 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
     internal async Task<WbSyncJob> QueueAsync(Guid storeId, string kind, DateOnly start, DateOnly end,
         string ids, string? pairs, Guid? runId, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
+        var now = UtcNow;
         var next = await WbRateLimits.NextSlotAsync(db, storeId, kind, now, ct);
+        var heldForRollout = rollout?.Allows(storeId) == false;
         var job = new WbSyncJob
         {
             Id = Guid.NewGuid(), StoreId = storeId, RunId = runId, Kind = kind, StartDate = start, EndDate = end,
             CampaignIdsJson = ids, PairIdsJson = pairs, Status = "pending",
             CreatedAtUtc = now, UpdatedAtUtc = now, NextAttemptAtUtc = next,
-            Stage = next > now.AddSeconds(5) ? "waiting" : "queued",
-            WaitReason = next > now.AddSeconds(5) ? "rate_limit" : null
+            Stage = heldForRollout || next > now.AddSeconds(5) ? "waiting" : "queued",
+            WaitReason = heldForRollout ? "rollout" : next > now.AddSeconds(5) ? "rate_limit" : null
         };
         var queuedEvent = new WbSyncJobEvent { JobId = job.Id, OccurredAtUtc = now, Stage = job.Stage };
         db.WbSyncJobs.Add(job);

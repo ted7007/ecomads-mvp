@@ -121,7 +121,10 @@ public sealed class WbImportTests(PostgresFixture postgres)
                 emptyDocument.RootElement, CancellationToken.None);
         }
         await using (var db = postgres.CreateDbContext(connection))
-            Assert.Empty(await db.WbClusterStatistics.Where(x => x.CampaignId == campaignId).ToListAsync());
+        {
+            Assert.Single(await db.WbClusterStatistics.Where(x => x.CampaignId == campaignId).ToListAsync());
+            Assert.Equal("no_data", (await db.WbSourceQualities.SingleAsync(x => x.Source == "clusters")).State);
+        }
     }
 
     [Fact]
@@ -205,7 +208,8 @@ public sealed class WbImportTests(PostgresFixture postgres)
         }
         await using (var db = postgres.CreateDbContext(connection))
         {
-            Assert.Empty(await db.WbJamSearchQueries.Where(x => x.StoreId == storeId).ToListAsync());
+            Assert.Single(await db.WbJamSearchQueries.Where(x => x.StoreId == storeId).ToListAsync());
+            Assert.Equal("no_data", (await db.WbSourceQualities.SingleAsync(x => x.Source == "jam")).State);
             var check = Assert.Single(await db.WbJamArticleChecks.Where(x => x.StoreId == storeId).ToListAsync());
             Assert.False(check.HasData);
         }

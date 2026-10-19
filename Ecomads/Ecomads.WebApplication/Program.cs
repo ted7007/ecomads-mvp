@@ -55,6 +55,13 @@ builder.Services.AddScoped<IJwtAuthService, JwtAuthService>();
 builder.Services.AddScoped<IUserAccessService, UserAccessService>();
 builder.Services.AddDataProtection();
 builder.Services.AddSingleton<IWbTokenService, WbTokenService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddTransient<WbCaptureHandler>();
+builder.Services.AddSingleton<WbResponseJournal>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WbResponseJournal>());
+builder.Services.AddScoped<WbQuality>();
+builder.Services.AddSingleton<WbIngestionRollout>();
+builder.Services.AddScoped<WbResponseProcessor>();
 builder.Services.AddScoped<WbFullStatsImporter>();
 builder.Services.AddScoped<WbNormQueryImporter>();
 builder.Services.AddScoped<WbJamImporter>();
@@ -71,6 +78,8 @@ builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<AdvertisingSettingsSync>();
 builder.Services.AddHostedService<RecommendationWorker>();
 builder.Services.AddHostedService<WbSyncWorker>();
+builder.Services.AddHostedService<WbJournalRetentionWorker>();
+builder.Services.AddHostedService<WbLegacyRecheckWorker>();
 builder.Services.AddHostedService<WbAutoRefreshWorker>();
 builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();
 builder.Services.AddHostedService<TelegramUpdatesWorker>();
@@ -78,17 +87,17 @@ builder.Services.AddHttpClient<IWbPromotionClient, WbPromotionClient>(client =>
 {
     client.BaseAddress = new Uri("https://advert-api.wildberries.ru");
     client.Timeout = TimeSpan.FromMinutes(2);
-});
+}).AddHttpMessageHandler<WbCaptureHandler>();
 builder.Services.AddHttpClient<IWbJamClient, WbJamClient>(client =>
 {
     client.BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru");
     client.Timeout = TimeSpan.FromMinutes(2);
-});
+}).AddHttpMessageHandler<WbCaptureHandler>();
 builder.Services.AddHttpClient<IWbSalesFunnelClient, WbSalesFunnelClient>(client =>
 {
     client.BaseAddress = new Uri("https://seller-analytics-api.wildberries.ru");
     client.Timeout = TimeSpan.FromMinutes(2);
-});
+}).AddHttpMessageHandler<WbCaptureHandler>();
 
 // Add services to the container.
 builder.Services.AddDbContext<EcomadsDbContext>(options =>

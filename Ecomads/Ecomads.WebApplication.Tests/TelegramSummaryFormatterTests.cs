@@ -13,6 +13,17 @@ public sealed class TelegramSummaryFormatterTests
             campaigns.Sum(x => x.Orders), campaigns, "13.10.2026 06:12 МСК", Url, isTest);
 
     [Fact]
+    public void AccountDrrUsesOnlyConfirmedAccountValues()
+    {
+        var confirmed = Sample([new("Campaign", 50, 1, 5)]) with { StoreSpend = 100, StoreOrderSum = 1000 };
+        Assert.Contains("Общий ДРР: 10,0%", TelegramSummaryFormatter.Format(confirmed));
+        Assert.Contains("Общий ДРР: —", TelegramSummaryFormatter.Format(confirmed with { StoreSpend = null }));
+        Assert.Contains("Общий ДРР: —", TelegramSummaryFormatter.Format(confirmed with { StoreOrderSum = null }));
+        Assert.Contains("Общий ДРР: —", TelegramSummaryFormatter.Format(confirmed with { StoreOrderSum = 0 }));
+        Assert.Contains("Общий ДРР: 0,0%", TelegramSummaryFormatter.Format(confirmed with { StoreSpend = 0 }));
+    }
+
+    [Fact]
     public void ShowsTotalsCampaignsAndLinks()
     {
         var text = TelegramSummaryFormatter.Format(Sample([new("Пледы осень", 3900m, 7, 21m)]));

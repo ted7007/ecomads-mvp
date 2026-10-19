@@ -10,7 +10,7 @@ public interface IWbJamClient
         DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken);
 }
 
-public sealed class WbJamClient(HttpClient httpClient) : IWbJamClient
+public sealed class WbJamClient(HttpClient httpClient, TimeProvider? clock = null) : IWbJamClient
 {
     public async Task<JsonDocument> GetSearchTextsAsync(string token, IReadOnlyList<long> nmIds,
         DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken)
@@ -33,12 +33,12 @@ public sealed class WbJamClient(HttpClient httpClient) : IWbJamClient
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new WbApiException(response.StatusCode, WbPromotionClient.GetRetryAfter(response));
+            throw new WbApiException(response.StatusCode, WbPromotionClient.GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
         }
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("data", out var data) ||
+            data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
         {
             document.Dispose();
             throw new JsonException("Отчёт Джема WB имеет неожиданный формат.");

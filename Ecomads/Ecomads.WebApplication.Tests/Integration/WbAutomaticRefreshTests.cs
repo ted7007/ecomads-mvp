@@ -66,12 +66,14 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
         Assert.Empty(await db.WbSyncJobs.ToListAsync());
     }
 
-    [Fact]
-    public async Task MonthRechecksReplaceOldOrdersButBackfillAndOlderSnapshotsDoNot()
+    [Theory]
+    [InlineData(-10)]
+    [InlineData(-2)]
+    public async Task MonthRechecksReplaceOldOrdersButBackfillAndOlderSnapshotsDoNot(int dayOffset)
     {
         await using var db = await postgres.CreateMigratedDbContextAsync();
         var store = await SeedAsync(db);
-        var day = WbSyncPlanner.Today().AddDays(-10);
+        var day = WbSyncPlanner.Today().AddDays(dayOffset);
         var importer = new WbSalesFunnelImporter(db, NullLogger<WbSalesFunnelImporter>.Instance);
         db.WbStoreDailyOrders.Add(new WbStoreDailyOrders { StoreId = store.Id, Date = day,
             Source = "history", OrderSum = 100m, LoadedAtUtc = DateTime.UtcNow.AddDays(-1) });
@@ -181,20 +183,15 @@ public sealed class WbAutomaticRefreshTests(PostgresFixture postgres)
         var saved = await db.WbStoreDailySpends.SingleAsync();
         var savedJob = await db.WbSyncJobs.SingleAsync();
         Assert.Equal(day, saved.Date);
-        Assert.Equal(accepted ? 10m : 99m, saved.Spend);
-        Assert.Equal(accepted ? 1 : 0, savedJob.NextCampaignOffset);
-        Assert.Equal(accepted ? 1 : 0, savedJob.ImportedRows);
-        if (accepted)
-        {
-            Assert.Equal("completed", savedJob.Status);
-            Assert.Null(savedJob.ErrorCode);
-            Assert.True(saved.LoadedAtUtc > oldLoadedAt);
-        }
-        else
-        {
-            Assert.Equal("invalid_response", savedJob.ErrorCode);
-            Assert.Equal(oldLoadedAt.Ticks / 10, saved.LoadedAtUtc.Ticks / 10);
-        }
+        Assert.Equal(99m, saved.Spend);
+        Assert.Equal(1, savedJob.NextCampaignOffset);
+        Assert.Equal(1, savedJob.ImportedRows);
+        Assert.Equal("completed", savedJob.Status);
+        Assert.Null(savedJob.ErrorCode);
+        Assert.Equal(oldLoadedAt.Ticks / 10, saved.LoadedAtUtc.Ticks / 10);
+        Assert.Equal(accepted ? "revision" : "ambiguous",
+            (await db.WbSourceQualities.SingleAsync(x => x.Source == "expenses")).State);
+        Assert.Equal(2, await db.WbCostObservations.CountAsync());
     }
 
     [Fact]

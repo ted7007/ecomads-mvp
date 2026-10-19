@@ -78,39 +78,55 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
 
         var moscow = TimeZoneInfo.FindSystemTimeZoneById("Europe/Moscow");
         var yesterday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, moscow).DateTime).AddDays(-1);
-        var readiness = await reportReadiness.GetAsync(storeId, yesterday, cancellationToken);
-        if (!readiness.Collected)
-            return Conflict(new { message = "Сбор за вчера ещё не завершён. Дождитесь проверки рекламы, расхода и всех заказов после окончания дня.", readiness });
-        var day = DateTime.SpecifyKind(yesterday.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId &&
-            readiness.ConfirmedCampaignIds.Contains(x.Id))
-            .Select(x => new { x.Id, x.WbCampaignId, x.Name }).ToListAsync(cancellationToken);
-
-        var campaignIds = campaigns.Select(x => x.Id).ToArray();
-        var stats = await db.CampaignStatistics.AsNoTracking()
-            .Where(x => campaignIds.Contains(x.CampaignId) && x.Date == day)
-            .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders })
-            .ToListAsync(cancellationToken);
-
-        var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
-            .Select(x => new { x.CampaignId, x.TargetDrr, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, cancellationToken);
-        var rows = campaigns.Select(c =>
+        var prepared = await ReadReportAsync(async () =>
         {
-            var stat = stats.FirstOrDefault(s => s.CampaignId == c.Id);
-            campaignTargets.TryGetValue(c.Id, out var custom);
-            var spend = stat == null ? 0m : (decimal)stat.Spend;
-            var drr = stat != null && stat.Revenue > 0 ? (decimal?)(spend * 100m / (decimal)stat.Revenue) : null;
-            return new TelegramSummaryCampaign(custom?.CustomName ?? c.Name, spend, stat?.Orders ?? 0, drr);
-        }).OrderByDescending(x => x.Spend).ToList();
-        var totalSpend = rows.Sum(x => (decimal)x.Spend);
-        var totalRevenue = stats.Sum(x => (decimal)x.Revenue);
-        var checkedAt = readiness.Sources.Where(x => x.CheckedAtUtc.HasValue).Min(x => x.CheckedAtUtc);
-        var message = TelegramSummaryFormatter.Format(new TelegramSummary(store.Name, yesterday,
-            totalSpend, totalRevenue, stats.Sum(x => (long)x.Orders),
-            rows.Select(x => new TelegramSummaryCampaign(x.Name, x.Spend, x.Orders, x.Drr)).ToArray(),
-            MoscowText(checkedAt), DashboardUrl(yesterday),
-            MissingCampaignNames: readiness.MissingCampaigns.Select(x => $"{x.Name} (ID {x.WbCampaignId})").ToArray()));
+            var ready = await reportReadiness.GetAsync(storeId, yesterday, cancellationToken);
+            if (!ready.Collected) return (Readiness: ready, Message: (string?)null);
+            var day = DateTime.SpecifyKind(yesterday.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+            var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId &&
+                ready.ConfirmedCampaignIds.Contains(x.Id))
+                .Select(x => new { x.Id, x.WbCampaignId, x.Name }).ToListAsync(cancellationToken);
 
+            var campaignIds = campaigns.Select(x => x.Id).ToArray();
+            var stats = await db.CampaignStatistics.AsNoTracking()
+                .Where(x => campaignIds.Contains(x.CampaignId) && x.Date == day)
+                .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders })
+                .ToListAsync(cancellationToken);
+
+            var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
+                .Select(x => new { x.CampaignId, x.TargetDrr, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, cancellationToken);
+            var rows = campaigns.Select(c =>
+            {
+                var stat = stats.FirstOrDefault(s => s.CampaignId == c.Id);
+                campaignTargets.TryGetValue(c.Id, out var custom);
+                var spend = stat == null ? 0m : (decimal)stat.Spend;
+                var drr = stat != null && stat.Revenue > 0 ? (decimal?)(spend * 100m / (decimal)stat.Revenue) : null;
+                return new TelegramSummaryCampaign(custom?.CustomName ?? c.Name, spend, stat?.Orders ?? 0, drr);
+            }).OrderByDescending(x => x.Spend).ToList();
+            var totalSpend = rows.Sum(x => (decimal)x.Spend);
+            var totalRevenue = stats.Sum(x => (decimal)x.Revenue);
+            decimal? storeSpend = ready.Sources.Any(x => x.Kind == "expenses" && x.Ready) ?
+                await db.WbStoreDailySpends.Where(x => x.StoreId == storeId && x.Date == yesterday)
+                    .Select(x => (decimal?)x.Spend).SingleOrDefaultAsync(cancellationToken) : null;
+            decimal? storeOrders = ready.Sources.Any(x => x.Kind == "orders" && x.Ready) ?
+                await db.WbStoreDailyOrders.Where(x => x.StoreId == storeId && x.Date == yesterday)
+                    .Select(x => (decimal?)x.OrderSum).SingleOrDefaultAsync(cancellationToken) : null;
+            var checkedAt = ready.Sources.Where(x => x.CheckedAtUtc.HasValue).Min(x => x.CheckedAtUtc);
+            var text = TelegramSummaryFormatter.Format(new TelegramSummary(store.Name, yesterday,
+                totalSpend, totalRevenue, stats.Sum(x => (long)x.Orders),
+                rows.Select(x => new TelegramSummaryCampaign(x.Name, x.Spend, x.Orders, x.Drr)).ToArray(),
+                MoscowText(checkedAt), DashboardUrl(yesterday),
+                MissingCampaignNames: ready.MissingCampaigns.Select(x => $"{x.Name} (ID {x.WbCampaignId})").ToArray(),
+                SourceWarnings: ready.Sources.Where(x => !x.Ready && x.Kind != "fullstats")
+                    .Select(x => x.Reason ?? "Данные источника не подтверждены.").ToArray(),
+                StoreSpend: storeSpend, StoreOrderSum: storeOrders));
+
+            return (Readiness: ready, Message: (string?)text);
+        }, cancellationToken);
+        var readiness = prepared.Readiness;
+        var message = prepared.Message;
+        if (message == null)
+            return Conflict(new { message = "Сбор за вчера ещё не завершён. Дождитесь проверки рекламы, расхода и всех заказов после окончания дня.", readiness });
         var sent = 0;
         var skipped = 0;
         var failed = 0;
@@ -252,31 +268,44 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
 
         // Same readiness rules as the daily summary, checked per day. WB may legitimately not return some campaigns:
         // those are listed in the message, never counted as zeros.
-        var notCollected = new List<DateOnly>();
-        var confirmedIds = new HashSet<Guid>();
-        var missing = new Dictionary<Guid, string>();
-        DateTime? checkedAt = null;
-        for (var d = startDate; d <= endDate; d = d.AddDays(1))
+        var prepared = await ReadReportAsync(async () =>
         {
-            var day = await reportReadiness.GetAsync(storeId, d, cancellationToken);
-            if (!day.Collected) { notCollected.Add(d); continue; }
-            confirmedIds.UnionWith(day.ConfirmedCampaignIds);
-            foreach (var m in day.MissingCampaigns) missing[m.CampaignId] = $"{m.Name} (ID {m.WbCampaignId})";
-            var dayChecked = day.Sources.Where(x => x.CheckedAtUtc.HasValue).Min(x => x.CheckedAtUtc);
-            if (dayChecked.HasValue && (checkedAt == null || dayChecked < checkedAt)) checkedAt = dayChecked;
-        }
-        if (notCollected.Count > 0)
+            var notCollected = new List<DateOnly>();
+            var sourceWarnings = new HashSet<string>();
+            var confirmedIds = new HashSet<Guid>();
+            var confirmedDays = new HashSet<(Guid CampaignId, DateOnly Date)>();
+            var missing = new Dictionary<Guid, string>();
+            var expensesReady = true; var ordersReady = true;
+            DateTime? checkedAt = null;
+            for (var d = startDate; d <= endDate; d = d.AddDays(1))
+            {
+                var day = await reportReadiness.GetAsync(storeId, d, cancellationToken);
+                if (!day.Collected) { notCollected.Add(d); continue; }
+                expensesReady &= day.Sources.Any(x => x.Kind == "expenses" && x.Ready);
+                ordersReady &= day.Sources.Any(x => x.Kind == "orders" && x.Ready);
+                foreach (var source in day.Sources.Where(x => !x.Ready && x.Kind != "fullstats"))
+                    sourceWarnings.Add(source.Reason ?? "Данные источника не подтверждены.");
+                confirmedIds.UnionWith(day.ConfirmedCampaignIds);
+                foreach (var id in day.ConfirmedCampaignIds) confirmedDays.Add((id, d));
+                foreach (var m in day.MissingCampaigns) missing[m.CampaignId] = $"{m.Name} (ID {m.WbCampaignId})";
+                var dayChecked = day.Sources.Where(x => x.CheckedAtUtc.HasValue).Min(x => x.CheckedAtUtc);
+                if (dayChecked.HasValue && (checkedAt == null || dayChecked < checkedAt)) checkedAt = dayChecked;
+            }
+            if (notCollected.Count > 0) return (Message: (string?)null, NotCollected: notCollected.ToArray(), MissingCount: missing.Count, Partial: true);
+            var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId && confirmedIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+            var text = await BuildPeriodMessageAsync(store, campaigns, startDate, endDate, missing.Values.ToArray(),
+                MoscowText(checkedAt), confirmedDays, sourceWarnings.ToArray(), expensesReady, ordersReady, cancellationToken);
+            return (Message: (string?)text, NotCollected: Array.Empty<DateOnly>(), MissingCount: missing.Count, Partial: missing.Count > 0 || sourceWarnings.Count > 0);
+        }, cancellationToken);
+        var message = prepared.Message;
+        if (message == null)
         {
-            var days = string.Join(", ", notCollected.Take(5).Select(x => x.ToString("dd.MM")));
-            if (notCollected.Count > 5) days += $" и ещё {notCollected.Count - 5}";
-            return Conflict(new { message = $"Сбор за часть периода ещё не завершён (дни: {days}). " +
+            var dates = string.Join(", ", prepared.NotCollected.Take(5).Select(x => x.ToString("dd.MM")));
+            if (prepared.NotCollected.Length > 5) dates += $" и ещё {prepared.NotCollected.Length - 5}";
+            return Conflict(new { message = $"Сбор за часть периода ещё не завершён (дни: {dates}). " +
                 "Дождитесь проверки рекламы, расхода и заказов после окончания дня или выберите более ранний период." });
         }
-
-        var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId && confirmedIds.Contains(x.Id))
-            .ToListAsync(cancellationToken);
-        var message = await BuildPeriodMessageAsync(store, campaigns, startDate, endDate, missing.Values.ToArray(),
-            MoscowText(checkedAt), cancellationToken);
         // Period summaries are explicit one-off actions: no per-day duplicate protection and no history row.
         var sent = 0;
         var failed = 0;
@@ -299,7 +328,7 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             }
         }
         await db.SaveChangesAsync(cancellationToken);
-        return Ok(new { startDate, endDate, sent, failed, partial = missing.Count > 0, missingCampaigns = missing.Count });
+        return Ok(new { startDate, endDate, sent, failed, partial = prepared.Partial, missingCampaigns = prepared.MissingCount });
     }
 
     /// <summary>Daily deliveries grouped into events: one summary (cabinet + date) with every chat it went to.</summary>
@@ -333,16 +362,28 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
 
     private const int MaxPeriodDays = 31;
 
+    private Task<T> ReadReportAsync<T>(Func<Task<T>> prepare, CancellationToken ct) =>
+        db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, ct);
+            var result = await prepare();
+            await tx.CommitAsync(ct);
+            return result;
+        });
+
     private async Task<string> BuildPeriodMessageAsync(Store store, IReadOnlyList<Campaign> campaigns,
-        DateOnly from, DateOnly to, IReadOnlyList<string> missingNames, string? updatedAtText, CancellationToken cancellationToken)
+        DateOnly from, DateOnly to, IReadOnlyList<string> missingNames, string? updatedAtText,
+        IReadOnlySet<(Guid CampaignId, DateOnly Date)> confirmedDays, IReadOnlyList<string> sourceWarnings,
+        bool expensesReady, bool ordersReady, CancellationToken cancellationToken)
     {
         var fromDay = DateTime.SpecifyKind(from.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
         var toDay = DateTime.SpecifyKind(to.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
         var campaignIds = campaigns.Select(x => x.Id).ToArray();
         var stats = await db.CampaignStatistics.AsNoTracking()
             .Where(x => campaignIds.Contains(x.CampaignId) && x.Date >= fromDay && x.Date <= toDay)
-            .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders })
+            .Select(x => new { x.CampaignId, x.Date, x.Spend, x.Revenue, x.Orders })
             .ToListAsync(cancellationToken);
+        stats = stats.Where(x => confirmedDays.Contains((x.CampaignId, DateOnly.FromDateTime(x.Date)))).ToList();
         var names = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
             .Select(x => new { x.CampaignId, x.CustomName }).ToDictionaryAsync(x => x.CampaignId, x => x.CustomName, cancellationToken);
         var rows = campaigns.Select(c =>
@@ -354,10 +395,17 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             decimal? drr = revenue > 0 ? spend * 100m / revenue : null;
             return new TelegramSummaryCampaign(names.GetValueOrDefault(c.Id) ?? c.Name, spend, orders, drr);
         }).OrderByDescending(x => x.Spend).ToList();
+        var expenseRows = expensesReady ? await db.WbStoreDailySpends.AsNoTracking().Where(x => x.StoreId == store.Id && x.Date >= from && x.Date <= to)
+            .Select(x => x.Spend).ToArrayAsync(cancellationToken) : [];
+        var orderRows = ordersReady ? await db.WbStoreDailyOrders.AsNoTracking().Where(x => x.StoreId == store.Id && x.Date >= from && x.Date <= to)
+            .Select(x => x.OrderSum).ToArrayAsync(cancellationToken) : [];
+        var days = to.DayNumber - from.DayNumber + 1;
         return TelegramSummaryFormatter.Format(new TelegramSummary(
             store.Name, from, rows.Sum(x => x.Spend), stats.Sum(x => (decimal)x.Revenue), stats.Sum(x => (long)x.Orders),
             rows, updatedAtText, DashboardUrl(from, to), MissingCampaignNames: missingNames,
-            ReportEndDate: to, DashboardLinkLabel: "Открыть сводку за этот период"));
+            ReportEndDate: to, DashboardLinkLabel: "Открыть сводку за этот период", SourceWarnings: sourceWarnings.ToArray(),
+            StoreSpend: expenseRows.Length == days ? expenseRows.Sum() : null,
+            StoreOrderSum: orderRows.Length == days ? orderRows.Sum() : null));
     }
 
     private static string? MoscowText(DateTime? utc) => utc.HasValue

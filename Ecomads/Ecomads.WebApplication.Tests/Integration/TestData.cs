@@ -1,9 +1,19 @@
 using Ecomads.WebApplication.Data.Models;
+using Ecomads.WebApplication.Data;
 
 namespace Ecomads.WebApplication.Tests.Integration;
 
 internal static class TestData
 {
+    // Recommendation fixtures explicitly declare a current, complete source snapshot.
+    // A completed queue job by itself no longer certifies data quality.
+    public static void AddConfirmedClusterDay(EcomadsDbContext db, Guid store, Guid campaign, Guid article, DateOnly date)
+    {
+        var now = DateTime.UtcNow;
+        db.WbSourceQualities.Add(new() { StoreId = store, Source = "clusters", Entity = $"{campaign}:{article}",
+            StartDate = date, EndDate = date, State = "data", LastAttemptAtUtc = now, AcceptedAtUtc = now });
+    }
+
     public static Seller CreateRegularSeller()
     {
         return new Seller

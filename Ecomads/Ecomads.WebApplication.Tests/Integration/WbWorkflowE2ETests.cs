@@ -26,7 +26,7 @@ namespace Ecomads.WebApplication.Tests.Integration;
 public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
 {
     [Fact]
-    public async Task SalesFunnelImporter_SumsGroupsFillsEmptyDaysAndReplacesValues()
+    public async Task SalesFunnelImporter_SumsGroupsPreservesMissingDaysAndRequiresFields()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
         var seller = TestData.CreateActiveDemoSeller();
@@ -48,24 +48,29 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
             first.RootElement, CancellationToken.None);
         var rows = await db.WbStoreDailyOrders.OrderBy(x => x.Date).ToListAsync();
-        Assert.Equal(3, rows.Count);
+        Assert.Single(rows);
         Assert.Equal(125m, rows[0].OrderSum);
         Assert.Equal(3, rows[0].OrderCount);
-        Assert.Equal(0m, rows[1].OrderSum);
-        Assert.Equal(0m, rows[2].OrderSum);
+        Assert.Equal(2, await db.WbSourceQualities.CountAsync(x => x.State == "no_data"));
 
         using var second = JsonDocument.Parse("""
             {"data":[{"currency":"RUB","history":[{"date":"2026-07-01","orderCount":4,"orderSum":170}]}]}
             """);
         await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
             second.RootElement, CancellationToken.None);
+        Assert.Equal(125m, (await db.WbStoreDailyOrders.SingleAsync()).OrderSum);
+        Assert.Equal("ambiguous", (await db.WbSourceQualities.SingleAsync(x => x.StartDate == new DateOnly(2026, 7, 1))).State);
+        using var complete = JsonDocument.Parse("""
+            {"data":[{"currency":"RUB","history":[{"date":"2026-07-01","orderCount":4,"orderSum":170,"openCount":8,"cartCount":5,"buyoutCount":2,"buyoutSum":80}]}]}
+            """);
+        await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3), complete.RootElement, default);
         Assert.Equal(170m, (await db.WbStoreDailyOrders.SingleAsync(x => x.Date == new DateOnly(2026, 7, 1))).OrderSum);
-        var product = new { statistic = new { selected = new { orderCount = 1, orderSum = 2m },
-            past = new { orderCount = 1, orderSum = 3m } } };
+        var statistic = new { selected = new { orderCount = 1, orderSum = 2m },
+            past = new { orderCount = 1, orderSum = 3m } };
         using var pageOne = JsonDocument.Parse(JsonSerializer.Serialize(new
-        { data = new { products = Enumerable.Repeat(product, 1000) } }));
+        { data = new { products = Enumerable.Range(1, 1000).Select(nmId => new { product = new { nmId }, statistic }) } }));
         using var pageTwo = JsonDocument.Parse(JsonSerializer.Serialize(new
-        { data = new { products = new[] { product } } }));
+        { data = new { products = new[] { new { product = new { nmId = 1001 }, statistic } } } }));
         var firstPage = WbSalesFunnelImporter.ReadProductsPage(pageOne.RootElement, new WbFunnelPageState());
         Assert.Equal(1000, firstPage.ProductCount);
         Assert.Equal(1000, firstPage.State.Offset);
@@ -78,7 +83,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task CostsImporter_ConfirmsZeroDaysAndCoverageIgnoresSilentArchivedCampaigns()
+    public async Task CostsImporter_ConfirmsExplicitZeroAndCoverageIgnoresSilentArchivedCampaigns()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
         var seller = TestData.CreateActiveDemoSeller();
@@ -101,6 +106,7 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         using var response = JsonDocument.Parse("""
             [{"advertId":456,"updTime":"2026-07-01T10:00:00+03:00","updSum":10},
              {"advertId":789,"updTime":"2026-07-01T12:00:00+03:00","updSum":5},
+             {"advertId":456,"updTime":"2026-07-02T12:00:00+03:00","updSum":0},
              {"advertId":456,"updTime":"2026-07-03T09:00:00+03:00","updSum":15}]
             """);
         await importer.ImportAsync(storeId, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 3),
@@ -132,11 +138,12 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
             Date = new DateOnly(2026, 7, 1), Spend = 8m, LoadedAtUtc = DateTime.UtcNow });
         await db.SaveChangesAsync();
         using var response = JsonDocument.Parse("""[{"updTime":null,"updSum":12}]""");
-        await Assert.ThrowsAsync<JsonException>(() => new WbCostsImporter(db).ImportAsync(storeId,
+        await new WbCostsImporter(db).ImportAsync(storeId,
             new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 2), response.RootElement,
-            CancellationToken.None));
+            CancellationToken.None);
         Assert.Equal(8m, (await db.WbStoreDailySpends.SingleAsync()).Spend);
         Assert.Equal(1, await db.WbStoreDailySpends.CountAsync());
+        Assert.Equal(2, await db.WbSourceQualities.CountAsync(x => x.State == "ambiguous"));
     }
 
     [Fact]
@@ -166,16 +173,17 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(new[] { 10m, 20m }, spends.Select(x => x.Spend));
 
         using var distant = JsonDocument.Parse("""[{"updTime":"2026-07-10T10:00:00+03:00","updSum":9}]""");
-        await Assert.ThrowsAsync<JsonException>(() => new WbCostsImporter(db).ImportAsync(storeId,
+        await new WbCostsImporter(db).ImportAsync(storeId,
             new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 2), distant.RootElement,
-            CancellationToken.None, allowAdjacentDays: true));
+            CancellationToken.None, allowAdjacentDays: true);
         Assert.Equal(2, await db.WbStoreDailySpends.CountAsync());
+        Assert.Equal(2, await db.WbSourceQualities.CountAsync(x => x.Source == "expenses" && x.State == "ambiguous"));
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SalesFunnelJob_LoadsSevenDaysOrReportsMissingAnalyticsAccess(bool forbidden)
+    public async Task SalesFunnelJob_PreservesMissingDaysOrReportsMissingAnalyticsAccess(bool forbidden)
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
         using var factory = new WbFactory(connection, forbidden);
@@ -215,7 +223,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         }
         Assert.Equal(forbidden ? "failed" : "completed", status);
         await using var check = postgres.CreateDbContext(connection);
-        Assert.Equal(forbidden ? 0 : 7, await check.WbStoreDailyOrders.CountAsync(x => x.StoreId == storeId));
+        Assert.Equal(forbidden ? 0 : 1, await check.WbStoreDailyOrders.CountAsync(x => x.StoreId == storeId));
+        if (!forbidden) Assert.Equal(6, await check.WbSourceQualities.CountAsync(x => x.Source == "orders" && x.State == "no_data"));
     }
 
     [Fact]

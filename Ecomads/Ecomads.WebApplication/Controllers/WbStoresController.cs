@@ -18,7 +18,7 @@ public sealed class WbStoresController(
     IWbPromotionClient wb,
     IWbTokenService tokens,
     WbSyncPlanner planner,
-    IConfiguration configuration) : ControllerBase
+    IConfiguration configuration, TimeProvider? clock = null) : ControllerBase
 {
     public sealed record AutoRefreshRequest(bool Enabled);
     public sealed record ConnectRequest(string Token);
@@ -82,6 +82,16 @@ public sealed class WbStoresController(
             return Conflict(new { message = "Этот кабинет WB уже подключён к другому аккаунту EcomAds." });
         }
 
+        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        var store = existing ?? await db.Stores.FirstOrDefaultAsync(
+            x => x.SellerId == sellerId && x.ExternalId == null && x.ApiKey == null,
+            cancellationToken) ?? new Store { Id = Guid.NewGuid(), SellerId = sellerId, CreatedAt = now, Name = "Кабинет WB" };
+        // Persist only an unconnected placeholder so an unsuccessful first response can
+        // still be retained under the correct owner. Credentials are set after validation.
+        if (db.Entry(store).State == EntityState.Detached)
+        { db.Stores.Add(store); await db.SaveChangesAsync(cancellationToken); }
+        using var capture = new WbIngestionContext(new() { StoreId = store.Id, Kind = "campaign_list",
+            StartDate = WbSyncPlanner.Today(now), EndDate = WbSyncPlanner.Today(now) }, now);
         IReadOnlyList<WbCampaignInfo> adverts;
         try
         {
@@ -98,32 +108,51 @@ public sealed class WbStoresController(
                 ? StatusCodes.Status422UnprocessableEntity : (int)error.StatusCode;
             return StatusCode(clientStatus, new { message = "Не удалось проверить токен через WB API.", wbStatus = (int)error.StatusCode });
         }
-
-        var store = existing ?? await db.Stores.FirstOrDefaultAsync(
-            x => x.SellerId == sellerId && x.ExternalId == null && x.ApiKey == null,
-            cancellationToken) ?? new Store { Id = Guid.NewGuid(), SellerId = sellerId, CreatedAt = DateTime.UtcNow };
-
-        if (db.Entry(store).State == EntityState.Detached) db.Stores.Add(store);
-        store.Marketplace = "Wildberries";
-        store.ExternalId = claims.SellerId;
-        store.ApiKey = tokens.Protect(rawToken);
-        store.TokenLastFour = rawToken[^4..];
-        store.TokenExpiresAtUtc = claims.ExpiresAtUtc;
-        store.AutoRefreshBlocked = false;
-        store.JamStatus = "unknown";
-        store.JamCheckedAtUtc = null;
-        if (existing == null) store.LastSyncAt = null;
-        if (string.IsNullOrWhiteSpace(store.Name) || store.Name.EndsWith(" store", StringComparison.Ordinal))
+        catch (JsonException)
         {
-            store.Name = "Кабинет WB";
+            if (capture.SnapshotId is { } id)
+            {
+                var snapshot = await db.WbResponseSnapshots.FindAsync([id], cancellationToken);
+                if (snapshot != null) { snapshot.State = "error"; snapshot.Reason = "invalid_response"; await db.SaveChangesAsync(cancellationToken); }
+            }
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "WB вернул некорректный список кампаний. Ответ сохранён для проверки интеграции." });
         }
 
-        await planner.UpsertCampaignsAsync(store, adverts, cancellationToken);
-        await WbRateLimits.DeferUntilAsync(db, store.Id, "campaign_list", 0, DateTime.UtcNow.AddHours(1), cancellationToken);
-        await db.WbRefreshSchedules.Where(x => x.StoreId == store.Id)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.PlannedSlotUtc, (DateTime?)null), cancellationToken);
-        return Ok(new StoreResponse(store.Id, store.Name, store.ExternalId, store.TokenLastFour,
-            store.TokenExpiresAtUtc.Value, store.LastSyncAt, adverts.Count,
+        await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            store = await db.Stores.SingleAsync(x => x.Id == store.Id, cancellationToken);
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"wb-ingest:" + store.Id}, 0))", cancellationToken);
+            store.Marketplace = "Wildberries";
+            store.ExternalId = claims.SellerId;
+            store.ApiKey = tokens.Protect(rawToken);
+            store.TokenLastFour = rawToken[^4..];
+            store.TokenExpiresAtUtc = claims.ExpiresAtUtc;
+            store.AutoRefreshBlocked = false;
+            store.JamStatus = "unknown";
+            store.JamCheckedAtUtc = null;
+            if (existing == null) store.LastSyncAt = null;
+            if (string.IsNullOrWhiteSpace(store.Name) || store.Name.EndsWith(" store", StringComparison.Ordinal))
+            {
+                store.Name = "Кабинет WB";
+            }
+
+            await planner.UpsertCampaignsAsync(store, adverts, cancellationToken);
+            if (capture.SnapshotId is { } snapshotId)
+            {
+                var snapshot = await db.WbResponseSnapshots.SingleAsync(x => x.Id == snapshotId, cancellationToken);
+                snapshot.State = capture.HasIssues ? "partial" : "applied";
+                snapshot.AppliedAtUtc = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+            }
+            await WbRateLimits.DeferUntilAsync(db, store.Id, "campaign_list", 0, DateTime.UtcNow.AddHours(1), cancellationToken);
+            await db.WbRefreshSchedules.Where(x => x.StoreId == store.Id)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.PlannedSlotUtc, (DateTime?)null), cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+        return Ok(new StoreResponse(store.Id, store.Name, claims.SellerId, rawToken[^4..],
+            claims.ExpiresAtUtc, store.LastSyncAt, adverts.Count,
             store.JamStatus, store.JamCheckedAtUtc, store.AutoRefreshEnabled,
             configuration.GetValue<bool>("Wb:AutoRefresh:Enabled"), store.AutoRefreshBlocked));
     }

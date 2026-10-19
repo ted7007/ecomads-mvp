@@ -60,6 +60,16 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                 x.StartDate >= startDate && x.EndDate <= endDate &&
                 (!campaignId.HasValue || campaignArticleIds.Contains(x.NomenclatureId)))
             .Select(x => new { x.StartDate, x.EndDate, x.CheckedAtUtc }).ToArrayAsync(ct);
+        var quality = await db.WbSourceQualities.AsNoTracking().Where(x => stores.Contains(x.StoreId) &&
+            x.StartDate <= endDate && x.EndDate >= startDate).ToArrayAsync(ct);
+        if (campaignId.HasValue)
+        {
+            var key = campaignId.Value.ToString();
+            var articleKeys = campaignArticleIds.Select(x => x.ToString()).ToHashSet();
+            quality = quality.Where(x => x.Source == "fullstats" && (x.Entity == "" || x.Entity == key || x.Entity.StartsWith(key + ":", StringComparison.Ordinal)) ||
+                x.Source == "clusters" && (x.Entity == "" || x.Entity.StartsWith(key + ":", StringComparison.Ordinal)) ||
+                x.Source == "jam" && (x.Entity == "" || articleKeys.Contains(x.Entity))).ToArray();
+        }
 
         object Source(string kind, string[] jobKinds, int covered, int expected, DateTime? verifiedAt,
             DateOnly? availableStartDate, DateOnly? availableEndDate)
@@ -71,13 +81,22 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                 !relevant.Any(next => next.Kind == x.Kind && next.Status == "completed" &&
                     next.UpdatedAtUtc > x.UpdatedAtUtc));
             var noDataCampaigns = kind == "fullstats" ? missingChecks.Select(x => x.CampaignId).Distinct().Count() : 0;
-            var status = active != null ? active.WaitReason == "rate_limit" ? "waiting" : "loading" :
+            var qualityRows = quality.Where(x => x.Source == kind).ToArray();
+            var entities = qualityRows.Select(x => x.Entity).Distinct().ToArray();
+            if (entities.Any(x => x.Length > 0)) entities = entities.Where(x => x.Length > 0).ToArray();
+            var unresolvedQuality = qualityRows.Where(x => entities.Contains(x.Entity)).Where(row =>
+                !WbQuality.Confirmed(qualityRows.Where(x => x.StoreId == row.StoreId &&
+                        (x.Entity == row.Entity || x.Entity == "") && x.StartDate <= row.StartDate && x.EndDate >= row.EndDate)
+                    .OrderByDescending(x => x.LastAttemptAtUtc).First().State)).ToArray();
+            var status = active != null ? active.WaitReason is "rate_limit" or "rollout" ? "waiting" : "loading" :
                 unresolvedFailure != null ? "failed" : covered == 0 ? "not_loaded" :
                     covered < expected ? "partial" : "complete";
-            if (active == null && unresolvedFailure == null && noDataCampaigns > 0) status = "partial";
-            var version = Math.Max(verifiedAt?.Ticks ?? 0, latest?.UpdatedAtUtc.Ticks ?? 0).ToString();
+            if (active == null && unresolvedFailure == null && (noDataCampaigns > 0 || unresolvedQuality.Length > 0)) status = "partial";
+            var qualityVersion = qualityRows.Length == 0 ? 0 : qualityRows.Max(x => Math.Max(x.LastAttemptAtUtc.Ticks, x.AcceptedAtUtc?.Ticks ?? 0));
+            var version = Math.Max(qualityVersion, Math.Max(verifiedAt?.Ticks ?? 0, latest?.UpdatedAtUtc.Ticks ?? 0)).ToString();
             return new { kind, status, startDate, endDate, availableStartDate, availableEndDate,
                 covered, expected, noDataCampaigns, lastCheckedAtUtc = verifiedAt,
+                waitReason = active?.WaitReason,
                 nextAttemptAtUtc = active?.NextAttemptAtUtc,
                 estimatedCompletionAtUtc = active == null ? (DateTime?)null :
                     active.NextAttemptAtUtc.AddTicks(WbRateLimits.IntervalFor(active.Kind).Ticks *
@@ -114,6 +133,6 @@ public sealed class WbDataStateController(EcomadsDbContext db, WbDataCoverageSer
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.LoadedAtUtc),
                     orderChecks.Length == 0 ? null : orderChecks.Min(x => x.Date),
                     orderChecks.Length == 0 ? null : orderChecks.Max(x => x.Date)) };
-        return Ok(new { sources, isPreliminary = endDate >= WbSyncPlanner.Today(), active = jobs.Any(x => x.Status is "pending" or "running") });
+        return Ok(new { sources, quality, reportingTimeZone = "МСК", isPreliminary = endDate >= WbSyncPlanner.Today(), active = jobs.Any(x => x.Status is "pending" or "running") });
     }
 }

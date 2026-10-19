@@ -17,7 +17,8 @@ public sealed record TelegramSummary(
     bool IsTest = false,
     IReadOnlyList<string>? MissingCampaignNames = null,
     DateOnly? ReportEndDate = null,
-    string DashboardLinkLabel = "Открыть сводку за этот день");
+    string DashboardLinkLabel = "Открыть сводку за этот день",
+    IReadOnlyList<string>? SourceWarnings = null, decimal? StoreSpend = null, decimal? StoreOrderSum = null);
 
 /// <summary>
 /// Builds the plain-text yesterday summary. Plain text on purpose: no parse_mode means nothing to escape,
@@ -62,14 +63,28 @@ public static class TelegramSummaryFormatter
             ? $"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy} – {end:dd.MM.yyyy}, МСК"
             : $"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy}, МСК");
         sb.AppendLine();
+        if (summary.SourceWarnings is { Count: > 0 })
+        {
+            sb.AppendLine("Сводка предварительная. Неподтверждённые показатели обозначены прочерком.");
+            foreach (var warning in summary.SourceWarnings) sb.AppendLine(Shorten(warning, 200));
+            sb.AppendLine();
+        }
         if (summary.MissingCampaignNames is { Count: > 0 } missing)
         {
-            sb.AppendLine($"Сводка с пропусками: подтверждено {summary.Campaigns.Count} из {summary.Campaigns.Count + missing.Count} кампаний.");
+            sb.AppendLine(summary.ReportEndDate is { } periodEnd && periodEnd != summary.ReportDate
+                ? "Сводка с пропусками: часть дней кампаний не подтверждена."
+                : $"Сводка с пропусками: подтверждено {summary.Campaigns.Count} из {summary.Campaigns.Count + missing.Count} кампаний.");
             sb.AppendLine("WB не вернул данные по остальным кампаниям. Пропуски не считаются нулями; рекламные итоги ниже — только по подтверждённым данным.");
             foreach (var name in missing.Take(5)) sb.AppendLine($"• {Shorten(name, 80)}");
             if (missing.Count > 5) sb.AppendLine($"И ещё {missing.Count - 5} кампаний.");
             sb.AppendLine();
         }
+        sb.AppendLine(summary.StoreSpend.HasValue ? $"Расход кабинета: {FormatMoney(summary.StoreSpend.Value)} ₽" : "Расход кабинета: —");
+        sb.AppendLine(summary.StoreOrderSum.HasValue ? $"Все заказы, сумма: {FormatMoney(summary.StoreOrderSum.Value)} ₽" : "Все заказы, сумма: —");
+        var storeDrr = summary.StoreSpend.HasValue && summary.StoreOrderSum > 0
+            ? summary.StoreSpend.Value / summary.StoreOrderSum.Value * 100m : (decimal?)null;
+        sb.AppendLine($"Общий ДРР: {FormatDrr(storeDrr)}");
+        sb.AppendLine();
         if (summary.Campaigns.Count == 0 && summary.MissingCampaignNames is { Count: > 0 })
             sb.AppendLine("Рекламные показатели: WB не вернул подтверждённых данных.");
         else

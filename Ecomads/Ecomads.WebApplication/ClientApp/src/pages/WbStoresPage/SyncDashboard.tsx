@@ -56,13 +56,14 @@ function jobProgress(job: WbSyncJob): string {
 
 export function jobStatus(job: WbSyncJob | null): string {
   if (!job) return 'Ещё не запускалось';
-  if (job.status === 'completed') return 'Завершено';
+  if (job.status === 'completed') return 'Обработка завершена';
   if (job.status === 'failed') return 'Ошибка';
   if (job.paused) return 'Приостановлено';
   if (job.stage === 'requesting') return 'Запрос к WB';
   if (job.stage === 'importing') return 'Сохраняем данные';
   if (job.waitReason === 'retry') return 'Ожидает повторной попытки';
   if (job.waitReason === 'priority') return 'Ожидание текущих данных';
+  if (job.waitReason === 'rollout') return 'Ожидание включения загрузки для кабинета';
   if (job.waitReason === 'rate_limit') {
     return Date.now() > Date.parse(job.nextAttemptAtUtc) + 120000 ? 'Запуск задерживается' : 'Ожидание лимита WB';
   }
@@ -143,13 +144,16 @@ export function SyncDashboard({ storeId, overview, refresh, error, skipped }: {
       <Typography variant="h6" fontWeight={800}>Загрузка данных</Typography>
       <Button size="small" variant="outlined" onClick={() => { refresh(); void history.refetch(); }}>Обновить статус</Button>
     </Stack>
+    <Typography variant="caption" color="text.secondary">
+      Завершение задания означает, что ответ обработан. Полнота показателей и спорные пересчёты показаны в сводке за выбранный период.
+    </Typography>
     {error ? <Alert severity="warning">Не удалось обновить статус. Последнее обновление: {checkedAt ? moscowTime(checkedAt.toISOString()) : 'неизвестно'}.</Alert> : null}
     {overview?.sources.map((source) => <Box key={source.kind} sx={{ py: 1, borderTop: '1px solid', borderColor: 'divider' }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
         <Typography fontWeight={700}>{labels[source.kind]}</Typography>
         <Chip size="small" label={jobStatus(source.activeJob ?? source.lastJob)} color={source.lastJob?.status === 'failed' ? 'error' : source.lastJob?.status === 'completed' ? 'success' : 'default'} />
       </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>Последняя успешная загрузка: {moscowTime(source.lastSuccessAtUtc)}</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>Последняя завершённая обработка: {moscowTime(source.lastSuccessAtUtc)}</Typography>
       {source.kind === 'funnel_backfill' && !source.lastJob ? <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
         Запускается автоматически через «Загрузить всё из WB», если в последних 30 днях есть пропуски.
       </Typography> : null}

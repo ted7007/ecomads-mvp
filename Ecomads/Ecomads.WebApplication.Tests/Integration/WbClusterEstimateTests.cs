@@ -41,6 +41,7 @@ public sealed class WbClusterEstimateTests(PostgresFixture postgres)
         Assert.Equal(800m, basis.Revenue);
         Assert.Equal(99999m, (await db.CampaignStatistics.SingleAsync()).Revenue);
         var date = new DateOnly(2026, 7, 1);
+        TestData.AddConfirmedClusterDay(db, store.Id, campaign.Id, article.Id, date);
         var second = new Campaign { Id = Guid.NewGuid(), StoreId = store.Id, WbCampaignId = "456", Name = "Other" };
         db.Campaigns.Add(second);
         db.CampaignNomenclatureStatistics.AddRange(

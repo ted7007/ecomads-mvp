@@ -59,6 +59,19 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
         if (startDate.HasValue) query = query.Where(x => x.stat.Date >= startDate.Value);
         if (endDate.HasValue) query = query.Where(x => x.stat.Date <= endDate.Value);
         var raw = await query.ToListAsync(cancellationToken);
+        var qualities = await db.WbSourceQualities.AsNoTracking().Where(x => x.StoreId == campaign.StoreId &&
+            (x.Source == "clusters" || x.Source == "fullstats") &&
+            (!startDate.HasValue || x.EndDate >= startDate.Value) && (!endDate.HasValue || x.StartDate <= endDate.Value))
+            .ToArrayAsync(cancellationToken);
+        bool SourceAccepted(string source, string entity, DateOnly day)
+        {
+            var latest = qualities.Where(x => x.Source == source && (x.Entity == "" || x.Entity == entity) &&
+                    x.StartDate <= day && x.EndDate >= day).OrderByDescending(x => x.LastAttemptAtUtc).FirstOrDefault();
+            return latest == null ? source != "clusters" : WbQuality.Confirmed(latest.State);
+        }
+        var staleArticles = raw.Where(x => !SourceAccepted("clusters", $"{campaignId}:{x.stat.NomenclatureId}", x.stat.Date))
+            .Select(x => x.stat.NomenclatureId).ToHashSet();
+        if (staleArticles.Count > 0) isPeriodComplete = false;
         // Estimates require an explicit selected period, never unbounded historical averages.
         var articleRows = new List<Ecomads.WebApplication.Data.Models.CampaignNomenclatureStatistics>();
         var fullStatsComplete = false;
@@ -73,8 +86,10 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
             var checkedDates = await db.WbCampaignDailyChecks.AsNoTracking()
                 .Where(x => x.CampaignId == campaignId && x.Date >= startDate.Value && x.Date <= endDate.Value &&
                     (x.Result == "data" || x.Result == "zero"))
+                .Where(x => x.LastAttemptResult != "no_data" || x.LastAttemptAtUtc < x.CheckedAtUtc)
                 .Select(x => x.Date).ToListAsync(cancellationToken);
-            fullStatsComplete = checkedDates.Distinct().Count() == endDate.Value.DayNumber - startDate.Value.DayNumber + 1;
+            fullStatsComplete = checkedDates.Where(day => SourceAccepted("fullstats", campaignId.ToString(), day))
+                .Distinct().Count() == endDate.Value.DayNumber - startDate.Value.DayNumber + 1;
             var jobs = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == campaign.StoreId &&
                 x.Kind == "clusters" && x.Status == "completed" &&
                 x.StartDate <= endDate.Value && x.EndDate >= startDate.Value)
@@ -91,7 +106,7 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                 var orderedProducts = group.All(x => x.stat.OrderedProducts.HasValue)
                     ? group.Sum(x => x.stat.OrderedProducts!.Value) : (int?)null;
                 var articleId = group.First().stat.NomenclatureId;
-                var pairComplete = startDate.HasValue && endDate.HasValue &&
+                var pairComplete = !staleArticles.Contains(articleId) && startDate.HasValue && endDate.HasValue &&
                     long.TryParse(group.Key.WbNomenclatureId, out var nmId) &&
                     Enumerable.Range(0, endDate.Value.DayNumber - startDate.Value.DayNumber + 1)
                         .All(offset => estimateJobs.Any(job => job.Start <= startDate.Value.AddDays(offset) &&
@@ -109,7 +124,7 @@ public sealed class WbCampaignClustersController(EcomadsDbContext db) : Controll
                     group.All(x => x.stat.Carts.HasValue) ? group.Sum(x => x.stat.Carts!.Value) : null,
                     group.All(x => x.stat.Orders.HasValue) ? group.Sum(x => x.stat.Orders!.Value) : null,
                     clicks is > 0 ? Math.Round(spend / clicks.Value, 2) : null,
-                    Assess(spend, clicks,
+                    staleArticles.Contains(articleId) ? "Данные устарели: последний ответ WB не подтвердил полный снимок." : Assess(spend, clicks,
                         group.All(x => x.stat.Orders.HasValue) ? group.Sum(x => x.stat.Orders!.Value) : null,
                         minSpend, minClicks, minOrders), orderedProducts, estimate.AverageOrderedUnitPrice,
                     estimate.EstimatedOrderSum, estimate.EstimatedDrr, estimate.Status, estimate.Reason);

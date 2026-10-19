@@ -29,12 +29,66 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
 
         return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await using var transaction = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
             var seenCampaigns = new HashSet<long>();
+            var acceptedCampaigns = new HashSet<long>();
             var seenDays = new HashSet<(Guid CampaignId, DateOnly Date)>();
-            var observedAt = DateTime.UtcNow;
+            var observedAt = WbIngestionContext.Current?.RequestedAtUtc ?? DateTime.UtcNow;
+            var quality = new WbQuality(db);
             var rows = 0;
+            // Validate the complete day before deleting any previously accepted rows.
+            // Duplicate days invalidate both occurrences, regardless of response order.
+            var invalid = new Dictionary<(long Id, DateOnly Date), string>();
+            var candidates = new List<(long Id, DateOnly Date, JsonElement Day)>();
+            var unknownDays = new HashSet<long>();
+            var advertOrdinal = 0;
             foreach (var advert in root.EnumerateArray())
+            {
+                var originalOrdinal = advertOrdinal++;
+                if (advert.ValueKind != JsonValueKind.Object || !advert.TryGetProperty("advertId", out var idElement) ||
+                    !idElement.TryGetInt64(out var id) || !campaigns.ContainsKey(id.ToString()) ||
+                    requestedIds != null && !requestedIds.Contains(id))
+                {
+                    WbIngestionContext.Current?.Reject($"fullstats[{originalOrdinal}]: unexpected_or_invalid_campaign");
+                    continue;
+                }
+                seenCampaigns.Add(id);
+                if (!advert.TryGetProperty("days", out var days) || days.ValueKind != JsonValueKind.Array)
+                { unknownDays.Add(id); continue; }
+                foreach (var day in days.EnumerateArray())
+                {
+                    DateOnly parsed;
+                    try { parsed = WbDates.CalendarDay(day.GetProperty("date").GetString()); }
+                    catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException)
+                    { unknownDays.Add(id); continue; }
+                    if (requestedStart.HasValue && (parsed < requestedStart.Value || parsed > requestedEnd!.Value))
+                    { WbIngestionContext.Current?.Reject($"fullstats[{originalOrdinal}]: unexpected_date {parsed:yyyy-MM-dd}"); continue; }
+                    if (candidates.Any(x => x.Id == id && x.Date == parsed))
+                        invalid[(id, parsed)] = "WB вернул повторный день кампании.";
+                    candidates.Add((id, parsed, day));
+                    try { ValidateDay(day); }
+                    catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
+                    { invalid[(id, parsed)] = "В дне кампании отсутствуют обязательные числовые поля либо они некорректны."; }
+                }
+            }
+            foreach (var id in unknownDays)
+            {
+                if (requestedStart.HasValue)
+                    for (var date = requestedStart.Value; date <= requestedEnd!.Value; date = date.AddDays(1))
+                        invalid[(id, date)] = "В ответе кампании есть строка с неопределённым отчётным днём.";
+                else foreach (var candidate in candidates.Where(x => x.Id == id)) invalid[(id, candidate.Date)] = "Неопределённый день кампании.";
+            }
+            foreach (var issue in invalid)
+            {
+                var campaign = campaigns[issue.Key.Id.ToString()];
+                WbIngestionContext.Current?.Reject($"fullstats campaign {issue.Key.Id}, day {issue.Key.Date:yyyy-MM-dd}: {issue.Value}");
+                seenDays.Add((campaign.Id, issue.Key.Date));
+                await quality.ObserveAsync(storeId, "fullstats", campaign.Id.ToString(), issue.Key.Date, issue.Key.Date,
+                    "ambiguous", cancellationToken, issue.Value);
+            }
+            using var validated = JsonSerializer.SerializeToDocument(candidates.Where(x => !invalid.ContainsKey((x.Id, x.Date)))
+                .GroupBy(x => x.Id).Select(g => new { advertId = g.Key, days = g.Select(x => x.Day).ToArray() }));
+            foreach (var advert in validated.RootElement.EnumerateArray())
             {
             var wbNumber = advert.GetProperty("advertId").GetInt64();
             if (requestedIds != null && !requestedIds.Contains(wbNumber))
@@ -48,7 +102,7 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
 
             foreach (var day in advert.GetProperty("days").EnumerateArray())
             {
-                var date = DateTime.SpecifyKind(day.GetProperty("date").GetDateTime().Date, DateTimeKind.Utc);
+                var date = DateTime.SpecifyKind(WbDates.CalendarDay(day.GetProperty("date").GetString()).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
                 var requestedDay = DateOnly.FromDateTime(date);
                 if (requestedStart.HasValue && (requestedDay < requestedStart.Value || requestedDay > requestedEnd!.Value))
                     throw new JsonException("WB вернул день вне запрошенного периода.");
@@ -58,6 +112,13 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                     x.Date == DateOnly.FromDateTime(date) && (x.Result == "data" || x.Result == "zero"), cancellationToken) &&
                     !await db.CampaignNomenclatureStatistics.AnyAsync(x => x.CampaignId == campaign.Id && x.Date == date &&
                         x.RecommendationFieldsVerified != true, cancellationToken)) continue;
+                var priorQuality = await db.WbSourceQualities.FindAsync([storeId, "fullstats", campaign.Id.ToString(), requestedDay, requestedDay], cancellationToken);
+                var priorSnapshot = priorQuality?.AcceptedSnapshotId;
+                var priorAcceptedAt = priorQuality?.AcceptedAtUtc;
+                if (!await quality.ObserveAsync(storeId, "fullstats", campaign.Id.ToString(), requestedDay, requestedDay,
+                    Number(day, "sum") == 0 ? "zero" : "data", cancellationToken)) continue;
+                var previousArticles = await db.CampaignNomenclatureStatistics.AsNoTracking().Where(x => x.CampaignId == campaign.Id && x.Date == date)
+                    .ToArrayAsync(cancellationToken);
                 await db.CampaignStatistics.Where(s => s.CampaignId == campaign.Id && s.Date == date)
                     .ExecuteDeleteAsync(cancellationToken);
                 await db.CampaignNomenclatureStatistics.Where(s => s.CampaignId == campaign.Id && s.Date == date)
@@ -97,6 +158,7 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                 check.LastAttemptAtUtc = observedAt;
                 check.LastAttemptResult = check.Result;
                 rows++;
+                acceptedCampaigns.Add(wbNumber);
 
                 var articleStats = new Dictionary<string, CampaignNomenclatureStatistics>(StringComparer.Ordinal);
                 if (day.TryGetProperty("apps", out var apps) && apps.ValueKind == JsonValueKind.Array)
@@ -144,6 +206,8 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                 }
                 foreach (var statistics in articleStats.Values)
                 {
+                    await quality.ObserveAsync(storeId, "fullstats", $"{campaign.Id}:{statistics.NomenclatureId}", requestedDay, requestedDay,
+                        statistics.Spend == 0 ? "zero" : "data", cancellationToken, proposed: statistics.Spend);
                     statistics.Ctr = statistics.Impressions > 0
                         ? statistics.Clicks * 100m / statistics.Impressions : null;
                     statistics.Cr = statistics.Clicks > 0
@@ -157,9 +221,21 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                     {
                         Id = Guid.NewGuid(), CampaignId = statistics.CampaignId,
                         NomenclatureId = statistics.NomenclatureId, Date = DateOnly.FromDateTime(statistics.Date),
-                        JobId = jobId, ObservedAtUtc = DateTime.UtcNow, Orders = statistics.Orders,
+                        JobId = jobId, ObservedAtUtc = observedAt, Orders = statistics.Orders,
                         OrderedProducts = statistics.OrderedProducts, Revenue = statistics.Revenue
                     });
+                }
+                foreach (var missing in previousArticles.Where(x => !articleStats.ContainsKey(nomenclatures.Values.Single(n => n.Id == x.NomenclatureId).WbNomenclatureId)))
+                {
+                    var article = nomenclatures.Values.Single(x => x.Id == missing.NomenclatureId);
+                    var entity = $"{campaign.Id}:{missing.NomenclatureId}";
+                    if (await quality.ObserveAsync(storeId, "fullstats", entity, requestedDay, requestedDay, "no_data", cancellationToken,
+                        $"WB не вернул товар {article.WbNomenclatureId} за отчётный день. Прежнее значение доступно как устаревшее.", previous: missing.Spend))
+                    {
+                        var missingQuality = await db.WbSourceQualities.FindAsync([storeId, "fullstats", entity, requestedDay, requestedDay], cancellationToken);
+                        missingQuality!.AcceptedSnapshotId ??= priorSnapshot;
+                        missingQuality.AcceptedAtUtc ??= priorAcceptedAt;
+                    }
                 }
             }
             }
@@ -176,6 +252,10 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                 {
                     if (seenDays.Contains((campaign.Id, date)) || WbCampaignEligibility.CreatedAfter(campaign, date) ||
                         WbCampaignEligibility.FinishedBefore(campaign, date)) continue;
+                    if (fillMissingOnly && previous.TryGetValue((campaign.Id, date), out var preserved) &&
+                        preserved.Result is "data" or "zero") continue;
+                    if (!await quality.ObserveAsync(storeId, "fullstats", campaign.Id.ToString(), date, date,
+                        "no_data", cancellationToken, "WB не вернул день кампании.")) continue;
                     if (!previous.TryGetValue((campaign.Id, date), out var check))
                     {
                         check = new WbCampaignDailyCheck { CampaignId = campaign.Id, Date = date,
@@ -189,14 +269,36 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                 }
             }
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            return new WbFullStatsImportResult(rows, requestedIds?.Where(x => !seenCampaigns.Contains(x)).ToArray() ?? []);
+            if (transaction != null) await transaction.CommitAsync(cancellationToken);
+            return new WbFullStatsImportResult(rows, requestedIds?.Where(x => !acceptedCampaigns.Contains(x)).ToArray() ?? []);
         });
     }
 
     private static decimal Number(JsonElement value, string property) =>
         value.TryGetProperty(property, out var number) && number.ValueKind == JsonValueKind.Number
             ? number.GetDecimal() : throw new JsonException($"В fullstats отсутствует числовое поле {property}.");
+
+    private static void ValidateDay(JsonElement day)
+    {
+        static void Metrics(JsonElement row)
+        {
+            foreach (var field in new[] { "sum", "sum_price" })
+                if (Number(row, field) < 0) throw new JsonException("Отрицательный показатель WB.");
+            foreach (var field in new[] { "views", "clicks", "atbs", "orders", "canceled" })
+                if (Whole(row, field) < 0) throw new JsonException("Отрицательный показатель WB.");
+        }
+        Metrics(day);
+        if (!day.TryGetProperty("apps", out var apps)) return;
+        foreach (var app in apps.EnumerateArray())
+        {
+            foreach (var nm in app.GetProperty("nms").EnumerateArray())
+            {
+                _ = nm.GetProperty("nmId").GetInt64(); Metrics(nm);
+                if (nm.TryGetProperty("name", out var name) && name.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                    throw new JsonException("Некорректное имя товара.");
+            }
+        }
+    }
 
     private static int Whole(JsonElement value, string property) =>
         value.TryGetProperty(property, out var number) && number.ValueKind == JsonValueKind.Number

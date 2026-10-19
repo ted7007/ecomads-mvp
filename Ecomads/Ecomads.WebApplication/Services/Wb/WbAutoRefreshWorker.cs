@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecomads.WebApplication.Services.Wb;
 
 public sealed class WbAutoRefreshWorker(IServiceScopeFactory scopes, IConfiguration configuration,
-    ILogger<WbAutoRefreshWorker> logger) : BackgroundService
+    ILogger<WbAutoRefreshWorker> logger, TimeProvider? clock = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -13,7 +13,7 @@ public sealed class WbAutoRefreshWorker(IServiceScopeFactory scopes, IConfigurat
         {
             try
             {
-                await RunOnceAsync(DateTime.UtcNow, stoppingToken);
+                await RunOnceAsync((clock ?? TimeProvider.System).GetUtcNow().UtcDateTime, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -23,7 +23,7 @@ public sealed class WbAutoRefreshWorker(IServiceScopeFactory scopes, IConfigurat
             {
                 logger.LogError(error, "WB automatic refresh pass failed");
             }
-            try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); }
+            try { await Task.Delay(TimeSpan.FromMinutes(1), clock ?? TimeProvider.System, stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }
     }
@@ -40,6 +40,8 @@ public sealed class WbAutoRefreshWorker(IServiceScopeFactory scopes, IConfigurat
         var rolloutStores = (configuration["Wb:AutoRefresh:StoreIds"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
             .Select(x => Guid.TryParse(x.Trim(), out var id) ? id : Guid.Empty).ToHashSet();
         if (rolloutStores.Count > 0) storeIds = storeIds.Where(rolloutStores.Contains).ToList();
+        var ingestionRollout = scope.ServiceProvider.GetService<WbIngestionRollout>();
+        if (ingestionRollout != null) storeIds = storeIds.Where(ingestionRollout.Allows).ToList();
         foreach (var storeId in storeIds)
         {
             try { await scheduler.RunAsync(storeId, nowUtc, cancellationToken); }

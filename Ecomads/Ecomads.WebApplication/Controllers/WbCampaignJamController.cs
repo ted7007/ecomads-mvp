@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Ecomads.WebApplication.Data;
+using Ecomads.WebApplication.Services.Wb;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +18,8 @@ public sealed class WbCampaignJamController(EcomadsDbContext db) : ControllerBas
     public sealed record JamResponse(string JamStatus, DateTime? JamCheckedAtUtc,
         DateOnly StartDate, DateOnly EndDate, int ArticleCount, int ArticlesWithQueries,
         IReadOnlyList<JamRow> Rows, string ReportStatus, int CheckedArticleCount, int EmptyArticleCount,
-        IReadOnlyList<JamReportOption> AvailableReports);
+        IReadOnlyList<JamReportOption> AvailableReports, bool IsLimited = true,
+        string ScopeReason = "WB возвращает ограниченный список поисковых запросов, а не всю поисковую статистику.");
     public sealed record JamReportOption(DateOnly StartDate, DateOnly EndDate, DateTime LoadedAtUtc);
 
     [HttpGet("{campaignId:guid}/jam")]
@@ -80,6 +82,12 @@ public sealed class WbCampaignJamController(EcomadsDbContext db) : ControllerBas
             articleIds.Length > 0 && articleChecks.Length == articleIds.Length ?
                 raw.Count == 0 ? "empty" : "complete" :
             articleChecks.Length > 0 ? "partial" : raw.Count > 0 ? "legacy" : "not_loaded";
+        var quality = await db.WbSourceQualities.AsNoTracking().Where(x => x.StoreId == campaign.StoreId &&
+            x.Source == "jam" && x.StartDate <= end && x.EndDate >= start).ToArrayAsync(cancellationToken);
+        var stale = articleIds.Any(id => quality.Where(x => (x.Entity == "" || x.Entity == id.ToString()) &&
+                x.StartDate <= start && x.EndDate >= end).OrderByDescending(x => x.LastAttemptAtUtc).FirstOrDefault() is { } q &&
+            !WbQuality.Confirmed(q.State));
+        if (stale && reportStatus != "access_denied") reportStatus = "partial";
         return Ok(new JamResponse(campaign.JamStatus, campaign.JamCheckedAtUtc, start, end,
             articleIds.Length, raw.Select(x => x.query.NomenclatureId).Distinct().Count(), rows,
             reportStatus, articleChecks.Length, articleChecks.Count(x => !x.HasData), reports));

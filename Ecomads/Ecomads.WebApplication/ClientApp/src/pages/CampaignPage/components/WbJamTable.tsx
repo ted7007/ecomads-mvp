@@ -27,7 +27,7 @@ export function WbJamTable({ report, onSelectPeriod }: { report: WbJamResponse;
   return <>
     <Box sx={{ mb: 1.5 }}>{chooser}</Box>
     {report.reportStatus === 'access_denied' ? <Alert severity="warning">Нет доступа к Джему. Проверьте права токена и подписку.</Alert> : null}
-    {report.reportStatus === 'partial' ? <Alert severity="warning">Загрузка частичная: проверено {report.checkedArticleCount} из {report.articleCount} товаров.</Alert> : null}
+    {report.reportStatus === 'partial' ? <Alert severity="warning">Последний ответ WB неполон. Ранее сохранённые строки могут быть устаревшими. Проверено {report.checkedArticleCount} из {report.articleCount} товаров.</Alert> : null}
     {report.reportStatus === 'legacy' ? <Alert severity="info">Старый отчёт сохранён без сведений о товарах с пустым ответом.</Alert> : null}
     {!report.rows.length ? <Alert severity="info" action={<Button size="small" component={Link} to={appRoutes.wbStores}>Проверить загрузку</Button>}>
       {report.reportStatus === 'empty' ? 'WB не вернул поисковые запросы по товарам этого отчёта.' :

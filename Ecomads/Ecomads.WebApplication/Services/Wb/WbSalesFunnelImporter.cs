@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
@@ -7,121 +6,123 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecomads.WebApplication.Services.Wb;
 
 public sealed record WbFunnelPageState(int Offset = 0, decimal OrderSum = 0m, int OrderCount = 0,
-    decimal PastOrderSum = 0m, int PastOrderCount = 0);
+    decimal PastOrderSum = 0m, int PastOrderCount = 0, long[]? SeenProductIds = null, Guid[]? SnapshotIds = null,
+    DateTime? StartedAtUtc = null);
 
 public sealed class WbSalesFunnelImporter(EcomadsDbContext db, ILogger<WbSalesFunnelImporter> logger)
 {
-    public static (WbFunnelPageState State, int ProductCount) ReadProductsPage(JsonElement root,
-        WbFunnelPageState previous)
+    public static (WbFunnelPageState State, int ProductCount) ReadProductsPage(JsonElement root, WbFunnelPageState previous)
     {
-        var products = root.GetProperty("data").GetProperty("products");
-        if (products.ValueKind != JsonValueKind.Array) throw new JsonException("Воронка WB не содержит товары.");
-        var selectedSum = previous.OrderSum;
-        var selectedCount = previous.OrderCount;
-        var pastSum = previous.PastOrderSum;
-        var pastCount = previous.PastOrderCount;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty("products", out var products) || products.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Воронка WB не содержит товары.");
+        if (products.GetArrayLength() > 1000) throw new JsonException("Воронка WB превысила размер запрошенной страницы.");
+        if (previous.Offset > 0 && previous.SeenProductIds == null)
+            throw new JsonException("Старая цепочка страниц не содержит сведений о товарах; требуется начать её заново.");
+        var ids = (previous.SeenProductIds ?? []).ToHashSet();
+        var selectedSum = previous.OrderSum; var selectedCount = previous.OrderCount;
+        var pastSum = previous.PastOrderSum; var pastCount = previous.PastOrderCount;
         foreach (var product in products.EnumerateArray())
         {
-            var statistic = product.GetProperty("statistic");
-            var selected = statistic.GetProperty("selected");
-            var past = statistic.GetProperty("past");
-            selectedSum += Money(selected, "orderSum");
-            selectedCount += Number(selected, "orderCount");
-            pastSum += Money(past, "orderSum");
-            pastCount += Number(past, "orderCount");
+            if (product.ValueKind != JsonValueKind.Object) throw new JsonException("Некорректный товар воронки WB.");
+            var descriptor = product.TryGetProperty("product", out var nested) ? nested : product;
+            if (descriptor.ValueKind != JsonValueKind.Object || !descriptor.TryGetProperty("nmId", out var id) ||
+                id.ValueKind != JsonValueKind.Number || !id.TryGetInt64(out var nmId) || nmId <= 0 || !ids.Add(nmId))
+                throw new JsonException("Повторный товар или отсутствующий nmId в страницах воронки.");
+            if (!product.TryGetProperty("statistic", out var statistic) || statistic.ValueKind != JsonValueKind.Object ||
+                !statistic.TryGetProperty("selected", out var selected) || selected.ValueKind != JsonValueKind.Object ||
+                !statistic.TryGetProperty("past", out var past) || past.ValueKind != JsonValueKind.Object)
+                throw new JsonException("Нет обязательных периодов товарной статистики WB.");
+            selectedSum += Money(selected, "orderSum"); selectedCount = checked(selectedCount + Number(selected, "orderCount"));
+            pastSum += Money(past, "orderSum"); pastCount = checked(pastCount + Number(past, "orderCount"));
         }
-        return (new WbFunnelPageState(products.GetArrayLength() == 1000
-            ? previous.Offset + 1000 : previous.Offset, selectedSum, selectedCount, pastSum, pastCount),
-            products.GetArrayLength());
+        var snapshots = (previous.SnapshotIds ?? []).ToList();
+        if (WbIngestionContext.Current?.SnapshotId is { } snapshotId) snapshots.Add(snapshotId);
+        return (new(products.GetArrayLength() == 1000 ? previous.Offset + 1000 : previous.Offset,
+            selectedSum, selectedCount, pastSum, pastCount, ids.ToArray(), snapshots.ToArray(),
+            previous.StartedAtUtc ?? WbIngestionContext.Current?.RequestedAtUtc), products.GetArrayLength());
     }
 
-    public async Task ImportProductsAsync(Guid storeId, DateOnly day, DateOnly pastDay,
-        WbFunnelPageState totals, CancellationToken cancellationToken, bool replaceExisting = false,
-        DateTime? snapshotAtUtc = null)
+    public async Task ImportProductsAsync(Guid storeId, DateOnly day, DateOnly pastDay, WbFunnelPageState totals,
+        CancellationToken ct, bool replaceExisting = false, DateTime? snapshotAtUtc = null)
     {
-        var dates = new[] { day, pastDay };
-        var existing = await db.WbStoreDailyOrders.Where(x => x.StoreId == storeId && dates.Contains(x.Date))
-            .ToDictionaryAsync(x => x.Date, cancellationToken);
-        var loadedAt = DateTime.UtcNow;
-        foreach (var date in dates.Distinct())
+        var at = snapshotAtUtc ?? WbIngestionContext.Current?.RequestedAtUtc ?? DateTime.UtcNow;
+        var quality = new WbQuality(db);
+        foreach (var date in new[] { day, pastDay }.Distinct())
         {
-            if (existing.TryGetValue(date, out var row))
-            {
-                // Backfill only fills gaps. Rechecks never replace a newer snapshot or grouped history.
-                if (!replaceExisting || (row.Source == "history" && date >= WbSyncPlanner.Today().AddDays(-6)) || row.LoadedAtUtc > (snapshotAtUtc ?? loadedAt)) continue;
-            }
-            else
-            {
-                row = new WbStoreDailyOrders { StoreId = storeId, Date = date };
-                db.WbStoreDailyOrders.Add(row);
-            }
-            row.OrderCount = date == day ? totals.OrderCount : totals.PastOrderCount;
-            row.OrderSum = date == day ? totals.OrderSum : totals.PastOrderSum;
-            row.Source = "products";
-            row.LoadedAtUtc = loadedAt;
+            var old = await db.WbStoreDailyOrders.FindAsync([storeId, date], ct);
+            if (old != null && (!replaceExisting || old.LoadedAtUtc > at)) continue;
+            var sum = date == day ? totals.OrderSum : totals.PastOrderSum;
+            var count = date == day ? totals.OrderCount : totals.PastOrderCount;
+            var state = totals.SeenProductIds is { Length: 0 } ? "no_data" : sum == 0 && count == 0 ? "zero" : "data";
+            if (!await quality.ObserveAsync(storeId, "orders", "", date, date, state, ct,
+                previous: old?.OrderSum, proposed: sum, observedAtUtc: at)) continue;
+            if (!WbQuality.Confirmed(state)) continue;
+            if (old == null) { old = new() { StoreId = storeId, Date = date }; db.WbStoreDailyOrders.Add(old); }
+            old.OrderSum = sum; old.OrderCount = count; old.Source = "products"; old.LoadedAtUtc = at;
         }
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
     }
 
-    public async Task ImportAsync(Guid storeId, DateOnly start, DateOnly end, JsonElement root,
-        CancellationToken cancellationToken)
+    public async Task ImportAsync(Guid storeId, DateOnly start, DateOnly end, JsonElement root, CancellationToken ct)
     {
-        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
             throw new JsonException("Воронка WB имеет неожиданный формат.");
-        var totals = Enumerable.Range(0, end.DayNumber - start.DayNumber + 1)
-            .ToDictionary(offset => start.AddDays(offset), offset => new WbStoreDailyOrders
-            { StoreId = storeId, Date = start.AddDays(offset) });
+        var totals = new Dictionary<DateOnly, WbStoreDailyOrders>();
+        var groupCounts = new Dictionary<DateOnly, int>();
+        var invalid = new HashSet<DateOnly>();
+        var invalidGroup = false;
         foreach (var group in data.EnumerateArray())
         {
-            if (group.TryGetProperty("currency", out var currency) && currency.GetString() != "RUB")
-            {
-                logger.LogWarning("Skipped non-RUB sales funnel group for store {StoreId}", storeId);
-                continue;
-            }
-            if (!group.TryGetProperty("history", out var history) || history.ValueKind != JsonValueKind.Array)
-                throw new JsonException("Воронка WB не содержит дневную историю.");
+            if (group.ValueKind != JsonValueKind.Object || (group.TryGetProperty("currency", out var currency) &&
+                (currency.ValueKind != JsonValueKind.String || currency.GetString() != "RUB")) ||
+                !group.TryGetProperty("history", out var history) || history.ValueKind != JsonValueKind.Array)
+            { invalidGroup = true; continue; }
+            var seen = new HashSet<DateOnly>();
             foreach (var day in history.EnumerateArray())
             {
-                var dateText = day.GetProperty("date").GetString();
-                if (dateText == null || dateText.Length < 10 ||
-                    !DateOnly.TryParseExact(dateText[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                        DateTimeStyles.None, out var date))
-                    throw new JsonException("Воронка WB содержит некорректную дату.");
-                if (!totals.TryGetValue(date, out var row)) continue;
-                row.OrderCount += Number(day, "orderCount");
-                row.OrderSum += Money(day, "orderSum");
-                row.OpenCount += Number(day, "openCount");
-                row.CartCount += Number(day, "cartCount");
-                row.BuyoutCount += Number(day, "buyoutCount");
-                row.BuyoutSum += Money(day, "buyoutSum");
+                DateOnly date;
+                try { date = WbDates.CalendarDay(day.GetProperty("date").GetString()); }
+                catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
+                { invalidGroup = true; continue; }
+                if (date < start || date > end) { invalidGroup = true; continue; }
+                if (!seen.Add(date)) { invalid.Add(date); continue; }
+                try
+                {
+                    var orders = Number(day, "orderCount"); var sum = Money(day, "orderSum");
+                    var opens = Number(day, "openCount"); var carts = Number(day, "cartCount");
+                    var buyouts = Number(day, "buyoutCount"); var buyoutSum = Money(day, "buyoutSum");
+                    if (!totals.TryGetValue(date, out var row)) totals[date] = row = new() { StoreId = storeId, Date = date };
+                    checked { row.OrderCount += orders; row.OrderSum += sum; row.OpenCount += opens; row.CartCount += carts;
+                        row.BuyoutCount += buyouts; row.BuyoutSum += buyoutSum; }
+                    groupCounts[date] = groupCounts.GetValueOrDefault(date) + 1;
+                }
+                catch (Exception error) when (error is JsonException or OverflowException) { invalid.Add(date); }
             }
         }
-
-        var existing = await db.WbStoreDailyOrders.Where(x => x.StoreId == storeId && x.Date >= start && x.Date <= end)
-            .ToDictionaryAsync(x => x.Date, cancellationToken);
-        var loadedAt = DateTime.UtcNow;
-        foreach (var (date, total) in totals)
+        var quality = new WbQuality(db);
+        var at = WbIngestionContext.Current?.RequestedAtUtc ?? DateTime.UtcNow;
+        for (var date = start; date <= end; date = date.AddDays(1))
         {
-            if (!existing.TryGetValue(date, out var row))
-            {
-                row = total;
-                db.WbStoreDailyOrders.Add(row);
-            }
-            row.OrderCount = total.OrderCount;
-            row.OrderSum = total.OrderSum;
-            row.OpenCount = total.OpenCount;
-            row.CartCount = total.CartCount;
-            row.BuyoutCount = total.BuyoutCount;
-            row.BuyoutSum = total.BuyoutSum;
-            row.Source = "history";
-            row.LoadedAtUtc = loadedAt;
+            totals.TryGetValue(date, out var total);
+            var row = await db.WbStoreDailyOrders.FindAsync([storeId, date], ct);
+            var state = invalidGroup || invalid.Contains(date) ? "ambiguous" :
+                total == null || groupCounts.GetValueOrDefault(date) != data.GetArrayLength() ? "no_data" :
+                total.OrderSum == 0 && total.OrderCount == 0 ? "zero" : "data";
+            if (!WbQuality.Confirmed(state)) logger.LogInformation("WB order day is {State} for store {StoreId}, date {Date}", state, storeId, date);
+            if (!await quality.ObserveAsync(storeId, "orders", "", date, date, state, ct,
+                WbQuality.Confirmed(state) ? null : "WB не подтвердил все обязательные показатели дня.",
+                previous: row?.OrderSum, proposed: total?.OrderSum)) continue;
+            if (!WbQuality.Confirmed(state)) continue;
+            if (row == null) { row = new() { StoreId = storeId, Date = date }; db.WbStoreDailyOrders.Add(row); }
+            row.OrderCount = total!.OrderCount; row.OrderSum = total.OrderSum; row.OpenCount = total.OpenCount;
+            row.CartCount = total.CartCount; row.BuyoutCount = total.BuyoutCount; row.BuyoutSum = total.BuyoutSum;
+            row.Source = "history"; row.LoadedAtUtc = at;
         }
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
     }
-
-    private static int Number(JsonElement day, string property) =>
-        day.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
-
-    private static decimal Money(JsonElement day, string property) =>
-        day.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDecimal() : 0m;
+    private static int Number(JsonElement row, string key) => row.TryGetProperty(key, out var v) &&
+        v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) && n >= 0 ? n : throw new JsonException($"Нет корректного поля {key}.");
+    private static decimal Money(JsonElement row, string key) => row.TryGetProperty(key, out var v) &&
+        v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var n) && n >= 0 ? n : throw new JsonException($"Нет корректного поля {key}.");
 }

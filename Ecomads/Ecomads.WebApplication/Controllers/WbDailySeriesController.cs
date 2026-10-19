@@ -26,7 +26,7 @@ public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageS
 
         var campaigns = await db.Campaigns.AsNoTracking()
             .Where(x => x.Store.SellerId == sellerId && (!campaignId.HasValue || x.Id == campaignId.Value))
-            .Select(x => new { x.Id, x.IsActive, x.WbStatus })
+            .Select(x => new { x.Id, x.StoreId, Connected = x.Store.ApiKey != null, x.IsActive, x.WbStatus })
             .ToListAsync(cancellationToken);
         if (campaignId.HasValue && campaigns.Count == 0) return NotFound();
         var ids = campaigns.Select(x => x.Id).ToArray();
@@ -36,6 +36,26 @@ public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageS
             .Where(x => ids.Contains(x.CampaignId) && x.Date >= from && x.Date <= to)
             .Select(x => new { x.CampaignId, x.Date, x.Spend, x.Revenue, x.Clicks, x.Impressions, x.Orders })
             .ToListAsync(cancellationToken);
+        var checks = await db.WbCampaignDailyChecks.AsNoTracking().Where(x => ids.Contains(x.CampaignId) &&
+                x.Date >= startDate && x.Date <= endDate).ToArrayAsync(cancellationToken);
+        var checkMap = checks.ToDictionary(x => (x.CampaignId, x.Date));
+        var campaignMap = campaigns.ToDictionary(x => x.Id);
+        var campaignStores = campaigns.Select(x => x.StoreId).Distinct().ToArray();
+        var quality = await db.WbSourceQualities.AsNoTracking().Where(x => campaignStores.Contains(x.StoreId) &&
+            x.Source == "fullstats" && x.StartDate <= endDate && x.EndDate >= startDate).ToArrayAsync(cancellationToken);
+        rows = rows.Where(row =>
+        {
+            var campaign = campaignMap[row.CampaignId];
+            if (!campaign.Connected) return true;
+            var date = DateOnly.FromDateTime(row.Date);
+            var check = checkMap.GetValueOrDefault((row.CampaignId, date));
+            var latest = quality.Where(x => x.StoreId == campaign.StoreId &&
+                    (x.Entity == "" || x.Entity == row.CampaignId.ToString()) && x.StartDate <= date && x.EndDate >= date)
+                .OrderByDescending(x => x.LastAttemptAtUtc).FirstOrDefault();
+            return check != null && check.Result is "data" or "zero" &&
+                !(check.LastAttemptResult == "no_data" && check.LastAttemptAtUtc >= check.CheckedAtUtc) &&
+                (latest == null || WbQuality.Confirmed(latest.State));
+        }).ToList();
         var grouped = rows.GroupBy(x => DateOnly.FromDateTime(x.Date))
             .ToDictionary(x => x.Key, x => new
             {
@@ -55,20 +75,20 @@ public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageS
             StoreCount = x.Select(row => row.StoreId).Distinct().Count(),
             Sum = x.Sum(row => row.OrderSum), Count = x.Sum(row => row.OrderCount)
         });
-        var verifiedPeriod = campaignId.HasValue ? null : await coverage.GetAsync(sellerId, startDate, endDate,
-            null, cancellationToken);
+        var verifiedPeriod = await coverage.GetAsync(sellerId, startDate, endDate, campaignId, cancellationToken);
         var verifiedDays = verifiedPeriod?.Days.ToDictionary(x => x.Date);
         var expectedCampaigns = campaignId.HasValue ? 1 : campaigns.Count(x => x.IsActive || x.WbStatus == 11);
         var days = Enumerable.Range(0, endDate.DayNumber - startDate.DayNumber + 1)
             .Select(offset =>
             {
                 var date = startDate.AddDays(offset);
+                var verifiedDay = verifiedDays?.GetValueOrDefault(date);
                 var found = grouped.TryGetValue(date, out var value);
                 var completeOrders = dailyOrders.TryGetValue(date, out var order) &&
-                    storeIds.Length > 0 && order!.StoreCount == storeIds.Length;
-                decimal? spend = campaignId.HasValue ? found ? value!.Spend : null :
-                    verifiedDays?.GetValueOrDefault(date)?.Spend;
-                decimal? totalOrderSum = completeOrders ? order!.Sum : null;
+                    storeIds.Length > 0 && order!.StoreCount == storeIds.Length &&
+                    verifiedDays?.GetValueOrDefault(date)?.Orders != null;
+                decimal? spend = verifiedDays?.GetValueOrDefault(date)?.Spend;
+                decimal? totalOrderSum = verifiedDays?.GetValueOrDefault(date)?.Orders;
                 return new
                 {
                     Date = date.ToString("yyyy-MM-dd"),
@@ -81,7 +101,8 @@ public sealed class WbDailySeriesController(EcomadsDbContext db, WbDataCoverageS
                     TotalOrderSum = totalOrderSum,
                     TotalOrderCount = completeOrders ? (int?)order!.Count : null,
                     TotalDrr = verifiedDays?.GetValueOrDefault(date)?.Drr,
-                    Drr = found && value!.Revenue > 0 ? (decimal?)(value.Spend / value.Revenue * 100m) : null,
+                    Drr = found && value!.Revenue > 0 && verifiedDay is { ExpectedCampaigns: > 0 } &&
+                        verifiedDay.CheckedCampaigns == verifiedDay.ExpectedCampaigns ? (decimal?)(value.Spend / value.Revenue * 100m) : null,
                     Ctr = found && value!.Impressions > 0 ? (decimal?)(value.Clicks * 100m / value.Impressions) : null,
                     LoadedCampaigns = found ? value!.LoadedCampaigns : 0,
                     ExpectedCampaigns = expectedCampaigns
