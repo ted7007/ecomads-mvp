@@ -122,8 +122,8 @@ public sealed class WbImportTests(PostgresFixture postgres)
         }
         await using (var db = postgres.CreateDbContext(connection))
         {
-            Assert.Single(await db.WbClusterStatistics.Where(x => x.CampaignId == campaignId).ToListAsync());
-            Assert.Equal("no_data", (await db.WbSourceQualities.SingleAsync(x => x.Source == "clusters")).State);
+            Assert.Empty(await db.WbClusterStatistics.Where(x => x.CampaignId == campaignId).ToListAsync());
+            Assert.Equal("zero", (await db.WbSourceQualities.SingleAsync(x => x.Source == "clusters")).State);
         }
     }
 

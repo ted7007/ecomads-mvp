@@ -73,9 +73,9 @@ public sealed class WbNormQueryImporter(EcomadsDbContext db)
                             x.NomenclatureId == articleId && x.Date == date)
                         .Select(x => x.ClusterName).ToArrayAsync(cancellationToken);
                     var missingClusters = previousNames.Except(received.Select(x => x.ClusterName), StringComparer.Ordinal).Any();
-                    var state = received.Length == 0 ? "no_data" : missingClusters ? "partial" : "data";
+                    var state = received.Length == 0 ? "zero" : "data";
                     if (!await quality.ObserveAsync(storeId, "clusters", $"{campaign.Id}:{articleId}", date, date,
-                        state, cancellationToken, missingClusters ? "WB не вернул часть ранее полученных кластеров. Прежний снимок сохранён как устаревший." : null)) continue;
+                        state, cancellationToken, missingClusters ? "Успешный ответ WB: отсутствующие строки кластеров считаются нулём." : null)) continue;
                     if (!WbQuality.Confirmed(state)) continue;
                     await db.WbClusterStatistics.Where(x => x.CampaignId == campaign.Id &&
                         x.NomenclatureId == articleId && x.Date == date).ExecuteDeleteAsync(cancellationToken);

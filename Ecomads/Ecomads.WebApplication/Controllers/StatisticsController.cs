@@ -4,6 +4,7 @@ using Ecomads.WebApplication.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Ecomads.WebApplication.Services.Wb;
 
 namespace Ecomads.WebApplication.Controllers;
 
@@ -30,8 +31,12 @@ public sealed class StatisticsController(EcomadsDbContext db) : ControllerBase
         [FromQuery] DateOnly? endDate, CancellationToken cancellationToken)
     {
         if (!TrySellerId(out var sellerId)) return Unauthorized();
-        if (!await db.Campaigns.AnyAsync(x => x.Id == campaignId && x.Store.SellerId == sellerId, cancellationToken))
+        var owned = await db.Campaigns.Where(x => x.Id == campaignId && x.Store.SellerId == sellerId)
+            .Select(x => new { x.StoreId }).SingleOrDefaultAsync(cancellationToken);
+        if (owned == null)
             return NotFound();
+        if (startDate.HasValue && endDate.HasValue && (startDate > endDate || endDate.Value.DayNumber - startDate.Value.DayNumber > 365))
+            return BadRequest(new { message = "Выберите период не длиннее 366 дней." });
         var query = db.CampaignNomenclatureStatistics.AsNoTracking().Where(x => x.CampaignId == campaignId);
         if (startDate.HasValue)
         {
@@ -44,6 +49,9 @@ public sealed class StatisticsController(EcomadsDbContext db) : ControllerBase
             query = query.Where(x => x.Date <= to);
         }
         var raw = await query.Include(x => x.Nomenclature).ToListAsync(cancellationToken);
+        var totals = startDate.HasValue && endDate.HasValue && raw.Count > 0
+            ? await new WbProductTotals(db).GetAsync(owned.StoreId, raw.Select(x => x.Nomenclature.WbNomenclatureId).Distinct().ToArray(),
+                startDate.Value, endDate.Value, cancellationToken) : new Dictionary<string, WbProductTotal>();
         var rows = raw.GroupBy(x => new { x.Nomenclature.WbNomenclatureId, x.Nomenclature.Name })
             .Select(group =>
             {
@@ -51,6 +59,7 @@ public sealed class StatisticsController(EcomadsDbContext db) : ControllerBase
                 var clicks = group.Sum(x => x.Clicks);
                 var orders = group.Sum(x => x.Orders);
                 var spend = group.Sum(x => x.Spend);
+                var total = totals.GetValueOrDefault(group.Key.WbNomenclatureId);
                 return new NomenclatureStatisticsDto
                 {
                     NomenclatureId = group.Key.WbNomenclatureId, Name = group.Key.Name,
@@ -59,7 +68,11 @@ public sealed class StatisticsController(EcomadsDbContext db) : ControllerBase
                     Ctr = views > 0 ? clicks * 100m / views : null,
                     Cr = clicks > 0 ? orders * 100m / clicks : null,
                     Cpc = clicks > 0 ? spend / clicks : null,
-                    Cpo = orders > 0 ? spend / orders : null
+                    Cpo = orders > 0 ? spend / orders : null,
+                    TotalOrderSum = total?.OrderSum, TotalAdvertisingSpend = total?.AdvertisingSpend, TotalDrr = total?.Drr,
+                    TotalOrderDays = total?.OrderDays ?? 0, TotalAdvertisingDays = total?.AdvertisingDays ?? 0,
+                    TotalExpectedDays = total?.ExpectedDays ?? 0, TotalStatus = total?.Status ?? "unavailable",
+                    TotalReason = total?.Reason ?? "Выберите начало и конец периода."
                 };
             }).OrderByDescending(x => x.Spend).ToList();
         return Ok(rows);

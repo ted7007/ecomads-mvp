@@ -9,6 +9,7 @@ public static class WbRateLimits
     {
         "operations_advertising" => "campaign_list",
         "operations_demand" => "funnel_products",
+        "product_orders" => "funnel_products",
         "fullstats_month" => "fullstats",
         "expenses_month" => "expenses",
         "funnel_month" => "funnel_products",
@@ -29,7 +30,7 @@ public static class WbRateLimits
         "operations_stocks_fbw" or "operations_stocks_fbs" => TimeSpan.FromSeconds(21),
         "operations_budgets" => TimeSpan.FromMinutes(15),
         "operations_balance" or "operations_demand" => TimeSpan.FromMinutes(30),
-        "clusters" or "funnel_recent" or "funnel_backfill" or "funnel_year" or
+        "clusters" or "funnel_recent" or "funnel_backfill" or "funnel_year" or "product_orders" or
             "funnel_history" or "funnel_products" or "funnel_month" => TimeSpan.FromMinutes(30),
         _ => TimeSpan.FromHours(1)
     };

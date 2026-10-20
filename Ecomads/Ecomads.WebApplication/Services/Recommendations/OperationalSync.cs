@@ -102,7 +102,7 @@ public sealed class OperationalSync(EcomadsDbContext db, IWbOperationsClient cli
             db.WbOperationalSnapshots.Add(row); await db.SaveChangesAsync(ct);
         }
         // Each pass fetches one page per source; checkpoints survive process restarts and rate limits.
-        if (options?.Value.Rule01Enabled == true)
+        if (options?.Value.Rule01Enabled == true || options?.Value.ResultsEnabled == true)
         {
         foreach (var fbs in new[] { false, true })
         {
@@ -145,7 +145,7 @@ public sealed class OperationalSync(EcomadsDbContext db, IWbOperationsClient cli
         }, TimeSpan.FromMinutes(30));
         }
 
-        await Capture("demand", async previous =>
+        if (options?.Value.Rule01Enabled == true) await Capture("demand", async previous =>
         {
             if (!claims.HasAnalytics) throw new NotSupportedException();
             var window = RecommendationPeriods.Economic(now); var offset = previous?.Offset ?? 0;

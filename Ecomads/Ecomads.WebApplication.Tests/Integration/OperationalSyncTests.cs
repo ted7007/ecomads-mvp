@@ -22,12 +22,12 @@ public sealed class OperationalSyncTests(PostgresFixture postgres)
         db.Campaigns.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, WbCampaignId = "123", Name = "Campaign", WbStatus = 9 });
         await db.SaveChangesAsync(); return store;
     }
-    private static OperationalSync Sync(EcomadsDbContext db, FakeClient client, int tokenType = 4, bool stockEnabled = true)
+    private static OperationalSync Sync(EcomadsDbContext db, FakeClient client, int tokenType = 4, bool stockEnabled = true, bool resultsEnabled = false)
     {
         var tokens = new Tokens(tokenType); var promotion = new Promotion();
         return new(db, client, promotion, tokens, NullLogger<OperationalSync>.Instance,
             new WbSyncPlanner(db, promotion, tokens, NullLogger<WbSyncPlanner>.Instance),
-            Options.Create(new RecommendationOptions { Rule01Enabled = stockEnabled }));
+            Options.Create(new RecommendationOptions { Rule01Enabled = stockEnabled, ResultsEnabled = resultsEnabled }));
     }
 
     [Fact]
@@ -41,6 +41,18 @@ public sealed class OperationalSyncTests(PostgresFixture postgres)
         Assert.Equal(3, snapshots.Count);
         Assert.DoesNotContain(snapshots, x => x.Source is "stocks_fbw" or "stocks_fbs" or "demand");
         Assert.Contains(snapshots, x => x.Source == "budgets" && x.State == "ready");
+    }
+
+    [Fact]
+    public async Task ResultsCollectStocksWithoutEnablingStockRecommendationsOrDemand()
+    {
+        await using var db = await postgres.CreateMigratedDbContextAsync();
+        var store = await Seed(db); var client = new FakeClient();
+        await Sync(db, client, stockEnabled: false, resultsEnabled: true).RefreshAsync(store, DateTime.UtcNow, default);
+        var sources = await db.WbOperationalSnapshots.ToArrayAsync();
+        Assert.Contains(sources, x => x.Source == "stocks_fbw" && x.State == "ready");
+        Assert.Contains(sources, x => x.Source == "stocks_fbs" && x.State == "ready");
+        Assert.DoesNotContain(sources, x => x.Source == "demand");
     }
 
     [Fact]

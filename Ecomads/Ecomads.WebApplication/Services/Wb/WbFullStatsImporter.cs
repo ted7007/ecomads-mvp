@@ -49,8 +49,7 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                     !idElement.TryGetInt64(out var id) || !campaigns.ContainsKey(id.ToString()) ||
                     requestedIds != null && !requestedIds.Contains(id))
                 {
-                    WbIngestionContext.Current?.Reject($"fullstats[{originalOrdinal}]: unexpected_or_invalid_campaign");
-                    continue;
+                    throw new JsonException($"fullstats[{originalOrdinal}]: unexpected_or_invalid_campaign");
                 }
                 seenCampaigns.Add(id);
                 if (!advert.TryGetProperty("days", out var days) || days.ValueKind != JsonValueKind.Array)
@@ -112,9 +111,6 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                     x.Date == DateOnly.FromDateTime(date) && (x.Result == "data" || x.Result == "zero"), cancellationToken) &&
                     !await db.CampaignNomenclatureStatistics.AnyAsync(x => x.CampaignId == campaign.Id && x.Date == date &&
                         x.RecommendationFieldsVerified != true, cancellationToken)) continue;
-                var priorQuality = await db.WbSourceQualities.FindAsync([storeId, "fullstats", campaign.Id.ToString(), requestedDay, requestedDay], cancellationToken);
-                var priorSnapshot = priorQuality?.AcceptedSnapshotId;
-                var priorAcceptedAt = priorQuality?.AcceptedAtUtc;
                 if (!await quality.ObserveAsync(storeId, "fullstats", campaign.Id.ToString(), requestedDay, requestedDay,
                     Number(day, "sum") == 0 ? "zero" : "data", cancellationToken)) continue;
                 var previousArticles = await db.CampaignNomenclatureStatistics.AsNoTracking().Where(x => x.CampaignId == campaign.Id && x.Date == date)
@@ -229,14 +225,17 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                 {
                     var article = nomenclatures.Values.Single(x => x.Id == missing.NomenclatureId);
                     var entity = $"{campaign.Id}:{missing.NomenclatureId}";
-                    if (await quality.ObserveAsync(storeId, "fullstats", entity, requestedDay, requestedDay, "no_data", cancellationToken,
-                        $"WB не вернул товар {article.WbNomenclatureId} за отчётный день. Прежнее значение доступно как устаревшее.", previous: missing.Spend))
-                    {
-                        var missingQuality = await db.WbSourceQualities.FindAsync([storeId, "fullstats", entity, requestedDay, requestedDay], cancellationToken);
-                        missingQuality!.AcceptedSnapshotId ??= priorSnapshot;
-                        missingQuality.AcceptedAtUtc ??= priorAcceptedAt;
-                    }
+                    await quality.ObserveAsync(storeId, "fullstats", entity, requestedDay, requestedDay, "zero", cancellationToken,
+                        $"Успешный ответ WB без строки товара {article.WbNomenclatureId}: ноль за отчётный день.", previous: missing.Spend, proposed: 0);
                 }
+                // The former parser deleted missing leaves while retaining no_data quality.
+                // Repair those leaves too when replaying the complete successful response.
+                var presentEntities = articleStats.Values.Select(x => $"{campaign.Id}:{x.NomenclatureId}").ToHashSet();
+                var absentEntities = await db.WbSourceQualities.Where(x => x.StoreId == storeId && x.Source == "fullstats" &&
+                    x.Entity.StartsWith(campaign.Id + ":") && x.StartDate == requestedDay && x.EndDate == requestedDay)
+                    .Select(x => x.Entity).ToArrayAsync(cancellationToken);
+                foreach (var entity in absentEntities.Where(x => !presentEntities.Contains(x)))
+                    await quality.ObserveAsync(storeId, "fullstats", entity, requestedDay, requestedDay, "zero", cancellationToken, proposed: 0);
             }
             }
 
@@ -253,19 +252,29 @@ public sealed class WbFullStatsImporter(EcomadsDbContext db, IOptions<Recommenda
                     if (seenDays.Contains((campaign.Id, date)) || WbCampaignEligibility.CreatedAfter(campaign, date) ||
                         WbCampaignEligibility.FinishedBefore(campaign, date)) continue;
                     if (fillMissingOnly && previous.TryGetValue((campaign.Id, date), out var preserved) &&
-                        preserved.Result is "data" or "zero") continue;
+                        preserved.Result is "data" or "zero" && preserved.LastAttemptResult != "no_data") continue;
                     if (!await quality.ObserveAsync(storeId, "fullstats", campaign.Id.ToString(), date, date,
-                        "no_data", cancellationToken, "WB не вернул день кампании.")) continue;
+                        "zero", cancellationToken, "Успешный ответ WB без строки кампании за день: ноль.", proposed: 0)) continue;
                     if (!previous.TryGetValue((campaign.Id, date), out var check))
                     {
                         check = new WbCampaignDailyCheck { CampaignId = campaign.Id, Date = date,
                             CheckedAtUtc = observedAt, JobId = jobId };
                         db.WbCampaignDailyChecks.Add(check);
                     }
-                    // An absent row is an observation, never a zero or a reason to delete older values.
-                    else if (fillMissingOnly && check.Result is "data" or "zero") continue;
+                    var childEntities = await db.WbSourceQualities.Where(x => x.StoreId == storeId && x.Source == "fullstats" &&
+                        x.Entity.StartsWith(campaign.Id + ":") && x.StartDate == date && x.EndDate == date).Select(x => x.Entity).ToArrayAsync(cancellationToken);
+                    foreach (var entity in childEntities)
+                        await quality.ObserveAsync(storeId, "fullstats", entity, date, date, "zero", cancellationToken, proposed: 0);
+                    var timestamp = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+                    await db.CampaignStatistics.Where(x => x.CampaignId == campaign.Id && x.Date == timestamp).ExecuteDeleteAsync(cancellationToken);
+                    await db.CampaignNomenclatureStatistics.Where(x => x.CampaignId == campaign.Id && x.Date == timestamp).ExecuteDeleteAsync(cancellationToken);
+                    check.Result = "zero";
+                    check.Spend = 0;
+                    check.CheckedAtUtc = observedAt;
+                    check.JobId = jobId;
                     check.LastAttemptAtUtc = observedAt;
-                    check.LastAttemptResult = "no_data";
+                    check.LastAttemptResult = "zero";
+                    acceptedCampaigns.Add(long.Parse(campaign.WbCampaignId));
                 }
             }
             await db.SaveChangesAsync(cancellationToken);

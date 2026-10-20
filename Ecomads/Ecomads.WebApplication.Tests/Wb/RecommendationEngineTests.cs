@@ -112,12 +112,13 @@ public sealed class RecommendationEngineTests
     [Fact]
     public void NormInheritancePreservesExplicitZeroAndExistingThirtyPercent()
     {
-        Assert.Equal("default", RecommendationEngine.ResolveNorm(null, null, null).Source);
-        Assert.Equal(0.20m, RecommendationEngine.ResolveNorm(null, null, null).Value);
-        Assert.Equal(0.30m, RecommendationEngine.ResolveNorm(null, null, 30).Value);
-        Assert.Equal("campaign", RecommendationEngine.ResolveNorm(null, 25, 30).Source);
-        Assert.Equal("article", RecommendationEngine.ResolveNorm(0, 25, 30).Source);
-        Assert.Equal(0m, RecommendationEngine.ResolveNorm(0, 25, 30).Value);
+        Assert.Equal("default", RecommendationEngine.ResolveNorm(null, null).Source);
+        Assert.Equal(0.20m, RecommendationEngine.ResolveNorm(null, null).Value);
+        Assert.Equal(0.30m, RecommendationEngine.ResolveNorm(null, 30).Value);
+        Assert.Equal("campaign", RecommendationEngine.ResolveNorm(25, 30).Source);
+        Assert.Equal("campaign", RecommendationEngine.ResolveNorm(0, 30).Source);
+        Assert.Equal(0m, RecommendationEngine.ResolveNorm(0, 30).Value);
+        Assert.Equal(0, RecommendationEngine.ResolveNorm(25, 30, 2, 3).ArticleVersion);
     }
 
     [Fact]

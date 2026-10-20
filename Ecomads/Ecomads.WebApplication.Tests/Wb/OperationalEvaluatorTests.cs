@@ -38,7 +38,7 @@ public sealed class OperationalEvaluatorTests
         return OperationalEvaluator.Evaluate(store, campaign, "123", 9,
             [new() { Id = article, StoreId = store, WbNomenclatureId = "1", Name = "Product" }], stats,
             [], incomplete ? checks.Skip(1).ToArray() : checks, [], snapshots, settings, null,
-            new() { CampaignId = campaign, Version = 7, RecommendationMode = mode, LaunchDate = launch ? window.StartDate : null }, [], clusters ?? [], window, now, stockEnabled);
+            new() { CampaignId = campaign, Version = 7, RecommendationMode = mode, LaunchDate = launch ? window.StartDate : null }, clusters ?? [], window, now, stockEnabled);
     }
 
     [Fact]
@@ -75,7 +75,11 @@ public sealed class OperationalEvaluatorTests
         Assert.Equal("triggered", Evaluate(spend: 240, revenue: 1000).Single(x => x.Rules[0].RuleId == "R07").Rules[0].Status);
         Assert.Equal("not_triggered", Evaluate(spend: 240, revenue: 1000, mode: "growth").Single(x => x.Rules[0].RuleId == "R07").Rules[0].Status);
         Assert.Equal("skipped", Evaluate(launch: true).Single(x => x.Rules[0].RuleId == "R07").Rules[0].Status);
-        Assert.Equal("skipped", Evaluate(incomplete: true).Single(x => x.Rules[0].RuleId == "R07").Rules[0].Status);
+        var partial = Evaluate(incomplete: true).Single(x => x.Rules[0].RuleId == "R07");
+        Assert.Equal("not_triggered", partial.Rules[0].Status); // The unavailable day held all three orders.
+        Assert.Equal(13, partial.Quality.AvailableDays);
+        Assert.False(partial.Quality.Complete);
+        Assert.Equal(13m, partial.Facts.Spend);
     }
 
     [Fact]

@@ -35,7 +35,7 @@ function JobDetails({ storeId, job, label, notes = [] }: { storeId: string; job:
         {job.errorCode ? <Typography variant="body2" color="error.main">{jobError(job.errorCode, job.kind)}</Typography> : null}
         {job.status === 'failed' && job.processedCount > 0 ? <Typography variant="body2">Сохранённые данные доступны.</Typography> : null}
         {!job.paused && ['rate_limit', 'retry'].includes(job.waitReason ?? '') ? <Typography variant="body2">Следующая попытка: {moscowTime(job.nextAttemptAtUtc)}</Typography> : null}
-        {job.paused ? <Typography variant="body2">Годовая загрузка приостановлена. Уже начатый запрос WB может завершиться.</Typography> : null}
+        {job.paused ? <Typography variant="body2">{job.errorCode === 'no_progress' ? 'Загрузка приостановлена: 24 часа без прогресса. Проверьте доступ и лимиты перед продолжением.' : 'Загрузка приостановлена. Уже начатый запрос WB может завершиться.'}</Typography> : null}
         {job.waitReason === 'priority' && !job.paused ? <Typography variant="body2">Продолжится после загрузки текущих данных.</Typography> : null}
         {job.estimatedCompletionAtUtc ? <Typography variant="body2">Завершение примерно: {moscowTime(job.estimatedCompletionAtUtc)}</Typography> : null}
         {details.isPending ? <CircularProgress size={16} aria-label="Загрузка подробностей" /> : null}

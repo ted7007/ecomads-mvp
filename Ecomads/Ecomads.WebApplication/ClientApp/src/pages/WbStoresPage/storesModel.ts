@@ -3,7 +3,7 @@ import type { getTelegramHistory } from './telegramApi';
 import { sortRows } from '../../shared/lib/sortRows';
 export const labels: Record<string, string> = {
   funnel: 'Заказы', fullstats_month: 'Реклама · проверка месяца',
-  expenses_month: 'Расходы · проверка месяца', funnel_month: 'Заказы · проверка месяца', fullstats: 'Текущая реклама',
+  expenses_month: 'Расходы · проверка месяца', funnel_month: 'Заказы · проверка месяца', fullstats: 'Текущая реклама', product_orders: 'Заказы по товарам · 30 дней',
   fullstats_history: 'История рекламы · год', expenses_history: 'История расходов · год',
   funnel_year: 'История заказов · год',
   funnel_recent: 'Свежие заказы · 7 дней', funnel_backfill: 'История заказов · дни 8–30', expenses: 'Расход кабинета', archive: 'Архив рекламы',
@@ -102,8 +102,8 @@ export function jobTone(job: WbSyncJob | null): 'success' | 'error' | 'info' | '
   if (job.waitReason === 'priority' || job.waitReason === 'rollout') return 'neutral';
   return job.status === 'running' ? 'info' : 'neutral';
 }
-export const canPause = (job: WbSyncJob) => yearKinds.has(job.kind) && ['pending', 'running'].includes(job.status);
-export const primaryKinds = ['fullstats', 'expenses', 'funnel', 'funnel_recent', 'funnel_backfill', 'clusters', 'jam'];
+export const canPause = (job: WbSyncJob) => (yearKinds.has(job.kind) || job.kind === 'product_orders') && ['pending', 'running'].includes(job.status);
+export const primaryKinds = ['fullstats', 'expenses', 'funnel', 'funnel_recent', 'funnel_backfill', 'product_orders', 'clusters', 'jam'];
 export function summaryPeriodError(start: string, end: string, today: string): string | null {
   const valid = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
   if (!valid(start) || !valid(end) || start > end) return 'Выберите корректные даты периода.';

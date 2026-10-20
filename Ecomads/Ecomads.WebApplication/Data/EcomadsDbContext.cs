@@ -5,8 +5,15 @@ namespace Ecomads.WebApplication.Data;
 
 public class EcomadsDbContext : DbContext
 {
+    public DbSet<WbResultObservation> WbResultObservations { get; set; }
+    public DbSet<WbResultRecommendation> WbResultRecommendations { get; set; }
+    public DbSet<WbResultExposure> WbResultExposures { get; set; }
+    public DbSet<WbResultMeasurement> WbResultMeasurements { get; set; }
+    public DbSet<WbResultRevision> WbResultRevisions { get; set; }
     public DbSet<WbOperationalSnapshot> WbOperationalSnapshots { get; set; }
     public DbSet<WbResponseSnapshot> WbResponseSnapshots { get; set; }
+    public DbSet<WbProductOrderDay> WbProductOrderDays { get; set; }
+    public DbSet<WbProductDailyOrders> WbProductDailyOrders { get; set; }
     public DbSet<WbSourceQuality> WbSourceQualities { get; set; }
     public DbSet<WbCostObservation> WbCostObservations { get; set; }
     public DbSet<WbIngestionDecision> WbIngestionDecisions { get; set; }
@@ -36,7 +43,6 @@ public class EcomadsDbContext : DbContext
     public DbSet<WbRecommendationRun> WbRecommendationRuns { get; set; }
     public DbSet<WbAdvertisingSettings> WbAdvertisingSettings { get; set; }
     public DbSet<WbSnapshotDecision> WbSnapshotDecisions { get; set; }
-    public DbSet<WbArticleNorm> WbArticleNorms { get; set; }
     public DbSet<WbArticleObservation> WbArticleObservations { get; set; }
     public DbSet<TelegramLinkCode> TelegramLinkCodes { get; set; }
     public DbSet<TelegramChat> TelegramChats { get; set; }
@@ -45,6 +51,39 @@ public class EcomadsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<WbResultObservation>(e => {
+            e.ToTable("wb_result_observations"); e.HasKey(x => x.Id);
+            e.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            e.HasIndex(x => new { x.CampaignId, x.AttemptedAtUtc }).IsUnique();
+            e.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbResultRecommendation>(e => {
+            e.ToTable("wb_result_recommendations"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.StoreId, x.SubjectKey, x.FirstShownAtUtc });
+            e.Property(x => x.BaselineJson).HasColumnType("jsonb");
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<WbResultMeasurement>().WithMany().HasForeignKey(x => x.MeasurementId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<WbResultExposure>(e => {
+            e.ToTable("wb_result_exposures"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.RecommendationId, x.RunId, x.EvaluationId, x.RuleId }).IsUnique();
+            e.Property(x => x.CardJson).HasColumnType("jsonb");
+            e.HasOne<WbResultRecommendation>().WithMany().HasForeignKey(x => x.RecommendationId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<WbRecommendationRun>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<WbResultMeasurement>(e => {
+            e.ToTable("wb_result_measurements"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.StoreId, x.DetectedDate });
+            e.OwnsOne(x => x.Before); e.OwnsOne(x => x.After);
+            e.Property(x => x.MembersJson).HasColumnType("jsonb"); e.Property(x => x.Savings).HasPrecision(18, 2);
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbResultRevision>(e => {
+            e.ToTable("wb_result_revisions"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.MeasurementId, x.Number }).IsUnique();
+            e.Property(x => x.EvidenceJson).HasColumnType("jsonb");
+            e.HasOne<WbResultMeasurement>().WithMany().HasForeignKey(x => x.MeasurementId).OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<WbOperationalSnapshot>(entity =>
         {
             entity.ToTable("wb_operational_snapshots");
@@ -52,6 +91,17 @@ public class EcomadsDbContext : DbContext
             entity.Property(x => x.PayloadJson).HasColumnType("jsonb");
             entity.HasIndex(x => new { x.StoreId, x.Source, x.EntityKey, x.RequestedAtUtc });
             entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<WbProductOrderDay>(e => {
+            e.ToTable("wb_product_order_days"); e.HasKey(x => new { x.StoreId, x.Date });
+            e.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<WbResponseSnapshot>().WithMany().HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<WbProductDailyOrders>(e => {
+            e.ToTable("wb_product_daily_orders"); e.HasKey(x => new { x.StoreId, x.Date, x.NmId });
+            e.Property(x => x.OrderSum).HasPrecision(18, 2);
+            e.HasIndex(x => new { x.StoreId, x.NmId, x.Date });
+            e.HasOne<WbProductOrderDay>().WithMany().HasForeignKey(x => new { x.StoreId, x.Date }).OnDelete(DeleteBehavior.Cascade);
         });
         modelBuilder.Entity<WbResponseSnapshot>(e => {
             e.ToTable("wb_response_snapshots"); e.HasKey(x => x.Id);
@@ -101,14 +151,6 @@ public class EcomadsDbContext : DbContext
             entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Store>().WithMany().HasForeignKey(x => x.StoreId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Seller>().WithMany().HasForeignKey(x => x.SellerId).OnDelete(DeleteBehavior.Cascade);
-        });
-        modelBuilder.Entity<WbArticleNorm>(entity =>
-        {
-            entity.ToTable("wb_article_norms");
-            entity.HasKey(x => new { x.CampaignId, x.NomenclatureId });
-            entity.Property(x => x.TargetDrr).HasColumnType("decimal(8,2)");
-            entity.HasOne<Campaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne<Nomenclature>().WithMany().HasForeignKey(x => x.NomenclatureId).OnDelete(DeleteBehavior.Cascade);
         });
         modelBuilder.Entity<WbArticleObservation>(entity =>
         {

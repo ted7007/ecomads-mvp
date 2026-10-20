@@ -66,6 +66,7 @@ builder.Services.AddScoped<WbFullStatsImporter>();
 builder.Services.AddScoped<WbNormQueryImporter>();
 builder.Services.AddScoped<WbJamImporter>();
 builder.Services.AddScoped<WbSalesFunnelImporter>();
+builder.Services.AddScoped<WbProductOrdersRefresh>();
 builder.Services.AddScoped<WbCostsImporter>();
 builder.Services.AddScoped<WbSyncPlanner>();
 builder.Services.AddScoped<WbScheduledRefreshService>();
@@ -75,6 +76,7 @@ builder.Services.AddOptions<RecommendationOptions>().Bind(builder.Configuration.
     .Validate(x => x.PriceScenario is >= 0 and < 1 && x.NoUnitsSpendFloor >= 0 && x.HighDrrMinimumUnits >= 1 && x.RetentionDays >= 1)
     .ValidateOnStart();
 builder.Services.AddScoped<RecommendationService>();
+builder.Services.AddScoped<ResultsService>();
 builder.Services.AddScoped<AdvertisingSettingsSync>();
 builder.Services.AddScoped<OperationalSync>();
 builder.Services.AddScoped<IWbOperationsClient, WbOperationsClient>();
@@ -82,8 +84,10 @@ builder.Services.AddHttpClient("wb-operations-analytics", client => { client.Bas
 builder.Services.AddHttpClient("wb-operations-promotion", client => { client.BaseAddress = new Uri("https://advert-api.wildberries.ru"); client.Timeout = TimeSpan.FromMinutes(2); });
 builder.Services.AddHostedService<RecommendationWorker>();
 builder.Services.AddHostedService<WbSyncWorker>();
+builder.Services.AddHostedService<WbProductOrdersWorker>();
 builder.Services.AddHostedService<WbJournalRetentionWorker>();
 builder.Services.AddHostedService<WbLegacyRecheckWorker>();
+builder.Services.AddHostedService<WbSparseReplayWorker>();
 builder.Services.AddHostedService<WbAutoRefreshWorker>();
 builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();
 builder.Services.AddHostedService<TelegramUpdatesWorker>();

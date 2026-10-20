@@ -8,6 +8,7 @@ import { getRecommendationSummary } from '../../../shared/api/clusterRecommendat
 import { DecisionButtons } from '../../../shared/ui/ClusterRecommendationCard';
 import { formatMoney } from '../../../shared/lib/formatMoney';
 import { formatPercent } from '../../../shared/lib/formatPercent';
+import { RecommendationExposure } from '../../../shared/ui/RecommendationExposure';
 import type { DashboardFilters } from '../dashboardApi';
 
 type Summary = Awaited<ReturnType<typeof getRecommendationSummary>>;
@@ -20,7 +21,7 @@ function signal(card: RecommendationCard) {
   if (details?.kind === 'stock') return { tag: 'Остатки', tone: ui.status.warning,
     value: details.stockDays == null ? 'Запас товара требует проверки' : `Запаса на ${details.stockDays.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} дн.`, norm: '' };
   if (card.rule.ruleId === 'R03') return { tag: 'Без заказов', tone: ui.status.warning,
-    value: `Расход ${formatMoney(card.facts.spend)}`, norm: `заказанных единиц ${card.facts.orderedProducts ?? '—'}` };
+    value: `Расход ${formatMoney(card.facts.spend)}`, norm: `${card.facts.clicks ?? '—'} кликов · ${card.facts.orderedProducts ?? '—'} заказанных единиц · ДЦЗ ${formatMoney(card.economy.allowedSpendPerUnit)}` };
   if (!['R06', 'R07'].includes(card.rule.ruleId)) return { tag: 'Требует внимания', tone: ui.status.warning,
     value: `Расход ${formatMoney(card.facts.spend)}`, norm: '' };
   return { tag: 'Выше нормы', tone: ui.status.warning,
@@ -32,18 +33,21 @@ function AttentionCard({ card, runId, name, to }: { card: RecommendationCard; ru
   const item = signal(card);
   const decision = card.decision;
   const decisionLabel = decision?.status === 'accepted' ? 'Принято' : decision?.status === 'snoozed' ? 'Отложено' : decision?.status === 'irrelevant' ? 'Не актуально' : decision?.status;
-  const action = card.presentation?.primary.label ?? card.rule.explanation;
+  const action = [card.presentation?.primary.label ?? card.rule.explanation,
+    ...(card.presentation?.alternatives.map(a => `или ${a.label.toLocaleLowerCase('ru-RU')}`) ?? [])].filter(Boolean).join(' · ');
   const subject = card.subject.clusterName ?? card.subject.nomenclatureName;
-  const note = [subject && card.subject.scope !== 'campaign' ? subject : '', card.preliminary ? 'Предварительно' : '',
+  const note = [card.subject.scope === 'cluster' && card.presentation ? `≈ ${formatMoney(card.presentation.weeklySpend)} в неделю` : '',
+    card.preliminary ? 'Предварительно' : '', subject && card.subject.scope !== 'campaign' ? subject : '',
     decision ? `${decisionLabel}${decision.snoozeUntil ? ` до ${decision.snoozeUntil.split('-').reverse().join('.')}` : ''}` : ''].filter(Boolean).join(' · ');
-  return <Card component="article" sx={{ height: 176, minWidth: 0, scrollSnapAlign: 'start' }}><CardContent sx={{ height: '100%', boxSizing: 'border-box', p: 1.75, '&:last-child': { pb: 1.75 } }}>
+  return <Card component="article" sx={{ height: card.rule.ruleId === 'R03' ? 220 : 176, minWidth: 0, scrollSnapAlign: 'start' }}><CardContent sx={{ height: '100%', boxSizing: 'border-box', p: 1.75, '&:last-child': { pb: 1.75 } }}>
     <Stack spacing={.5} sx={{ height: '100%', minWidth: 0 }}>
+      <RecommendationExposure runId={runId} evaluationId={card.evaluationId} ruleId={card.rule.ruleId} />
       <Stack direction="row" gap={.75} alignItems="center" sx={{ minHeight: 22 }}>
         <Chip size="small" label={item.tag} sx={{ ...item.tone, height: 21, maxWidth: '45%', borderRadius: ui.radius.badge, fontWeight: 700, fontSize: 11 }} />
         <Typography fontSize={14} fontWeight={700} noWrap title={name} sx={{ flex: 1, minWidth: 0 }}>{name}</Typography>
         <Button component={Link} to={to} size="small" sx={{ minWidth: 0, p: 0, fontSize: 12, flexShrink: 0 }}>Открыть</Button>
       </Stack>
-      <Typography variant="body2" noWrap title={`${item.value}${item.norm ? ` · ${item.norm}` : ''}`}>
+      <Typography variant="body2" noWrap={card.rule.ruleId !== 'R03'} sx={{ flexShrink: 0 }} title={`${item.value}${item.norm ? ` · ${item.norm}` : ''}`}>
         <Box component="span" sx={{ color: item.tone.color, fontWeight: 700 }}>{item.value}</Box>
         {item.norm ? <Box component="span" color="text.secondary"> · {item.norm}</Box> : null}
       </Typography>

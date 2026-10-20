@@ -5,7 +5,8 @@ namespace Ecomads.WebApplication.Services.Wb;
 
 public static class WbSyncJobUnits
 {
-    public static readonly string[] SupportedKinds = ["fullstats_month", "expenses_month", "funnel_month", "fullstats", "funnel_recent", "expenses", "fullstats_history", "expenses_history", "funnel_year", "clusters", "jam", "archive", "funnel_backfill"];
+    public static readonly string[] SupportedKinds = ["fullstats_month", "expenses_month", "funnel_month", "fullstats", "funnel_recent", "expenses", "fullstats_history", "expenses_history", "funnel_year", "clusters", "jam", "archive", "funnel_backfill", "product_orders"];
+    public static bool CanPause(string kind) => IsYearHistory(kind) || kind == "product_orders";
 
     public static bool IsYearHistory(string kind) => kind is "fullstats_history" or "expenses_history" or "funnel_year";
     public static int Total(WbSyncJob job) => job.Kind switch
@@ -23,7 +24,7 @@ public static class WbSyncJobUnits
     {
         "clusters" => 100,
         "fullstats_history" or "expenses_history" or "expenses_month" => 1,
-        "funnel_recent" or "funnel_backfill" or "funnel_year" or "funnel_month" or "expenses" => 1,
+        "funnel_recent" or "funnel_backfill" or "funnel_year" or "funnel_month" or "product_orders" or "expenses" => 1,
         _ => 50
     };
 
@@ -32,7 +33,7 @@ public static class WbSyncJobUnits
         "clusters" => "pair",
         "fullstats_history" or "expenses_history" or "expenses_month" => "request",
         "jam" => "product",
-        "funnel_recent" or "funnel_backfill" or "funnel_year" or "funnel_month" or "expenses" => "request",
+        "funnel_recent" or "funnel_backfill" or "funnel_year" or "funnel_month" or "product_orders" or "expenses" => "request",
         _ => "campaign"
     };
 }

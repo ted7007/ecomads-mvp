@@ -53,6 +53,9 @@
 
 ## Сбор данных Wildberries
 
+- [R03 — достаточность кликов и зависимости страницы результатов](scenario-plans/r03-click-threshold-and-results.md).
+- [Страница «Результаты»: реализация, методика и проверки](scenario-plans/results-page-report.md).
+
 - [Автоматическое обновление, история и подготовка Telegram](wb-automatic-refresh.md)
 - [Ручная загрузка и источники данных](wb-data-loading-guide.md)
 

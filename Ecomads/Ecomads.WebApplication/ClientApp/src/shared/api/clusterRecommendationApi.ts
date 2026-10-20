@@ -5,6 +5,7 @@ import { wbClusterRowSchema } from '../../pages/CampaignPage/campaignApi';
 
 const facts = z.object({ spend: z.number(), views: z.number().nullable(), clicks: z.number().nullable(),
   carts: z.number().nullable(), orders: z.number().nullable(), orderedProducts: z.number().nullable(), unitPrice: z.number().nullable() });
+// "article" and articleVersion remain readable in immutable historical snapshots only.
 const norm = z.object({ value: z.number(), source: z.enum(['article', 'campaign', 'store', 'default']),
   storeVersion: z.number(), campaignVersion: z.number(), articleVersion: z.number() });
 const economy = z.object({ estimatedOrderSum: z.number().nullable(), drr: z.number().nullable(),
@@ -20,6 +21,9 @@ const operationalDetails = z.object({ kind: z.string(), window: z.object({ start
   fbw: z.number().nullable(), fbs: z.number().nullable(), stockDays: z.number().nullable(), dailySpend: z.number().nullable(), dailyUnits: z.number().nullable(),
   budget: z.number().nullable(), budgetDays: z.number().nullable(), topUp: z.number().nullable(), balance: z.number().nullable(), affectedArticles: z.array(z.string()).nullable(), blockGrowth: z.boolean() });
 const presentation = z.object({ primary: action, alternatives: z.array(action), keyShare: z.number().nullable(), isKey: z.boolean(), weeklySpend: z.number(), details: operationalDetails.nullish(), priority: z.number().optional(),
+  clickEvidence: z.object({ cr: z.number(), source: z.enum(['actual', 'fallback']),
+    window: z.object({ startDate: z.string(), endDate: z.string() }), minimumClicks: z.number().nullable(),
+    result: z.enum(['unknown', 'sufficient', 'insufficient']) }).nullish(),
   restrictions: z.array(z.object({ code: z.string(), label: z.string() })), diagnostics: z.array(z.object({ code: z.string(), label: z.string(), basis: z.string() })), warning: z.string().nullable(),
   control: z.object({ status: z.string(), bidType: z.string().nullable(), paymentType: z.string().nullable(), excluded: z.boolean().nullable(), currentBid: z.number().nullable(), minimumBid: z.number().nullable(), bidStep: z.number().nullable(), receivedAtUtc: z.string().nullable() }).nullish() });
 const decision = z.object({ status: z.string(), snoozeUntil: z.string().nullable(), reason: z.string().nullable(), comment: z.string().nullable(), createdAtUtc: z.string() });
@@ -28,7 +32,7 @@ const cardSchema = z.object({ evaluationId: z.string().uuid(), subject, rule, fa
 export type RecommendationCard = z.infer<typeof cardSchema>;
 const evaluation = z.object({ evaluationId: z.string().uuid(), subject, facts, norm, economy, rules: z.array(rule),
   presentation: presentation.nullish(), quality: z.object({ fullStatsComplete: z.boolean(), clustersComplete: z.boolean(), fieldsVerified: z.boolean(),
-    sourcesComparable: z.boolean(), maturity: z.string(), complete: z.boolean() }) });
+    sourcesComparable: z.boolean(), maturity: z.string(), complete: z.boolean(), availableDays: z.number().nullish(), expectedDays: z.number().nullish() }) });
 const schema = z.object({ enabled: z.boolean(), isWbConnected: z.boolean(), runId: z.string().uuid().nullable(), schemaVersion: z.number(),
   window: z.object({ startDate: z.string(), endDate: z.string(), days: z.number(), isValid: z.boolean() }),
   calculatedAtUtc: z.string().nullable(), status: z.string(), message: z.string(),
@@ -40,17 +44,6 @@ export type ClusterRecommendationResponse = z.infer<typeof schema>;
 
 export async function getClusterRecommendations(campaignId: string) {
   return schema.parse(await httpClient<unknown>(`/api/wb/campaigns/${encodeURIComponent(campaignId)}/recommendations`));
-}
-
-const articleNorm = z.object({ articleId: z.string().uuid(), nomenclatureId: z.string(), name: z.string(),
-  targetDrr: z.number().nullable(), effectiveTargetDrr: z.number(), source: z.string(), version: z.number(), launchDate: z.string().nullable(), effectiveLaunchDate: z.string().nullable() });
-export type ArticleNorm = z.infer<typeof articleNorm>;
-export async function getArticleNorms(campaignId: string) {
-  return articleNorm.array().parse(await httpClient<unknown>(`/api/wb/norms/campaigns/${encodeURIComponent(campaignId)}/articles`));
-}
-export async function saveArticleNorm(campaignId: string, articleId: string, targetDrr: number | null, launchDate: string | null) {
-  return httpClient<unknown>(`/api/wb/norms/campaigns/${encodeURIComponent(campaignId)}/articles/${encodeURIComponent(articleId)}`,
-    { method: 'PUT', body: { targetDrr, launchDate } });
 }
 
 export async function saveSnapshotDecision(campaignId: string, runId: string, evaluationIds: string[], ruleId: string,

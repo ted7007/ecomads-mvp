@@ -3,6 +3,7 @@ namespace Ecomads.WebApplication.Services.Recommendations;
 public sealed class RecommendationOptions
 {
     public bool Enabled { get; set; } = true;
+    public bool ResultsEnabled { get; set; } = true;
     // Deferred from sprint 3 until both FBW and FBS are available with supported access.
     public bool Rule01Enabled { get; set; } = false;
     public bool SourcesComparable { get; set; } = true;
@@ -21,13 +22,15 @@ public sealed record RecommendationWindow(DateOnly StartDate, DateOnly EndDate)
     public bool IsValid => Days is >= 1 and <= 366 && StartDate.DayNumber >= Days;
 }
 
+// ArticleVersion is retained only to read immutable historical snapshots. New calculations use zero.
 public sealed record RecommendationNorm(decimal Value, string Source, int StoreVersion,
     int CampaignVersion, int ArticleVersion);
 
 public sealed record RecommendationQuality(bool FullStatsComplete, bool ClustersComplete,
-    bool FieldsVerified, bool SourcesComparable, string Maturity = "unverified")
+    bool FieldsVerified, bool SourcesComparable, string Maturity = "unverified", int? AvailableDays = null, int? ExpectedDays = null)
 {
     public bool Complete => FullStatsComplete && ClustersComplete;
+    public bool Usable => Complete || AvailableDays > 0;
 }
 
 public sealed record RecommendationFacts(decimal Spend, int? Views, int? Clicks, int? Carts,
@@ -45,11 +48,11 @@ public static class RecommendationEngine
 {
     public const int Version = 1;
 
-    public static RecommendationNorm ResolveNorm(decimal? articlePercent, decimal? campaignPercent,
-        decimal? storePercent, int articleVersion = 0, int campaignVersion = 0, int storeVersion = 0) =>
-        new((articlePercent ?? campaignPercent ?? storePercent ?? 20m) / 100m,
-            articlePercent.HasValue ? "article" : campaignPercent.HasValue ? "campaign" :
-            storePercent.HasValue ? "store" : "default", storeVersion, campaignVersion, articleVersion);
+    public static RecommendationNorm ResolveNorm(decimal? campaignPercent, decimal? storePercent,
+        int campaignVersion = 0, int storeVersion = 0) =>
+        new((campaignPercent ?? storePercent ?? 20m) / 100m,
+            campaignPercent.HasValue ? "campaign" : storePercent.HasValue ? "store" : "default",
+            storeVersion, campaignVersion, 0);
 
     public static RecommendationEconomy Economy(RecommendationFacts facts, RecommendationNorm norm, decimal delta)
     {
@@ -67,12 +70,12 @@ public static class RecommendationEngine
         RecommendationQuality quality, RecommendationOptions options)
     {
         var economy = Economy(facts, norm, options.PriceScenario);
-        string? skip = !quality.Complete ? "incomplete_data" : !quality.SourcesComparable ? "sources_unverified" :
+        string? skip = !quality.Usable ? "incomplete_data" : !quality.SourcesComparable ? "sources_unverified" :
             !quality.FieldsVerified ? "fields_unverified" : facts.OrderedProducts is null ? "units_missing" :
             facts.Spend < 0 || facts.OrderedProducts < 0 || norm.Value < 0 ? "invalid_values" :
             facts.UnitPrice is null or <= 0 ? "unit_price_unavailable" : null;
         RuleEvaluation Result(string id, int group, bool enabled, string status, string code,
-            string explanation, decimal? threshold) => new(id, Version, group, enabled,
+            string explanation, decimal? threshold) => new(id, id == "R03" ? 2 : Version, group, enabled,
                 enabled ? status : "disabled", enabled ? code : "rule_disabled", explanation, threshold);
         var threshold = economy.AllowedSpendPerUnit.HasValue
             ? Math.Max(2m * economy.AllowedSpendPerUnit.Value, options.NoUnitsSpendFloor) : (decimal?)null;

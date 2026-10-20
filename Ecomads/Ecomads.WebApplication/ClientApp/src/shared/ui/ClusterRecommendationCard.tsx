@@ -5,6 +5,7 @@ import type { RecommendationCard } from '../api/clusterRecommendationApi';
 import { saveSnapshotDecision } from '../api/clusterRecommendationApi';
 import { formatMoney } from '../lib/formatMoney';
 import { moscowToday } from '../../pages/DashboardPage/components/PeriodFilter';
+import { RecommendationExposure } from './RecommendationExposure';
 
 const labels: Record<string, string> = { accepted: 'Принял', snoozed: 'Отложено', irrelevant: 'Не актуально' };
 export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, compact = false }: {
@@ -18,7 +19,7 @@ export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, comp
   const cache = useQueryClient();
   const save = useMutation({ mutationFn: () => saveSnapshotDecision(campaignId, runId, evaluationIds, ruleId, status, date || null, reason || null, comment || null),
     onSuccess: async () => { setStatus(''); await Promise.all([
-      cache.invalidateQueries({ queryKey: ['wb-cluster-recommendations'] }), cache.invalidateQueries({ queryKey: ['wb-recommendation-summary'] })
+      cache.invalidateQueries({ queryKey: ['wb-cluster-recommendations'] }), cache.invalidateQueries({ queryKey: ['wb-recommendation-summary'] }), cache.invalidateQueries({ queryKey: ['wb-results'] })
     ]); } });
   const invalid = status === 'snoozed' && (!date || date <= moscowToday()) || status === 'irrelevant' && !reason.trim();
   return <>
@@ -47,6 +48,7 @@ export function ClusterRecommendationCard({ card, runId, showDecisionButtons = t
   const sources: Record<string, string> = { stocks_fbw: 'Остатки FBW/FBO', stocks_fbs: 'Остатки FBS', demand: 'Заказы по всем каналам', advertising: 'Состав кампании и ставки', budgets: 'Бюджет кампании', balance: 'Общий баланс' };
   const number = (v: number | null | undefined) => v == null ? '—' : v.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
   return <Stack spacing={.75} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
+    <RecommendationExposure runId={runId} evaluationId={card.evaluationId} ruleId={card.rule.ruleId} />
     <Stack direction="row" gap={1} useFlexGap flexWrap="wrap" alignItems="center">
       <Typography fontWeight={700}>{titles[card.rule.ruleId] ?? card.rule.explanation}</Typography>
       {card.preliminary ? <Chip size="small" label="Предварительно" color="warning" variant="outlined" /> : null}
@@ -70,7 +72,8 @@ export function ClusterRecommendationCard({ card, runId, showDecisionButtons = t
       </>}
       {details.sources.map(s => <Typography key={s.source} variant="caption" color="text.secondary">{sources[s.source] ?? s.source}: {s.state === 'ready' ? 'получено' : s.state === 'collecting' ? 'загрузка не завершена' : 'данные недоступны'}{s.receivedAtUtc ? ` ${new Date(s.receivedAtUtc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : ''}{s.errorCode ? ` (${s.errorCode})` : ''}.</Typography>)}
     </> : <>
-    <Typography variant="body2">Расход {formatMoney(card.facts.spend)} · заказанные единицы {card.facts.orderedProducts ?? '—'} · норма ДРР {(card.norm.value * 100).toFixed(2)}%.</Typography>
+    <Typography variant="body2">Расход {formatMoney(card.facts.spend)} · {card.facts.clicks ?? '—'} кликов · заказанные единицы {card.facts.orderedProducts ?? '—'} · норма ДРР {(card.norm.value * 100).toFixed(2)}%.</Typography>
+    {card.rule.ruleId === 'R03' ? <Typography variant="body2">ДЦЗ {card.economy.allowedSpendPerUnit == null ? '—' : formatMoney(card.economy.allowedSpendPerUnit)}</Typography> : null}
     <Typography variant="body2">{card.rule.ruleId === 'R03' ? `Порог расхода ${formatMoney(card.rule.threshold ?? 0)}` : `Оценочный ДРР ${number(card.economy.drr == null ? null : card.economy.drr * 100)}% · сценарный диапазон ${number(card.economy.drrMin == null ? null : card.economy.drrMin * 100)} — ${number(card.economy.drrMax == null ? null : card.economy.drrMax * 100)}% · с одной дополнительной единицей ${number(card.economy.drrPlusOne == null ? null : card.economy.drrPlusOne * 100)}%`}</Typography>
     </>}
     <Typography fontWeight={700}>{p?.primary.label ?? card.rule.explanation}</Typography>
@@ -80,7 +83,7 @@ export function ClusterRecommendationCard({ card, runId, showDecisionButtons = t
     {p?.diagnostics.map(d => <Tooltip key={d.code} title={d.basis}><Typography variant="body2">{d.label}</Typography></Tooltip>)}
     {p && card.subject.scope === 'cluster' ? <Typography variant="body2">Расход кластера ≈ {formatMoney(p.weeklySpend)} в неделю</Typography> : null}
     {p?.control?.receivedAtUtc ? <Typography variant="caption" color="text.secondary">Настройки WB получены {new Date(p.control.receivedAtUtc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК.</Typography> : null}
-    <Typography variant="caption" color="text.secondary">{!details ? 'Сумма заказов кластера оценена по средней цене единицы товара за фиксированные 14 дней. ' : ''}Данные WB могут уточняться, в том числе после D−2.</Typography>
+    <Typography variant="caption" color="text.secondary">{!details ? 'Сумма заказов кластера оценена по средней цене единицы товара за доступные подтверждённые дни в окне 14 дней. ' : ''}Данные WB могут уточняться, в том числе после D−2.</Typography>
     {card.decision?.reason ? <Typography variant="body2">Причина: {card.decision.reason}</Typography> : null}
     {card.decision?.comment ? <Typography variant="body2">Комментарий: {card.decision.comment}</Typography> : null}
     {showDecisionButtons && runId && p ? <DecisionButtons campaignId={card.subject.campaignId} runId={runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}

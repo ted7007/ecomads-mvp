@@ -15,16 +15,6 @@ public sealed class WbRecommendationRun
     public string SnapshotJson { get; set; } = "{}";
 }
 
-public sealed class WbArticleNorm
-{
-    public DateOnly? LaunchDate { get; set; }
-    public Guid CampaignId { get; set; }
-    public Guid NomenclatureId { get; set; }
-    public decimal? TargetDrr { get; set; }
-    public int Version { get; set; } = 1;
-    public DateTime UpdatedAtUtc { get; set; }
-}
-
 public sealed class WbArticleObservation
 {
     public Guid Id { get; set; }

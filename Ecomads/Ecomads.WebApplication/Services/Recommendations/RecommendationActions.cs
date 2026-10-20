@@ -8,7 +8,7 @@ public sealed record RecommendationRestriction(string Code, string Label);
 public sealed record RecommendationPresentation(RecommendationAction Primary, IReadOnlyList<RecommendationAction> Alternatives,
     decimal? KeyShare, bool IsKey, decimal WeeklySpend, IReadOnlyList<RecommendationRestriction> Restrictions,
     IReadOnlyList<RecommendationDiagnostic> Diagnostics, string? Warning = null, AdvertisingControl? Control = null,
-    OperationalDetails? Details = null, int Priority = 4);
+    OperationalDetails? Details = null, int Priority = 4, RecommendationClickEvidence? ClickEvidence = null);
 public sealed record RecommendationDiagnostic(string Code, string Label, string Basis);
 public sealed record RecommendationDecisionState(string Status, DateOnly? SnoozeUntil, string? Reason, string? Comment,
     DateTime CreatedAtUtc);
@@ -22,18 +22,19 @@ public static class RecommendationActions
 
     public static RecommendationPresentation Select(RuleEvaluation rule, RecommendationFacts facts,
         RecommendationNorm norm, RecommendationQuality quality, RecommendationEconomy economy,
-        AdvertisingControl control, int? articleUnits, DateOnly? launch, RecommendationWindow window, DateOnly today)
+        AdvertisingControl control, int? articleUnits, DateOnly? launch, RecommendationWindow window, DateOnly today,
+        RecommendationClickEvidence? clickEvidence = null)
     {
         decimal? share = articleUnits > 0 && facts.OrderedProducts is >= 0 && facts.OrderedProducts <= articleUnits
             ? (decimal)facts.OrderedProducts.Value / articleUnits : articleUnits == 0 && facts.OrderedProducts == 0 ? 0 : null;
         var key = share >= .2m;
         var restrictions = new List<RecommendationRestriction>();
         if (LaunchProtected(launch, window, today)) restrictions.Add(new("launch", "Защита запуска: первые 21 день. Расходные рекомендации скрыты."));
-        if (!quality.Complete) restrictions.Add(new("incomplete", "Не все дни выбранного периода загружены."));
+        if (!quality.Complete) restrictions.Add(new("incomplete", $"Предварительно: расчёт по {quality.AvailableDays ?? 0} из {quality.ExpectedDays ?? window.Days} дней."));
         if (window.EndDate > today.AddDays(-2)) restrictions.Add(new("recent", "Свежий период: только предварительная диагностика. Для действий выберите конец не позднее D−2 по МСК."));
         if (control.Status != "ready") restrictions.Add(new("settings_" + control.Status, control.Status == "stale"
             ? "Настройки рекламы устарели; дождитесь обновления." : "Настройки рекламы неизвестны или недоступны; действие не подтверждено."));
-        if (share is null) restrictions.Add(new("key_unknown", "Ключевая доля неизвестна: исключение недоступно."));
+        if (share is null && !(rule.RuleId == "R03" && facts.OrderedProducts == 0)) restrictions.Add(new("key_unknown", "Ключевая доля неизвестна: исключение недоступно."));
         if (key) restrictions.Add(new("key", "Ключевой кластер: не менее 20% заказанных единиц товара. Исключение запрещено."));
         if (control.Excluded == true) restrictions.Add(new("excluded", "Кластер уже исключён."));
         var watch = new RecommendationAction("watch", "Наблюдать");
@@ -61,24 +62,40 @@ public static class RecommendationActions
             }
             return new("reduce_bid", target.HasValue ? $"Снизьте ставку до {target:0.##} ₽" : $"Снизьте ставку на {pct:0.##}%", pct, target);
         }
-        if (actionable && key && control.Status != "ready")
-            primary = new("check_product", "Проверьте цену и карточку", Level: "article");
-        if (actionable && control.Status == "ready" && control.Excluded != true)
+        if (rule.RuleId == "R03")
         {
-            if (rule.RuleId == "R03")
+            clickEvidence ??= RecommendationClickEvidence.Calculate(
+                new(window.EndDate.AddDays(-29), window.EndDate), 0, 0, false, facts.Clicks);
+            var eligible = actionable && rule.Status == "triggered" && facts.OrderedProducts == 0 &&
+                rule.Threshold.HasValue && facts.Spend >= rule.Threshold &&
+                control.Status == "ready" && control.Excluded == false && (manual || control.BidType == "unified");
+            if (eligible && clickEvidence.Result == "sufficient")
             {
-                if (share.HasValue && !key && control.Excluded == false) primary = new("exclude", "Исключите кластер");
-                else primary = new("check_product", "Проверьте цену и карточку", Level: "article");
+                primary = new("exclude", "Исключите кластер");
                 if (manual) alternatives.Add(Reduce(30));
             }
-            else if (manual)
+            else if (eligible && clickEvidence.Result == "insufficient")
+            {
+                restrictions.Add(new("insufficient_clicks", "Мало кликов для вывода, возможно, дело в цене клика"));
+                if (manual) primary = Reduce(30);
+                else primary = new("watch", "Наблюдать: мало кликов для вывода, возможно, дело в цене клика");
+            }
+            else if (clickEvidence.Result == "unknown")
+                restrictions.Add(new("clicks_unknown", "Число кликов неизвестно; дождитесь загрузки данных."));
+        }
+        else if (actionable && key && control.Status != "ready")
+            primary = new("check_product", "Проверьте цену и карточку", Level: "article");
+        else if (actionable && control.Status == "ready" && control.Excluded != true)
+        {
+            if (manual)
                 primary = Reduce(economy.Drr > 0 ? Math.Clamp((1 - norm.Value / economy.Drr.Value) * 100, 0, 30) : 30);
             else if (key) primary = new("check_product", "Проверьте цену и карточку", Level: "article");
             else if (control.BidType == "unified" && share.HasValue && control.Excluded == false && economy.Drr >= 2 * norm.Value)
                 primary = new("exclude", "Исключите кластер");
         }
-        return new(primary, alternatives, share, key, facts.Spend / window.Days * 7, restrictions, [],
-            rule.RuleId == "R03" ? "Проверьте, что запрос подходит товару." : null, control);
+        return new(primary, alternatives, share, key, facts.Spend / Math.Max(1, quality.AvailableDays ?? window.Days) * 7, restrictions, [],
+            rule.RuleId == "R03" ? "Проверьте, что запрос подходит товару." : null, control,
+            ClickEvidence: rule.RuleId == "R03" ? clickEvidence : null);
     }
 
     public static IReadOnlyList<RecommendationPackage> Packages(IEnumerable<RecommendationCard> cards) => cards

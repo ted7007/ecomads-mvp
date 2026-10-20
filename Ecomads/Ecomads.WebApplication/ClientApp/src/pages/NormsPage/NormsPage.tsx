@@ -56,7 +56,6 @@ export function NormsPage() {
         queryClient.invalidateQueries({ queryKey: ['wb-cluster-recommendations'] }),
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norm-list', storeId] }),
         queryClient.invalidateQueries({ queryKey: ['wb-campaign-norms'] }),
-        queryClient.invalidateQueries({ queryKey: ['wb-article-norms'] }),
         queryClient.invalidateQueries({ queryKey: ['campaign-summary'] })
       ]); },
     onError: () => setMessage('Не удалось сохранить нормы кабинета.') });
@@ -68,7 +67,6 @@ export function NormsPage() {
         queryClient.invalidateQueries({ queryKey: ['wb-clusters', campaignId] }),
         queryClient.invalidateQueries({ queryKey: ['wb-recommendation-summary'] }),
         queryClient.invalidateQueries({ queryKey: ['wb-cluster-recommendations', campaignId] }),
-        queryClient.invalidateQueries({ queryKey: ['wb-article-norms', campaignId] }),
         queryClient.invalidateQueries({ queryKey: ['campaign-summary', campaignId] })
       ]); },
     onError: () => setMessage('Не удалось сохранить настройки кампании.') });
@@ -112,7 +110,7 @@ export function NormsPage() {
       </Stack>
     </Stack></CardContent></Card></Grid>
       <Grid item xs={12}><Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}><AccordionSummary expandIcon="⌄"><Typography variant="body2">Как рассчитываются нормы и оценки</Typography></AccordionSummary><AccordionDetails>
-        <Typography variant="body2" color="text.secondary">Целевой ДРР относится к рекламной сумме заказов. В новой диагностике расход без заказанных единиц проверяется по денежному порогу от средней цены товара за выбранный период, независимо от числа кликов. Остальные минимумы используются существующими проверками. Норму отдельного товара можно задать на экране кампании. WB не передаёт фактическую выручку кластера.</Typography>
+        <Typography variant="body2" color="text.secondary">Целевой ДРР относится к рекламной сумме заказов. В новой диагностике расход без заказанных единиц проверяется по денежному порогу от средней цены товара за выбранный период, независимо от числа кликов. Остальные минимумы используются существующими проверками. WB не передаёт фактическую выручку кластера.</Typography>
       </AccordionDetails></Accordion></Grid>
     </Grid> : null}
 
@@ -147,7 +145,7 @@ export function NormsPage() {
               <MenuItem value="profit">Прибыль</MenuItem><MenuItem value="growth">Рост</MenuItem><MenuItem value="clearance">Распродажа</MenuItem>
             </TextField>
             <TextField type="date" size="small" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
-              onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Первые 21 день защищены. Дата товара важнее даты кампании." />
+              onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Первые 21 день после запуска кампании защищены." />
             <TextField label="Своё название" size="small" sx={{ maxWidth: 320 }} value={overrides.customName ?? ''} onChange={(event) => setOverrides((previous) => ({ ...previous, customName: event.target.value || null }))} />
             <Stack direction="row" useFlexGap flexWrap="wrap" gap={1.5}>{numericFields.slice(1).map(({ key, label }) => <TextField key={key} label={label} type="number" size="small" sx={{ width: 190 }} inputProps={{ min: key === 'minCtr' ? 0.01 : 0, max: key === 'minCtr' ? 100 : undefined }} value={overrides[key] ?? ''}
               onChange={(event) => setOverrides((previous) => ({ ...previous, [key]: event.target.value === '' ? null : Number(event.target.value) }))}
@@ -167,7 +165,7 @@ export function NormsPage() {
       </TextField>
       {campaignId ? <>
         <TextField type="date" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
-          onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Защита первых 21 дня; дата товара имеет приоритет." />
+          onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Защита первых 21 дня после запуска кампании." />
         <TextField select label="Режим рекомендаций" size="small" value={overrides.recommendationMode} onChange={e => setOverrides(old => ({ ...old, recommendationMode: e.target.value as CampaignNormOverrides['recommendationMode'] }))}>
               <MenuItem value="profit">Прибыль</MenuItem><MenuItem value="growth">Рост</MenuItem><MenuItem value="clearance">Распродажа</MenuItem>
             </TextField><Typography variant="body2" color="text.secondary">Пустое числовое поле наследует норму кабинета. Версия кампании: {campaignNorms.data?.version ?? 0}.</Typography>

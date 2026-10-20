@@ -186,6 +186,7 @@ public sealed class WbStoresController(
         if (!TrySellerId(out var sellerId)) return Unauthorized();
         var store = await db.Stores.SingleOrDefaultAsync(x => x.Id == storeId && x.SellerId == sellerId, cancellationToken);
         if (store?.ApiKey == null) return NotFound(new { message = "Подключённый кабинет WB не найден." });
+        await WbProductOrdersRefresh.RequestManualAsync(db, store.Id, (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime, cancellationToken);
         var run = await planner.StartRefreshAsync(store, cancellationToken);
         var response = new { runId = run.RunId, campaignsRefreshed = run.CampaignsRefreshed,
             jobs = run.Jobs.Select(WbSyncVisibilityController.View), skipped = run.Skipped };

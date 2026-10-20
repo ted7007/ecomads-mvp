@@ -1,5 +1,7 @@
 # Frontend migration plan
 
+Актуализация 20.10.2026: ниже исторический план миграции. Действующий frontend уже React в `ClientApp`; `wwwroot` содержит выход его сборки. Три самостоятельных HTML-прототипа в корне репозитория удалены. Правило сохранения legacy ниже больше не применяется. См. `docs/scenario-plans/campaign-api-gaps-and-cleanup.md`.
+
 Цель: постепенно перевести фронтенд EcomAds с HTML/CSS/JS на React + TypeScript + Vite + MUI без остановки разработки текущих фич.
 
 ## Короткий вывод

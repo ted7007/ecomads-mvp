@@ -22,7 +22,7 @@ namespace Ecomads.WebApplication.Tests.Integration;
 public sealed class RecommendationEndpointTests(PostgresFixture postgres)
 {
     [Fact]
-    public async Task HttpEndpointMatchesSnapshotTableAndInvalidatesAfterArticleNormChange()
+    public async Task HttpEndpointMatchesSnapshotTableAndInvalidatesAfterCampaignNormChange()
     {
         var connection = await postgres.CreateDatabaseConnectionStringAsync();
         var seller = TestData.CreateRegularSeller();
@@ -65,6 +65,12 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         Assert.Equal(body.GetProperty("runId").GetGuid(), otherDates.RootElement.GetProperty("runId").GetGuid());
         var card = Assert.Single(body.GetProperty("cards").EnumerateArray());
         Assert.Equal("R03", card.GetProperty("rule").GetProperty("ruleId").GetString());
+        Assert.Equal(2, card.GetProperty("rule").GetProperty("ruleVersion").GetInt32());
+        var clickEvidence = card.GetProperty("presentation").GetProperty("clickEvidence");
+        Assert.Equal("fallback", clickEvidence.GetProperty("source").GetString());
+        Assert.Equal(150, clickEvidence.GetProperty("minimumClicks").GetInt32());
+        Assert.Equal("insufficient", clickEvidence.GetProperty("result").GetString());
+        Assert.Equal("watch", card.GetProperty("presentation").GetProperty("primary").GetProperty("kind").GetString());
         Assert.Equal(800, card.GetProperty("rule").GetProperty("threshold").GetDecimal());
         var row = Assert.Single(body.GetProperty("rows").EnumerateArray());
         Assert.Equal(card.GetProperty("facts").GetProperty("spend").GetDecimal(), row.GetProperty("spend").GetDecimal());
@@ -72,13 +78,17 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         Assert.Equal(0, row.GetProperty("orderedProducts").GetInt32());
         Assert.Equal(JsonValueKind.Null, row.GetProperty("estimatedDrr").ValueKind);
         var runId = body.GetProperty("runId").GetString();
-        var normUrl = $"/api/wb/norms/campaigns/{campaign.Id}/articles/{article.Id}";
+        var normUrl = $"/api/wb/norms/campaigns/{campaign.Id}";
+        var retired = await client.PutAsJsonAsync($"{normUrl}/articles/{article.Id}", new { targetDrr = 40 });
+        Assert.True(retired.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed);
         Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(normUrl, new { targetDrr = 40 })).StatusCode);
         using var changed = JsonDocument.Parse(await client.GetStringAsync(url));
         Assert.Empty(changed.RootElement.GetProperty("cards").EnumerateArray());
         Assert.NotEqual(runId, changed.RootElement.GetProperty("runId").GetString());
         using var snapshot = JsonDocument.Parse(await client.GetStringAsync($"/api/wb/campaigns/{campaign.Id}/recommendations/runs/{runId}"));
         Assert.Single(snapshot.RootElement.GetProperty("cards").EnumerateArray());
+        Assert.Equal(clickEvidence.GetRawText(), snapshot.RootElement.GetProperty("cards")[0]
+            .GetProperty("presentation").GetProperty("clickEvidence").GetRawText());
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(url.Replace("startDate=2026-10-01", "startDate=invalid"))).StatusCode); // Obsolete query fields are ignored.
         client.DefaultRequestHeaders.Remove("X-Test-Seller");
         client.DefaultRequestHeaders.Add("X-Test-Seller", Guid.NewGuid().ToString());
@@ -106,7 +116,7 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
                 Date = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), Revenue = 10000, OrderedProducts = 10, RecommendationFieldsVerified = true });
             db.WbCampaignDailyChecks.Add(new() { CampaignId = campaign.Id, Date = date, Result = "data", Spend = 6000 });
             for (var i = 0; i < 6; i++) db.WbClusterStatistics.Add(new() { Id = Guid.NewGuid(), CampaignId = campaign.Id, NomenclatureId = article.Id,
-                Date = date, ClusterName = "cluster" + i, Spend = 1000, Clicks = 1, Orders = 0, OrderedProducts = 0 });
+                Date = date, ClusterName = "cluster" + i, Spend = 1000, Clicks = 150, Orders = 0, OrderedProducts = 0 });
             db.WbSyncJobs.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, Kind = "clusters", Status = "completed", StartDate = date, EndDate = date, PairIdsJson = "[{\"AdvertId\":123,\"NmId\":1}]" });
             db.WbAdvertisingSettings.Add(new() { CampaignId = campaign.Id, Status = "ready", BidType = "unified", PaymentType = "cpm", ReceivedAtUtc = DateTime.UtcNow,
                 PayloadJson = "{\"bids\":[],\"minus\":[{\"nomenclatureId\":\"1\",\"clusters\":[]}]}" });

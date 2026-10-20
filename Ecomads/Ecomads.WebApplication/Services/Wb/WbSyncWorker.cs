@@ -48,7 +48,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 x.NextAttemptAtUtc <= UtcNow && db.Stores.Any(s => s.Id == x.StoreId &&
                     !s.AutoRefreshBlocked && (s.TokenExpiresAtUtc == null || s.TokenExpiresAtUtc > UtcNow)))
             .OrderBy(x => x.Kind == "fullstats" || x.Kind == "expenses" || x.Kind == "funnel_recent" ? 0 :
-                x.Kind == "fullstats_month" || x.Kind == "expenses_month" || x.Kind == "funnel_month" || x.Kind == "archive" || x.Kind == "funnel_backfill" ? 1 :
+                x.Kind == "fullstats_month" || x.Kind == "expenses_month" || x.Kind == "funnel_month" || x.Kind == "archive" || x.Kind == "funnel_backfill" || x.Kind == "product_orders" ? 1 :
                 x.Kind == "clusters" || x.Kind == "jam" ? 2 : 3)
             .ThenBy(x => x.NextAttemptAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
@@ -67,8 +67,13 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             return;
         }
 
+        if (job.Kind == "product_orders" && UtcNow - (job.LastProgressAtUtc ?? job.StartedAtUtc ?? job.CreatedAtUtc) >= TimeSpan.FromHours(24))
+        {
+            job.PauseRequestedAtUtc = UtcNow; job.WaitReason = "no_progress"; job.ErrorCode = "no_progress"; job.Stage = "paused";
+            job.UpdatedAtUtc = UtcNow; Record(db, job); await db.SaveChangesAsync(cancellationToken); return;
+        }
         var ids = JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? [];
-        if (job.Kind is "funnel_backfill" or "funnel_month" or "funnel_year" && job.PairIdsJson != null)
+        if (job.Kind is "funnel_backfill" or "funnel_month" or "funnel_year" or "product_orders" && job.PairIdsJson != null)
         {
             var page = JsonSerializer.Deserialize<WbFunnelPageState>(job.PairIdsJson);
             if (page is { Offset: > 0, SeenProductIds: null })
@@ -153,6 +158,17 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             ? JsonSerializer.Deserialize<WbNormQueryPair[]>(job.PairIdsJson ?? "[]") ?? []
             : [];
         var total = WbSyncJobUnits.Total(job);
+        if (job.Kind == "product_orders" && job.NextCampaignOffset < total && job.PairIdsJson == null)
+        {
+            var past = DateOnly.ParseExact(ids[job.NextCampaignOffset].ToString(), "yyyyMMdd");
+            var dates = new[] { past, past.AddDays(1) }.Where(x => x >= job.StartDate && x <= job.EndDate).ToArray();
+            var loaded = await db.WbProductOrderDays.AsNoTracking().Where(x => x.StoreId == job.StoreId && dates.Contains(x.Date)).ToArrayAsync(cancellationToken);
+            if (dates.All(date => loaded.Any(x => x.Date == date && (date < job.EndDate.AddDays(-6) || x.LoadedAtUtc >= job.CreatedAtUtc))))
+            {
+                job.NextCampaignOffset++; job.LastProgressAtUtc = UtcNow; job.UpdatedAtUtc = UtcNow;
+                await db.SaveChangesAsync(cancellationToken); return;
+            }
+        }
         if (job.NextCampaignOffset >= total)
         {
             Complete(job, store);
@@ -170,7 +186,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
             "fullstats_month" => ["fullstats"],
             "expenses_history" => ["expenses", "expenses_month"],
             "expenses_month" => ["expenses"],
-            "funnel_year" => ["funnel_recent", "funnel_backfill", "funnel_month"],
+            "funnel_year" => ["funnel_recent", "funnel_backfill", "funnel_month", "product_orders"],
             _ => Array.Empty<string>()
         };
         if (urgentKinds.Length > 0 && await db.WbSyncJobs.AsNoTracking().AnyAsync(x =>
@@ -359,7 +375,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
         }
         if (job.Kind == "funnel_recent") return await services.GetRequiredService<IWbSalesFunnelClient>()
             .GetGroupedHistoryAsync(token, job.StartDate, job.EndDate, ct);
-        if (job.Kind is "funnel_year" or "funnel_month" or "funnel_backfill")
+        if (job.Kind is "funnel_year" or "funnel_month" or "funnel_backfill" or "product_orders")
         {
             var day = DateOnly.ParseExact(ids[offset].ToString(), "yyyyMMdd");
             var page = JsonSerializer.Deserialize<WbFunnelPageState>(job.PairIdsJson ?? "null") ?? new();
@@ -393,7 +409,7 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                 if (job.NextCampaignOffset < periods.Length)
                 { start = periods[job.NextCampaignOffset].StartDate; end = periods[job.NextCampaignOffset].EndDate; }
             }
-            if (job.Kind is "funnel_backfill" or "funnel_month" or "funnel_year")
+            if (job.Kind is "funnel_backfill" or "funnel_month" or "funnel_year" or "product_orders")
             {
                 var ids = JsonSerializer.Deserialize<long[]>(job.CampaignIdsJson) ?? [];
                 if (job.NextCampaignOffset < ids.Length)
@@ -440,6 +456,8 @@ public sealed class WbSyncWorker(IServiceScopeFactory scopes, ILogger<WbSyncWork
                             x.RecommendationFieldsVerified != true, ct)) continue;
                 }
                 await quality.ObserveAsync(job.StoreId, source, entity, date, source == "jam" ? end : date, "error", ct, snapshot?.Reason, previous);
+                if (source != "product_orders" && WbProductOrdersImporter.Kinds.Contains(job.Kind))
+                    await quality.ObserveAsync(job.StoreId, "product_orders", "", date, date, "error", ct, snapshot?.Reason);
                 if (source == "jam") break;
             }
             await db.SaveChangesAsync(ct);

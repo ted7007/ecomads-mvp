@@ -6,7 +6,12 @@ import type { DashboardFilters } from '../DashboardPage/dashboardApi';
 const nomenclatureSchema = z.object({
   nomenclatureId: z.string(), name: z.string(), impressions: z.number(), clicks: z.number(),
   carts: z.number(), orders: z.number(), spend: z.number(), revenue: z.number(),
-  ctr: z.number().nullable(), cr: z.number().nullable(), cpc: z.number().nullable(), cpo: z.number().nullable()
+  ctr: z.number().nullable(), cr: z.number().nullable(), cpc: z.number().nullable(), cpo: z.number().nullable(),
+  totalOrderSum: z.number().nullable().default(null), totalAdvertisingSpend: z.number().nullable().default(null),
+  totalDrr: z.number().nullable().default(null), totalOrderDays: z.number().int().default(0),
+  totalAdvertisingDays: z.number().int().default(0), totalExpectedDays: z.number().int().default(0),
+  totalStatus: z.enum(['complete', 'preliminary', 'unavailable']).default('unavailable'),
+  totalReason: z.string().default('Заказы товара по всем каналам пока недоступны')
 });
 export type NomenclatureStatistics = z.infer<typeof nomenclatureSchema>;
 

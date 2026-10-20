@@ -40,7 +40,16 @@ public sealed class WbJournalRetentionWorker(IServiceScopeFactory scopes, TimePr
                     .Select(x => new { x.SnapshotId, x.AcceptedSnapshotId }).ToArrayAsync(ct);
                 var keep = quality.SelectMany(x => new[] { x.SnapshotId, x.AcceptedSnapshotId })
                     .Where(x => x.HasValue).Select(x => x!.Value).ToHashSet();
+                keep.UnionWith(await db.WbProductOrderDays.Where(x => x.StoreId == store).Select(x => x.SnapshotId).ToArrayAsync(ct));
                 keep.UnionWith(await db.WbIngestionDecisions.Where(x => x.StoreId == store).Select(x => x.SnapshotId).ToArrayAsync(ct));
+                var resultEvidence = await db.WbResultRevisions.Where(x => db.WbResultMeasurements.Any(m => m.Id == x.MeasurementId && m.StoreId == store))
+                    .Select(x => x.EvidenceJson).ToArrayAsync(ct);
+                foreach (var json in resultEvidence)
+                {
+                    var evidence = JsonSerializer.Deserialize<Services.Recommendations.ResultEvidence>(json, Services.Recommendations.ResultsService.Json);
+                    foreach (var source in (evidence?.Before.Sources ?? []).Concat(evidence?.After.Sources ?? []))
+                        if (Guid.TryParse(source, out var sourceId)) keep.Add(sourceId);
+                }
                 // Unprocessed responses remain recoverable. Unresolved/current observations
                 // are protected by quality references above, including the previous accepted
                 // snapshot. Superseded errors and partial responses expire after 90 days.

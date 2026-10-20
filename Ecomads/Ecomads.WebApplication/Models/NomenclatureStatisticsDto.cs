@@ -14,4 +14,12 @@ public sealed class NomenclatureStatisticsDto
     public decimal? Cr { get; init; }
     public decimal? Cpc { get; init; }
     public decimal? Cpo { get; init; }
+    public decimal? TotalOrderSum { get; init; }
+    public decimal? TotalAdvertisingSpend { get; init; }
+    public decimal? TotalDrr { get; init; }
+    public int TotalOrderDays { get; init; }
+    public int TotalAdvertisingDays { get; init; }
+    public int TotalExpectedDays { get; init; }
+    public string TotalStatus { get; init; } = "unavailable";
+    public string TotalReason { get; init; } = "Выберите начало и конец периода.";
 }

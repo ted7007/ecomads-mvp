@@ -12,7 +12,7 @@ public static class OperationalEvaluator
         IReadOnlyList<CampaignStatistics> campaignRows, IReadOnlyList<WbCampaignDailyCheck> checks,
         IReadOnlyList<WbSourceQuality> quality, IReadOnlyList<WbOperationalSnapshot> snapshots,
         WbAdvertisingSettings? settings, WbStoreNorms? storeNorm, WbCampaignNorms? campaignNorm,
-        IReadOnlyList<WbArticleNorm> articleNorms, IReadOnlyList<ClusterEvaluation> clusters,
+        IReadOnlyList<ClusterEvaluation> clusters,
         RecommendationWindow window, DateTime now, bool stockEnabled = false)
     {
         var result = new List<ClusterEvaluation>();
@@ -77,7 +77,7 @@ public static class OperationalEvaluator
         var known = catalog.Where(x => x.StoreId == storeId && (members.Contains(x.WbNomenclatureId) || articles.Any(a => a.NomenclatureId == x.Id)))
             .OrderBy(x => x.WbNomenclatureId, StringComparer.Ordinal).ToArray();
         var mode = campaignNorm?.RecommendationMode ?? "profit";
-        var norm = RecommendationEngine.ResolveNorm(null, campaignNorm?.TargetDrr, storeNorm?.TargetDrr,
+        var norm = RecommendationEngine.ResolveNorm(campaignNorm?.TargetDrr, storeNorm?.TargetDrr,
             campaignVersion: campaignNorm?.Version ?? 0, storeVersion: storeNorm?.Version ?? 0);
 
         ClusterEvaluation Build(string rule, int group, string state, string reason, string text, RecommendationSubject subject,
@@ -93,12 +93,10 @@ public static class OperationalEvaluator
         foreach (var article in known)
         {
             var subject = new RecommendationSubject(storeId, campaignId, article.Id, article.WbNomenclatureId, article.Name, null, "article");
-            var n = articleNorms.FirstOrDefault(x => x.NomenclatureId == article.Id);
-            var articleNorm = RecommendationEngine.ResolveNorm(n?.TargetDrr, campaignNorm?.TargetDrr, storeNorm?.TargetDrr,
-                n?.Version ?? 0, campaignNorm?.Version ?? 0, storeNorm?.Version ?? 0);
             var recent = Basis(article.Id, spendWindow);
-            var current = Basis(article.Id, window);
-            var currentVerified = ArticleComplete(article.Id, window) && current.Length > 0 && current.All(x => x.RecommendationFieldsVerified == true && x.Revenue >= 0);
+            var availableDays = Enumerable.Range(0, window.Days).Select(i => window.StartDate.AddDays(i)).Where(Day).ToHashSet();
+            var current = Basis(article.Id, window).Where(x => availableDays.Contains(DateOnly.FromDateTime(x.Date))).ToArray();
+            var currentVerified = availableDays.Count > 0 && current.Length > 0 && current.All(x => x.RecommendationFieldsVerified == true && x.Revenue >= 0);
             var facts = new RecommendationFacts(current.Sum(x => x.Spend), current.Sum(x => x.Impressions), current.Sum(x => x.Clicks),
                 current.Sum(x => x.Carts), current.Sum(x => x.Orders), current.All(x => x.OrderedProducts.HasValue) ? current.Sum(x => x.OrderedProducts) : null,
                 current.Sum(x => x.OrderedProducts) > 0 ? current.Sum(x => x.Revenue) / current.Sum(x => x.OrderedProducts) : null);
@@ -139,18 +137,19 @@ public static class OperationalEvaluator
             var stockPresentation = new RecommendationPresentation(stockAction, [], null, false, recentSpend / 3 * 7,
                 stock.Status == "skipped" ? [new(stock.Reason, stockText)] : [], [], stock.Warning, Details: stockDetails, Priority: stock.Priority);
             result.Add(Build("R01", 1, stock.Status, stock.Reason, stockText, subject,
-                facts with { Spend = recentSpend }, articleNorm, stockPresentation, stock.Status != "skipped", 7));
+                facts with { Spend = recentSpend }, norm, stockPresentation, stock.Status != "skipped", 7));
             }
 
             if (metadata?.BidType == "manual") continue;
             var revenue = current.Sum(x => x.Revenue);
             var drr = revenue > 0 ? facts.Spend / revenue : (decimal?)null;
-            var threshold = articleNorm.Value * (mode == "growth" ? 1.5m : 1.2m);
-            var protectedLaunch = RecommendationActions.LaunchProtected(n?.LaunchDate ?? campaignNorm?.LaunchDate, window, today);
+            var threshold = norm.Value * (mode == "growth" ? 1.5m : 1.2m);
+            var protectedLaunch = RecommendationActions.LaunchProtected(campaignNorm?.LaunchDate, window, today);
             var state = !currentVerified || !inCampaign || protectedLaunch || metadata?.BidType != "unified" ? "skipped" :
                 facts.Orders >= 3 && drr > threshold ? "triggered" : "not_triggered";
             var restrictions = new List<RecommendationRestriction>();
-            if (!currentVerified) restrictions.Add(new("incomplete", "Нет полной проверенной товарной статистики за 14 дней."));
+            if (!currentVerified) restrictions.Add(new("incomplete", "Нет проверенной товарной статистики за доступные дни."));
+            else if (availableDays.Count < window.Days) restrictions.Add(new("incomplete", $"Предварительно: расчёт по {availableDays.Count} из {window.Days} дней."));
             if (!inCampaign) restrictions.Add(new("membership", "Состав кампании или настройки ставки старше часа либо неизвестны."));
             if (metadata?.BidType != "unified") restrictions.Add(new("bid_type", "Единая ставка не подтверждена настройками WB."));
             if (protectedLaunch) restrictions.Add(new("launch", "Защита запуска: снижение ставки не предлагается."));
@@ -159,15 +158,17 @@ public static class OperationalEvaluator
             var action = new RecommendationAction("check_product", "Проверьте цену и карточку товара", Level: "article");
             if (blockedExclusions) restrictions.Add(new("exclude_first", "Сначала исключите проблемные кластеры. Решение «Принял» не подтверждает изменение в WB."));
             else if (pointBidAvailable && state == "triggered")
-                action = OperationalRules.Reduce(drr > 0 ? (1 - articleNorm.Value / drr.Value) * 100 : 0, currentBid, null, null, "article");
+                action = OperationalRules.Reduce(drr > 0 ? (1 - norm.Value / drr.Value) * 100 : 0, currentBid, null, null, "article");
             else if (state == "triggered") restrictions.Add(new("scope_unknown", "Точечная ставка товара не подтверждена. Общее снижение может затронуть эффективные товары; оно не предлагается."));
             var details = new OperationalDetails("high_article_drr", window, [metadataEvidence], AffectedArticles: [article.WbNomenclatureId]);
-            var presentation = new RecommendationPresentation(action, [], null, false, facts.Spend / 2, restrictions, [],
+            var presentation = new RecommendationPresentation(action, [], null, false, facts.Spend / Math.Max(1, availableDays.Count) * 7, restrictions, [],
                 "ДРР товара рассчитан по фактической рекламной сумме заказов; минимум задан числом заказов O.", Details: details);
             var evaluation = Build("R07", 3, state, protectedLaunch ? "launch" : !currentVerified ? "incomplete_data" : !inCampaign ? "membership" : "article_high_drr",
                 state == "skipped" ? string.Join(" ", restrictions.Select(x => x.Label)) : state == "triggered" ? "ДРР товара при единой ставке превышает порог режима." : "Проверка ДРР товара при единой ставке.",
-                subject, facts, articleNorm, presentation, currentVerified && inCampaign, threshold);
-            result.Add(evaluation with { Economy = new(revenue, drr, null, null, null, null) });
+                subject, facts, norm, presentation, currentVerified && inCampaign, threshold);
+            result.Add(evaluation with { Economy = new(revenue, drr, null, null, null, null),
+                Quality = new(availableDays.Count == window.Days, true, currentVerified, true,
+                    AvailableDays: availableDays.Count, ExpectedDays: window.Days) });
         }
         var budgets = Payload<Dictionary<string, decimal>>("budgets");
         var balance = Payload<Dictionary<string, decimal>>("balance");

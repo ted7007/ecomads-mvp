@@ -12,7 +12,7 @@ public sealed class RecommendationActionsTests
     private static readonly RecommendationQuality Ready = new(true, true, true, true);
     private static readonly AdvertisingControl Unified = new("ready", "unified", "cpm", false);
     private static readonly AdvertisingControl Manual = new("ready", "manual", "cpm", false, 100, 10, 1);
-    private static RecommendationFacts Facts(int q = 3, decimal spend = 1000) => new(spend, 1000, 30, 20, 3, q, 1000);
+    private static RecommendationFacts Facts(int q = 3, decimal spend = 1000) => new(spend, 1000, 150, 20, 3, q, 1000);
     private static RecommendationPresentation Select(string rule = "R06", int? total = 100, AdvertisingControl? control = null,
         RecommendationFacts? facts = null, RecommendationWindow? window = null, DateOnly? launch = null)
     {
@@ -43,7 +43,7 @@ public sealed class RecommendationActionsTests
     {
         Assert.Equal("exclude", Select("R03", 0, facts: Facts(0)).Primary.Kind);
         Assert.Equal(0m, Select("R03", 0, facts: Facts(0)).KeyShare);
-        Assert.NotEqual("exclude", Select("R03", null, facts: Facts(0)).Primary.Kind);
+        Assert.Equal("exclude", Select("R03", null, facts: Facts(0)).Primary.Kind);
     }
     [Fact]
     public void ManualDecreaseIsProportionalCappedAndRoundedUp()
@@ -63,7 +63,7 @@ public sealed class RecommendationActionsTests
         Assert.Equal("check_product", Select(total: 15, facts: Facts(spend: 1500)).Primary.Kind);
         Assert.Equal("reduce_bid", Select(total: 15, control: Manual).Primary.Kind);
         Assert.Equal("check_product", Select(total: 15, control: Manual with { Status = "source_error" }).Primary.Kind);
-        Assert.Equal("check_product", Select("R03", 15).Primary.Kind);
+        Assert.Equal("watch", Select("R03", 15).Primary.Kind);
     }
     [Fact]
     public void UnknownStaleAndExcludedAreDistinct()
@@ -109,6 +109,22 @@ public sealed class RecommendationActionsTests
         Assert.Equal(packages, result.Count);
         if (packages > 0) { Assert.Equal(count, result[0].EvaluationIds.Count); Assert.Equal(count * 1000m, result[0].WeeklySpend); }
     }
+    [Theory]
+    [InlineData("unknown", null)]
+    [InlineData("stale", "manual")]
+    [InlineData("ready", "manual")]
+    public void PartialDataNeverAllowsExclusionOrBidAlternative(string status, string? bidType)
+    {
+        var f = Facts(0);
+        var q = new RecommendationQuality(false, false, true, true, AvailableDays: 13, ExpectedDays: 14);
+        var p = RecommendationActions.Select(new("R03", 1, 2, true, "triggered", "", "", 300), f, Norm, q,
+            RecommendationEngine.Economy(f, Norm, .2m), new(status, bidType, "cpm"), null, null,
+            new(new(2026, 9, 29), new(2026, 10, 12)), Today);
+        Assert.Equal("watch", p.Primary.Kind);
+        Assert.Equal(1000m / 13 * 7, p.WeeklySpend);
+        Assert.Empty(p.Alternatives);
+    }
+
     [Fact]
     public void SettingsSourceNeverTurnsMissingExclusionsIntoFalse()
     {

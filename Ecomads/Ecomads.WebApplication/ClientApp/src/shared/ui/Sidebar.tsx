@@ -19,6 +19,7 @@ import { defaultPeriod } from '../../pages/DashboardPage/components/PeriodFilter
 
 const navItems = [
   { label: 'Сводка', to: appRoutes.dashboard, icon: <DashboardIcon fontSize="small" /> },
+  { label: 'Результаты', to: appRoutes.results, icon: <TuneIcon fontSize="small" /> },
   { label: 'Нормы', to: appRoutes.norms, icon: <TuneIcon fontSize="small" /> },
   { label: 'Кабинет WB и Telegram', to: appRoutes.wbStores, icon: <StorefrontIcon fontSize="small" /> }
 ];

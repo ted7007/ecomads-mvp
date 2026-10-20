@@ -35,6 +35,7 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
         {
             var cutoff = nowUtc.AddDays(-options.Value.RetentionDays);
             await db.WbRecommendationRuns.Where(x => x.CalculatedAtUtc < cutoff &&
+                !db.WbResultExposures.Any(e => e.RunId == x.Id) &&
                 !db.WbSnapshotDecisions.Any(d => d.RunId == x.Id) &&
                 !(x.SchemaVersion < 3 && db.WbRecommendationDecisions.Any(d => d.SellerId == x.SellerId))).ExecuteDeleteAsync(ct);
             await db.WbArticleObservations.Where(x => x.ObservedAtUtc < cutoff).ExecuteDeleteAsync(ct);
@@ -70,6 +71,8 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
                 }
                 foreach (var campaign in campaigns)
                     await scope.ServiceProvider.GetRequiredService<RecommendationService>().CalculateAsync(store.SellerId, campaign.Id, window, ct);
+                if (options.Value.ResultsEnabled)
+                    await scope.ServiceProvider.GetRequiredService<ResultsService>().RunStoreAsync(store.Id, ct);
             }
             catch (Exception error) when (error is not OperationCanceledException)
             {

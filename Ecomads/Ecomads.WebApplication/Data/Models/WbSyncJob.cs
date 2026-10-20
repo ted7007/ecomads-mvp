@@ -22,6 +22,7 @@ public sealed class WbSyncJob
     public DateTime UpdatedAtUtc { get; set; }
     public DateTime NextAttemptAtUtc { get; set; }
     public DateTime? LastRequestAtUtc { get; set; }
+    public DateTime? LastProgressAtUtc { get; set; }
     public DateTime? PauseRequestedAtUtc { get; set; }
     public string? ErrorCode { get; set; }
     public int ImportedRows { get; set; }

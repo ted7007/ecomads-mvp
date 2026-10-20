@@ -5,6 +5,7 @@ import { DemoFeedbackPage } from '../pages/DemoFeedbackPage/DemoFeedbackPage';
 import { LoginPage } from '../pages/LoginPage/LoginPage';
 import { WbStoresPage } from '../pages/WbStoresPage/WbStoresPage';
 import { NormsPage } from '../pages/NormsPage/NormsPage';
+import { ResultsPage } from '../pages/ResultsPage/ResultsPage';
 import { RequireAuth } from '../shared/auth/RequireAuth';
 import { AppLayout } from '../shared/ui/AppLayout';
 import { appRoutes } from './routes';
@@ -37,6 +38,7 @@ export const router = createBrowserRouter(
               path: appRoutes.norms,
               element: <NormsPage />
             },
+            { path: appRoutes.results, element: <ResultsPage /> },
             {
               path: appRoutes.demoFeedback,
               element: <DemoFeedbackPage />

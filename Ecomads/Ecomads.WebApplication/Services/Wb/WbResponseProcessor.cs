@@ -83,7 +83,7 @@ public sealed class WbResponseProcessor(EcomadsDbContext db, IServiceProvider se
                 await services.GetRequiredService<WbSalesFunnelImporter>().ImportAsync(job.StoreId, start, end, root, ct);
                 job.NextCampaignOffset = 1;
             }
-            else if (job.Kind is "funnel_backfill" or "funnel_month" or "funnel_year")
+            else if (job.Kind is "funnel_backfill" or "funnel_month" or "funnel_year" or "product_orders")
             {
                 var day = DateOnly.ParseExact(ids[offset].ToString(), "yyyyMMdd");
                 var state = JsonSerializer.Deserialize<WbFunnelPageState>(job.PairIdsJson ?? "null") ?? new();
@@ -95,6 +95,8 @@ public sealed class WbResponseProcessor(EcomadsDbContext db, IServiceProvider se
                         page.State, ct, replaceExisting: job.Kind == "funnel_month", snapshotAtUtc: page.State.StartedAtUtc);
                     job.PairIdsJson = null; job.NextCampaignOffset++;
                 }
+                await new WbProductOrdersImporter(db).ApplyAsync(snapshot, ct);
+                if (snapshot.ProductOrdersError != null) job.ItemsWithoutData++;
             }
             else if (job.Kind == "clusters")
             {
@@ -128,6 +130,7 @@ public sealed class WbResponseProcessor(EcomadsDbContext db, IServiceProvider se
                     current.NextCampaignOffset = job.NextCampaignOffset; current.PairIdsJson = job.PairIdsJson;
                     current.ImportedRows = job.ImportedRows; current.ItemsWithData = job.ItemsWithData; current.ItemsWithoutData = job.ItemsWithoutData;
                     current.AttemptCount = 0; current.ErrorCode = null; current.UpdatedAtUtc = clock.GetUtcNow().UtcDateTime;
+                    current.LastProgressAtUtc = current.UpdatedAtUtc;
                     current.Status = current.NextCampaignOffset >= WbSyncJobUnits.Total(current) ? "completed" : "running";
                     current.Stage = current.Status == "completed" ? "completed" : "waiting";
                     current.WaitReason = current.Status == "completed" ? null : "rate_limit";

@@ -13,7 +13,7 @@ namespace Ecomads.WebApplication.Tests.Integration;
 public sealed class WbSparseDataTests(PostgresFixture postgres)
 {
     [Fact]
-    public async Task SparseDaysPreserveEarlierValuesAndDistinguishCollectionFromConfirmation()
+    public async Task SuccessfulSparseDaysConfirmZeroAndReplaceEarlierValues()
     {
         await using var db = await postgres.CreateMigratedDbContextAsync();
         var store = await SeedAsync(db);
@@ -36,38 +36,37 @@ public sealed class WbSparseDataTests(PostgresFixture postgres)
         var checks = await db.WbCampaignDailyChecks.ToArrayAsync();
         Assert.Equal(4, checks.Length);
         var retained = checks.Single(x => x.CampaignId == campaigns[0].Id && x.Date == oldDay);
-        Assert.Equal(77m, retained.Spend);
-        Assert.Equal("data", retained.Result);
-        Assert.Equal("no_data", retained.LastAttemptResult);
-        Assert.InRange(retained.CheckedAtUtc, oldCheck.AddMilliseconds(-1), oldCheck.AddMilliseconds(1));
-        Assert.Equal(77m, (await db.CampaignStatistics.SingleAsync(x => x.Date ==
-            DateTime.SpecifyKind(oldDay.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc))).Spend);
+        Assert.Equal(0m, retained.Spend);
+        Assert.Equal("zero", retained.Result);
+        Assert.Equal("zero", retained.LastAttemptResult);
+        Assert.True(retained.CheckedAtUtc > oldCheck);
+        Assert.Empty(await db.CampaignStatistics.Where(x => x.Date == oldDay.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)).ToArrayAsync());
         Assert.All(checks.Where(x => x.CampaignId == campaigns[1].Id), x =>
         {
-            Assert.Null(x.Spend);
-            Assert.Equal("unknown", x.Result);
-            Assert.Equal("no_data", x.LastAttemptResult);
+            Assert.Equal(0m, x.Spend);
+            Assert.Equal("zero", x.Result);
+            Assert.Equal("zero", x.LastAttemptResult);
         });
         var readiness = await new WbReportReadinessService(db).GetAsync(store.Id, yesterday, default);
         Assert.True(readiness.Collected);
-        Assert.False(readiness.Ready);
-        Assert.Equal("456", Assert.Single(readiness.MissingCampaigns).WbCampaignId);
-        Assert.Equal(campaigns[0].Id, Assert.Single(readiness.ConfirmedCampaignIds));
+        Assert.True(readiness.Ready);
+        Assert.Empty(readiness.MissingCampaigns);
+        Assert.Equal(2, readiness.ConfirmedCampaignIds.Count);
 
         using var zero = Stats(yesterday, 456, 0);
         await new WbFullStatsImporter(db).ImportAsync(store.Id, zero.RootElement, default, [456],
             requestedStart: yesterday, requestedEnd: yesterday);
         Assert.True((await new WbReportReadinessService(db).GetAsync(store.Id, yesterday, default)).Ready);
 
-        // A later successful sparse response must not pass off the retained value as newly confirmed.
+        // A later successful sparse response replaces the old positive value with confirmed zero.
         using var empty = JsonDocument.Parse("[]");
         await new WbFullStatsImporter(db).ImportAsync(store.Id, empty.RootElement, default, [123],
             requestedStart: yesterday, requestedEnd: yesterday);
         readiness = await new WbReportReadinessService(db).GetAsync(store.Id, yesterday, default);
         Assert.True(readiness.Collected);
-        Assert.False(readiness.Ready);
-        Assert.Equal("123", Assert.Single(readiness.MissingCampaigns).WbCampaignId);
-        Assert.Equal(10m, (await db.WbCampaignDailyChecks.SingleAsync(x => x.CampaignId == campaigns[0].Id && x.Date == yesterday)).Spend);
+        Assert.True(readiness.Ready);
+        Assert.Empty(readiness.MissingCampaigns);
+        Assert.Equal(0m, (await db.WbCampaignDailyChecks.SingleAsync(x => x.CampaignId == campaigns[0].Id && x.Date == yesterday)).Spend);
     }
 
     [Fact]
@@ -89,10 +88,10 @@ public sealed class WbSparseDataTests(PostgresFixture postgres)
         db.ChangeTracker.Clear();
         var completed = await db.WbSyncJobs.SingleAsync(x => x.Id == fresh.Id);
         Assert.Equal("completed", completed.Status);
-        Assert.Equal(2, completed.ItemsWithoutData);
+        Assert.Equal(0, completed.ItemsWithoutData);
         Assert.Equal(2, WbSyncJobUnits.Total(completed));
         Assert.Single(client.Calls);
-        Assert.Equal(2, await db.WbCampaignDailyChecks.CountAsync(x => x.LastAttemptResult == "no_data"));
+        Assert.Equal(2, await db.WbCampaignDailyChecks.CountAsync(x => x.LastAttemptResult == "zero"));
         await worker.ProcessNextAsync(default);
         Assert.Single(client.Calls); // Shared API interval is still respected.
         await db.WbMethodSlots.ExecuteUpdateAsync(s => s.SetProperty(x => x.LastRequestAtUtc, DateTime.UtcNow.AddHours(-2)));

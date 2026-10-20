@@ -509,7 +509,8 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
         using var overviewJson = JsonDocument.Parse(await overview.Content.ReadAsStringAsync());
         var sources = overviewJson.RootElement.GetProperty("sources").EnumerateArray().ToArray();
-        Assert.Equal(13, sources.Length);
+        Assert.Equal(14, sources.Length);
+        Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "product_orders"));
         Assert.DoesNotContain(sources, x => x.GetProperty("kind").GetString() == "funnel");
         var statsSource = Assert.Single(sources.Where(x => x.GetProperty("kind").GetString() == "fullstats"));
         var completedJob = statsSource.GetProperty("lastJob");
@@ -645,21 +646,20 @@ public sealed class WbWorkflowE2ETests(PostgresFixture postgres)
         Assert.Equal(27m, normRow.GetProperty("targetDrr").GetDecimal());
         Assert.True(normRow.GetProperty("isInherited").GetBoolean());
 
-        using var savedDecision = await client.PutAsJsonAsync("/api/wb/recommendation-decisions", new
-        {
-            recommendationKey = $"drr:{campaignId}", startDate = "2026-07-01", endDate = "2026-07-01",
-            status = "accepted"
-        });
-        Assert.Equal(HttpStatusCode.OK, savedDecision.StatusCode);
+        // Snapshot decisions have dedicated HTTP tests in RecommendationEndpointTests.
+        // This workflow now checks the live product-statistics contract, not the removed legacy route.
+        using var productStatistics = await client.GetAsync($"/api/statistics/nomenclatures/{campaignId}?startDate=2026-07-01&endDate=2026-07-01");
+        Assert.Equal(HttpStatusCode.OK, productStatistics.StatusCode);
+        using var productJson = JsonDocument.Parse(await productStatistics.Content.ReadAsStringAsync());
+        Assert.All(productJson.RootElement.EnumerateArray(), row =>
+            Assert.Equal(JsonValueKind.Null, row.GetProperty("totalOrderSum").ValueKind));
 
         client.DefaultRequestHeaders.Remove("X-Test-UserId");
         client.DefaultRequestHeaders.Add("X-Test-UserId", otherSeller.Id.ToString());
         using var hiddenDaily = await client.GetAsync($"/api/statistics/daily?startDate=2026-07-01&endDate=2026-07-01&campaignId={campaignId}");
         Assert.Equal(HttpStatusCode.NotFound, hiddenDaily.StatusCode);
-        using var hiddenDecisions = await client.GetAsync("/api/wb/recommendation-decisions?startDate=2026-07-01&endDate=2026-07-01");
-        Assert.Equal(HttpStatusCode.OK, hiddenDecisions.StatusCode);
-        using var hiddenDecisionJson = JsonDocument.Parse(await hiddenDecisions.Content.ReadAsStringAsync());
-        Assert.Empty(hiddenDecisionJson.RootElement.EnumerateArray());
+        using var hiddenProducts = await client.GetAsync($"/api/statistics/nomenclatures/{campaignId}?startDate=2026-07-01&endDate=2026-07-01");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenProducts.StatusCode);
     }
 
     private static string FakeToken(Guid sid)

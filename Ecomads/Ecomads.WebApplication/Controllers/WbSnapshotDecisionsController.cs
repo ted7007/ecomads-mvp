@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecomads.WebApplication.Controllers;
 
 [ApiController, Authorize, Route("api/wb/campaigns/{campaignId:guid}/recommendations/runs/{runId:guid}/decisions")]
-public sealed class WbSnapshotDecisionsController(EcomadsDbContext db, RecommendationService service) : ControllerBase
+public sealed class WbSnapshotDecisionsController(EcomadsDbContext db, RecommendationService service, ResultsService? results = null) : ControllerBase
 {
     public sealed record DecisionRequest(IReadOnlyList<Guid> EvaluationIds, string RuleId, string Status,
         DateOnly? SnoozeUntil = null, string? Reason = null, string? Comment = null);
@@ -27,6 +27,7 @@ public sealed class WbSnapshotDecisionsController(EcomadsDbContext db, Recommend
         if (report.SchemaVersion < 2) return BadRequest(new { message = "Откройте новый расчёт: старый снимок не содержит конкретного действия." });
         var ids = request.EvaluationIds.Distinct().ToArray();
         if (ids.Any(id => !report.Cards.Any(c => c.EvaluationId == id && c.Rule.RuleId == request.RuleId))) return NotFound();
+        if (results != null) await results.RegisterAsync(seller, ids.Select(id => new ResultExposureRequest(runId, id, request.RuleId)).ToArray(), ct);
         // One atomic insert for all selected elements. The immutable run stores facts and the available actions.
         foreach (var id in ids) db.WbSnapshotDecisions.Add(new WbSnapshotDecision { Id = Guid.NewGuid(), RunId = runId,
             EvaluationId = id, RuleId = request.RuleId, Status = request.Status, SnoozeUntil = request.Status == "snoozed" ? request.SnoozeUntil : null,

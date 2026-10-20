@@ -2,7 +2,7 @@ namespace Ecomads.WebApplication.Data.Models;
 
 public static class WbIngestionVersion
 {
-    public const string Current = "2";
+    public const string Current = "3";
 }
 
 public sealed class WbResponseSnapshot
@@ -27,6 +27,8 @@ public sealed class WbResponseSnapshot
     public string State { get; set; } = "received";
     public string? Reason { get; set; }
     public DateTime? AppliedAtUtc { get; set; }
+    public int ProductOrdersVersion { get; set; }
+    public string? ProductOrdersError { get; set; }
 }
 
 public sealed class WbSourceQuality

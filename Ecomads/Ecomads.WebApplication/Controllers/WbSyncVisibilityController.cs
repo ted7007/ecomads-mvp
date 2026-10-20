@@ -97,7 +97,8 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             cancellationToken);
         if (failed == null) return NotFound();
         if (failed.Status != "failed") return Conflict(new { message = "Повтор доступен только для завершившегося ошибкой задания." });
-        if (failed.ErrorCode is "token_missing" or "token_disconnected" or "token_unreadable" or "wb_401" or "wb_403" or "wb_402")
+        if (failed.ErrorCode is "token_missing" or "token_disconnected" or "token_unreadable" or "wb_401" ||
+            (failed.Kind != "product_orders" && failed.ErrorCode is "wb_403" or "wb_402"))
             return Conflict(new { message = "Сначала исправьте подключение или доступ к данным WB." });
         if (await db.WbSyncJobs.AnyAsync(x => x.StoreId == storeId && x.Kind == failed.Kind &&
             (x.Status == "pending" || x.Status == "running"), cancellationToken))
@@ -128,7 +129,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId && Kinds.Contains(x.Kind),
             cancellationToken);
         if (job == null) return NotFound();
-        if (!WbSyncJobUnits.IsYearHistory(job.Kind)) return BadRequest(new { message = "Пауза доступна только для годовой истории." });
+        if (!WbSyncJobUnits.CanPause(job.Kind)) return BadRequest(new { message = "Пауза доступна для истории и товарных заказов." });
         if (job.Status is not ("pending" or "running"))
             return Conflict(new { message = "Это задание уже завершилось." });
         if (job.PauseRequestedAtUtc == null)
@@ -148,12 +149,16 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
         var job = await db.WbSyncJobs.SingleOrDefaultAsync(x => x.StoreId == storeId && x.Id == jobId && Kinds.Contains(x.Kind),
             cancellationToken);
         if (job == null) return NotFound();
-        if (!WbSyncJobUnits.IsYearHistory(job.Kind)) return BadRequest(new { message = "Продолжение доступно только для годовой истории." });
+        if (!WbSyncJobUnits.CanPause(job.Kind)) return BadRequest(new { message = "Продолжение доступно для истории и товарных заказов." });
         if (job.Status is not ("pending" or "running"))
             return Conflict(new { message = "Это задание уже завершилось." });
         if (job.PauseRequestedAtUtc != null)
         {
             job.PauseRequestedAtUtc = null;
+            job.LastProgressAtUtc = DateTime.UtcNow;
+            job.UpdatedAtUtc = DateTime.UtcNow;
+            job.Stage = "waiting";
+            if (job.ErrorCode == "no_progress") { job.ErrorCode = null; job.WaitReason = null; }
             db.WbSyncJobEvents.Add(new WbSyncJobEvent { JobId = job.Id, OccurredAtUtc = DateTime.UtcNow,
                 Stage = "resumed", ProcessedCount = job.NextCampaignOffset });
             await db.SaveChangesAsync(cancellationToken);
@@ -168,10 +173,13 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
     private static string BlockedReason(WbSyncJob job)
     {
         var name = job.Kind switch { "funnel_recent" => "Свежие заказы", "funnel_backfill" or "funnel_year" => "История заказов",
+            "product_orders" => "Заказы по товарам за 30 дней",
             "fullstats_history" => "История рекламы за год", "expenses_history" => "Расходы за год",
             "archive" => "Архив рекламы",
             "clusters" => "Поисковые кластеры", "jam" => "Поисковые запросы Джема", _ => "Статистика кампаний" };
-        if (job.PauseRequestedAtUtc != null) return $"{name} приостановлены. Продолжите загрузку, когда будет удобно.";
+        if (job.PauseRequestedAtUtc != null) return job.ErrorCode == "no_progress"
+            ? "Товарная загрузка приостановлена: 24 часа без прогресса. Проверьте доступ и лимиты перед продолжением."
+            : $"{name} приостановлены. Продолжите загрузку, когда будет удобно.";
         if (job.WaitReason == "priority") return $"{name} ждут завершения загрузки текущих данных.";
         if (job.WaitReason == "rollout") return "Загрузка для этого кабинета ожидает включения после проверки интеграции.";
         if (job.WaitReason is "rate_limit" or "retry")
@@ -208,6 +216,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             unit = WbSyncJobUnits.Unit(job.Kind), estimatedCompletionAtUtc,
             job.CreatedAtUtc, job.StartedAtUtc, job.UpdatedAtUtc, job.CompletedAtUtc,
             job.NextAttemptAtUtc, job.ErrorCode, job.RetriedFromJobId, job.RunId,
-            canRetry = job.Status == "failed" && job.ErrorCode is not ("token_missing" or "token_disconnected" or "token_unreadable" or "wb_401" or "wb_403" or "wb_402") };
+            canRetry = job.Status == "failed" && job.ErrorCode is not ("token_missing" or "token_disconnected" or "token_unreadable" or "wb_401") &&
+                (job.Kind == "product_orders" || job.ErrorCode is not ("wb_403" or "wb_402")) };
     }
 }

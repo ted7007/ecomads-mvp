@@ -88,6 +88,9 @@ public sealed class AdvertisingSettingsSync(EcomadsDbContext db, IWbPromotionCli
                 await WbRateLimits.DeferUntilAsync(db, store.Id, "cluster_settings", 0, now.Add(retry), ct);
             logger.LogWarning("Advertising settings unavailable for store {StoreId}: {ErrorType}", store.Id, error.GetType().Name);
         }
+        foreach (var row in rows.Values.Where(x => x.AttemptedAtUtc == now))
+            db.WbResultObservations.Add(new() { Id = Guid.NewGuid(), CampaignId = row.CampaignId, AttemptedAtUtc = now,
+                ReceivedAtUtc = row.Status == "ready" ? row.ReceivedAtUtc : null, State = row.Status, PayloadJson = row.PayloadJson });
         await db.SaveChangesAsync(ct);
     }
 }
