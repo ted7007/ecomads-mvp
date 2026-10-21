@@ -1,0 +1,144 @@
+{
+  "assumptions": {
+    "campaigns": 40,
+    "pairs": 80,
+    "clusters_per_pair": 3,
+    "versions_per_campaign_day": 70,
+    "retention_days": 90,
+    "record_low_bytes": 4096,
+    "record_high_bytes": 8192,
+    "record_budget_includes": "compressed JSONB, row, TOAST, indexes; planning range, not exact row size"
+  },
+  "observed": {
+    "total_rows": 65952,
+    "total_relation_bytes": 294952960,
+    "index_bytes": 19922944,
+    "actual_physical_bytes_per_row": 4472.236778262979,
+    "rows_last_24h": 19318,
+    "campaigns_last_24h": 282,
+    "versions_per_campaign_day": 68.50354609929079,
+    "latest_sample_rows": 200,
+    "latest_mean_compressed_jsonb_bytes": 4654,
+    "latest_mean_serialized_json_bytes": 45464,
+    "latest_mean_cards_per_snapshot": 0.04,
+    "latest_max_cards_per_snapshot": 3,
+    "caveat": "Existing mixed-size production campaigns, not a representative forecast of new client rule triggers."
+  },
+  "rules": {
+    "cluster_subjects": 240,
+    "article_subjects": 80,
+    "campaign_subjects": 40,
+    "rule_checks": 600,
+    "loose_simultaneous_card_bound": 360,
+    "assumptions": "R01 disabled; two cluster rules mutually exclusive; R07 enabled only for applicable unified bidding."
+  },
+  "trigger_scenarios": [
+    {
+      "fraction": 0.05,
+      "cards_across_client": 18.0
+    },
+    {
+      "fraction": 0.1,
+      "cards_across_client": 36.0
+    },
+    {
+      "fraction": 0.2,
+      "cards_across_client": 72.0
+    }
+  ],
+  "current_archive": [
+    {
+      "clients": 1,
+      "snapshots_per_client_day": 2800,
+      "snapshots_retained": 252000,
+      "low_bytes": 1032192000,
+      "high_bytes": 2064384000,
+      "low_decimal_gb": 1.032192,
+      "high_decimal_gb": 2.064384
+    },
+    {
+      "clients": 10,
+      "snapshots_per_client_day": 2800,
+      "snapshots_retained": 2520000,
+      "low_bytes": 10321920000,
+      "high_bytes": 20643840000,
+      "low_decimal_gb": 10.32192,
+      "high_decimal_gb": 20.64384
+    },
+    {
+      "clients": 50,
+      "snapshots_per_client_day": 2800,
+      "snapshots_retained": 12600000,
+      "low_bytes": 51609600000,
+      "high_bytes": 103219200000,
+      "low_decimal_gb": 51.6096,
+      "high_decimal_gb": 103.2192
+    },
+    {
+      "clients": 100,
+      "snapshots_per_client_day": 2800,
+      "snapshots_retained": 25200000,
+      "low_bytes": 103219200000,
+      "high_bytes": 206438400000,
+      "low_decimal_gb": 103.2192,
+      "high_decimal_gb": 206.4384
+    }
+  ],
+  "alternative_archive_policy": [
+    {
+      "clients": 1,
+      "snapshots_per_client_day": 120,
+      "snapshots_retained": 10800,
+      "low_bytes": 44236800,
+      "high_bytes": 88473600,
+      "low_decimal_gb": 0.0442368,
+      "high_decimal_gb": 0.0884736
+    },
+    {
+      "clients": 10,
+      "snapshots_per_client_day": 120,
+      "snapshots_retained": 108000,
+      "low_bytes": 442368000,
+      "high_bytes": 884736000,
+      "low_decimal_gb": 0.442368,
+      "high_decimal_gb": 0.884736
+    },
+    {
+      "clients": 50,
+      "snapshots_per_client_day": 120,
+      "snapshots_retained": 540000,
+      "low_bytes": 2211840000,
+      "high_bytes": 4423680000,
+      "low_decimal_gb": 2.21184,
+      "high_decimal_gb": 4.42368
+    },
+    {
+      "clients": 100,
+      "snapshots_per_client_day": 120,
+      "snapshots_retained": 1080000,
+      "low_bytes": 4423680000,
+      "high_bytes": 8847360000,
+      "low_decimal_gb": 4.42368,
+      "high_decimal_gb": 8.84736
+    }
+  ],
+  "cadence_stress": [
+    {
+      "clients": 1,
+      "snapshots_per_client_day": 28800,
+      "snapshots_retained": 2592000,
+      "low_bytes": 10616832000,
+      "high_bytes": 21233664000,
+      "low_decimal_gb": 10.616832,
+      "high_decimal_gb": 21.233664
+    }
+  ],
+  "limitations": [
+    "Storage table covers recommendation runs only, not the whole database or VPS disk.",
+    "Trigger fractions are explicit scenarios, not inferred business probabilities.",
+    "70 versions/day is normalized from existing data, not 70 new unique recommendations.",
+    "Three archived versions/day requires a new archive policy; current app does not enforce this limit.",
+    "Decision/exposure references can protect snapshots from 90-day deletion.",
+    "720 is the two-minute worker cadence scenario, not an absolute cap including HTTP calculations."
+  ]
+}

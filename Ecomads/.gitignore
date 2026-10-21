@@ -1,5 +1,6 @@
 # Local build verification output
 /artifacts/build-check*/
+/ops/capacity/__pycache__/
 
 # One-off local workbook analysis
 /.codex-budget-analysis/

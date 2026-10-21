@@ -1,0 +1,100 @@
+{
+  "measuredAtUtc": "2026-10-21T15:49:59.2746162Z",
+  "stores": 10,
+  "campaigns": 400,
+  "catalogProducts": 1000,
+  "campaignProductPairs": 800,
+  "clustersPerPair": 3,
+  "days": 30,
+  "concurrency": 3,
+  "hostLogicalProcessors": 1,
+  "runtime": "10.0.8",
+  "applicationLimits": "1 CPU / 1024 MiB; database separately 1 CPU / 512 MiB",
+  "seededDatabaseBytes": 49840643,
+  "databaseBytes": 53326639,
+  "database": "ecomads_capacity_10_d1a874e2174f4aa2957ec9e3ead69214",
+  "phases": [
+    {
+      "name": "seed_30_days",
+      "elapsedSeconds": 4.7138108,
+      "processCpuSeconds": 1.096736,
+      "processCpuCores": 0.23266440816843983,
+      "databaseCpuSeconds": 4.030654999999996,
+      "databaseMemoryBytes": 465420288,
+      "databasePeakMemoryBytes": 536870912,
+      "allocatedBytes": 32504776,
+      "workingSetBytes": 170151936,
+      "peakWorkingSetBytes": 170151936,
+      "managedHeapBytes": 17373160
+    },
+    {
+      "name": "fullstats_import_7_days_one_store",
+      "elapsedSeconds": 5.9920361,
+      "processCpuSeconds": 2.821295,
+      "processCpuCores": 0.470840788158803,
+      "databaseCpuSeconds": 1.0356584999999825,
+      "databaseMemoryBytes": 467984384,
+      "databasePeakMemoryBytes": 536870912,
+      "allocatedBytes": 107525456,
+      "workingSetBytes": 216285184,
+      "peakWorkingSetBytes": 216285184,
+      "managedHeapBytes": 41633408
+    },
+    {
+      "name": "http_with_background_calculation",
+      "elapsedSeconds": 98.2063478,
+      "processCpuSeconds": 96.056814,
+      "processCpuCores": 0.9781120686375835,
+      "databaseCpuSeconds": 11.452722099999988,
+      "databaseMemoryBytes": 483160064,
+      "databasePeakMemoryBytes": 536870912,
+      "allocatedBytes": 10520115336,
+      "workingSetBytes": 271933440,
+      "peakWorkingSetBytes": 321912832,
+      "managedHeapBytes": 34391384
+    }
+  ],
+  "routes": [
+    {
+      "route": "summary",
+      "requests": 30,
+      "errors": 0,
+      "p50Ms": 5488.7394,
+      "p95Ms": 18105.4347,
+      "maxMs": 21480.8468,
+      "responseBytes": 369150
+    },
+    {
+      "route": "projects",
+      "requests": 30,
+      "errors": 0,
+      "p50Ms": 18.7294,
+      "p95Ms": 252.9911,
+      "maxMs": 347.2166,
+      "responseBytes": 352530
+    },
+    {
+      "route": "campaign",
+      "requests": 30,
+      "errors": 0,
+      "p50Ms": 290.6767,
+      "p95Ms": 1679.811,
+      "maxMs": 1680.4149,
+      "responseBytes": 815667
+    }
+  ],
+  "backgroundSeconds": 98.2034097,
+  "calculatedCampaigns": 400,
+  "attempts": 0,
+  "backgroundErrorCount": 0,
+  "databaseErrorLogEntries": 6,
+  "limitations": [
+    "Application has Docker CPU/RAM limits; Docker Desktop performance is not VPS performance.",
+    "PostgreSQL container has a separate 1 CPU / 512 MiB limit; report process memory excludes PostgreSQL.",
+    "Synthetic 30-day data; no raw-response archive, historical decisions or year-long retention seeded.",
+    "Real recommendation worker is invoked once with external refresh disabled; WB requests are blocked.",
+    "HTTP uses ASP.NET TestServer, excludes TLS, reverse proxy, browser rendering and network latency.",
+    "One real fullstats importer measured; other importers and API quota timing require separate modelling.",
+    "EF can log a unique-key conflict handled by RecommendationService during concurrent identical calculations; HTTP/background results are validated separately."
+  ]
+}

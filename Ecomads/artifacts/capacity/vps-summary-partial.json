@@ -1,0 +1,428 @@
+{
+  "samples": 49,
+  "incomplete_lines": 0,
+  "observed_hours": 0.8011713908333334,
+  "first_utc": "2026-10-21T15:28:05.585069+00:00",
+  "last_utc": "2026-10-21T16:16:09.802076+00:00",
+  "full_day": false,
+  "cpu_busy_percent": {
+    "min": 19.890237818060868,
+    "mean": 44.45352885526196,
+    "p95": 69.84523215177234,
+    "max": 70.63610695897691
+  },
+  "available_memory_bytes": {
+    "min": 1003773952,
+    "mean": 1053268511.3469387,
+    "p95": 1102401536,
+    "max": 1114124288
+  },
+  "disk_free_bytes": {
+    "min": 3551535104,
+    "mean": 3561202917.877551,
+    "p95": 3569098752,
+    "max": 3572523008
+  },
+  "sampler_seconds": {
+    "min": 2.0677459799917415,
+    "mean": 2.1751849136127595,
+    "p95": 2.2719869000138715,
+    "max": 2.560458149004262
+  },
+  "container_cpu_percent": {
+    "ecomads-web": {
+      "min": 0.01,
+      "mean": 23.919591836734693,
+      "p95": 50.5,
+      "max": 50.92
+    },
+    "ecomads-caddy": {
+      "min": 0.0,
+      "mean": 0.008571428571428572,
+      "p95": 0.02,
+      "max": 0.29
+    },
+    "ecomads-db": {
+      "min": 0.0,
+      "mean": 23.50877551020408,
+      "p95": 48.72,
+      "max": 49.46
+    },
+    "amnezia-awg2": {
+      "min": 0.01,
+      "mean": 0.8151020408163265,
+      "p95": 3.16,
+      "max": 5.38
+    }
+  },
+  "database_growth": {
+    "observed_seconds": 2703.976936,
+    "delta_bytes": 2678784,
+    "extrapolated_bytes_per_day": null
+  },
+  "latest_database": {
+    "database_bytes": 371719527,
+    "stores": 5,
+    "connected_stores": 2,
+    "campaigns": 282,
+    "tables": [
+      {
+        "relname": "wb_recommendation_runs",
+        "n_live_tup": 74908,
+        "n_dead_tup": 0,
+        "seq_scan": 778,
+        "idx_scan": 1667786,
+        "bytes": 294952960
+      },
+      {
+        "relname": "wb_cluster_statistics",
+        "n_live_tup": 36092,
+        "n_dead_tup": 4162,
+        "seq_scan": 9184,
+        "idx_scan": 13905395,
+        "bytes": 16891904
+      },
+      {
+        "relname": "wb_source_quality",
+        "n_live_tup": 19719,
+        "n_dead_tup": 3271,
+        "seq_scan": 411976,
+        "idx_scan": 216871,
+        "bytes": 9682944
+      },
+      {
+        "relname": "campaign_nomenclature_statistics",
+        "n_live_tup": 29784,
+        "n_dead_tup": 5935,
+        "seq_scan": 63330,
+        "idx_scan": 2520349,
+        "bytes": 8773632
+      },
+      {
+        "relname": "wb_article_observations",
+        "n_live_tup": 27455,
+        "n_dead_tup": 0,
+        "seq_scan": 66,
+        "idx_scan": 0,
+        "bytes": 7356416
+      },
+      {
+        "relname": "wb_result_observations",
+        "n_live_tup": 5512,
+        "n_dead_tup": 0,
+        "seq_scan": 34,
+        "idx_scan": 15,
+        "bytes": 5677056
+      },
+      {
+        "relname": "wb_response_snapshots",
+        "n_live_tup": 173,
+        "n_dead_tup": 69,
+        "seq_scan": 4661,
+        "idx_scan": 2511,
+        "bytes": 3981312
+      },
+      {
+        "relname": "wb_operational_snapshots",
+        "n_live_tup": 8047,
+        "n_dead_tup": 0,
+        "seq_scan": 352629,
+        "idx_scan": 122324,
+        "bytes": 3678208
+      },
+      {
+        "relname": "wb_campaign_daily_checks",
+        "n_live_tup": 13104,
+        "n_dead_tup": 1381,
+        "seq_scan": 67548,
+        "idx_scan": 2034448,
+        "bytes": 2547712
+      },
+      {
+        "relname": "wb_jam_search_queries",
+        "n_live_tup": 4078,
+        "n_dead_tup": 503,
+        "seq_scan": 136,
+        "idx_scan": 3174,
+        "bytes": 1916928
+      },
+      {
+        "relname": "campaign_statistics",
+        "n_live_tup": 6931,
+        "n_dead_tup": 69,
+        "seq_scan": 5349,
+        "idx_scan": 610325,
+        "bytes": 1318912
+      },
+      {
+        "relname": "wb_sync_job_events",
+        "n_live_tup": 6025,
+        "n_dead_tup": 0,
+        "seq_scan": 70,
+        "idx_scan": 13,
+        "bytes": 1048576
+      },
+      {
+        "relname": "wb_sync_jobs",
+        "n_live_tup": 776,
+        "n_dead_tup": 94,
+        "seq_scan": 1455956,
+        "idx_scan": 629416,
+        "bytes": 761856
+      },
+      {
+        "relname": "wb_cost_observations",
+        "n_live_tup": 1129,
+        "n_dead_tup": 0,
+        "seq_scan": 20,
+        "idx_scan": 1129,
+        "bytes": 540672
+      },
+      {
+        "relname": "wb_jam_article_checks",
+        "n_live_tup": 2292,
+        "n_dead_tup": 68,
+        "seq_scan": 1081,
+        "idx_scan": 3082,
+        "bytes": 532480
+      },
+      {
+        "relname": "wb_product_daily_orders",
+        "n_live_tup": 1691,
+        "n_dead_tup": 0,
+        "seq_scan": 13,
+        "idx_scan": 145,
+        "bytes": 524288
+      },
+      {
+        "relname": "wb_advertising_settings",
+        "n_live_tup": 212,
+        "n_dead_tup": 0,
+        "seq_scan": 19665,
+        "idx_scan": 1578360,
+        "bytes": 524288
+      },
+      {
+        "relname": "nomenclatures",
+        "n_live_tup": 942,
+        "n_dead_tup": 0,
+        "seq_scan": 342217,
+        "idx_scan": 7338181,
+        "bytes": 262144
+      },
+      {
+        "relname": "wb_result_exposures",
+        "n_live_tup": 26,
+        "n_dead_tup": 10,
+        "seq_scan": 1624,
+        "idx_scan": 40,
+        "bytes": 221184
+      },
+      {
+        "relname": "campaigns",
+        "n_live_tup": 282,
+        "n_dead_tup": 31,
+        "seq_scan": 316467,
+        "idx_scan": 3045367,
+        "bytes": 212992
+      }
+    ],
+    "jobs": [
+      {
+        "kind": "expenses_month",
+        "status": "completed",
+        "count": 24,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "product_orders",
+        "status": "running",
+        "count": 1,
+        "eligible": 0,
+        "oldest_active_seconds": 3472.811234
+      },
+      {
+        "kind": "expenses_history",
+        "status": "failed",
+        "count": 1,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "expenses",
+        "status": "failed",
+        "count": 3,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "product_orders",
+        "status": "completed",
+        "count": 4,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "clusters",
+        "status": "failed",
+        "count": 2,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "expenses_history",
+        "status": "completed",
+        "count": 3,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "fullstats_month",
+        "status": "completed",
+        "count": 11,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "funnel_year",
+        "status": "completed",
+        "count": 1,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "funnel_month",
+        "status": "running",
+        "count": 1,
+        "eligible": 1,
+        "oldest_active_seconds": 825691.43509
+      },
+      {
+        "kind": "fullstats_history",
+        "status": "running",
+        "count": 1,
+        "eligible": 1,
+        "oldest_active_seconds": 1258705.773178
+      },
+      {
+        "kind": "funnel_year",
+        "status": "pending",
+        "count": 1,
+        "eligible": 1,
+        "oldest_active_seconds": 1258705.623349
+      },
+      {
+        "kind": "fullstats",
+        "status": "completed",
+        "count": 168,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "fullstats_month",
+        "status": "pending",
+        "count": 1,
+        "eligible": 1,
+        "oldest_active_seconds": 1165029.0218
+      },
+      {
+        "kind": "expenses_month",
+        "status": "running",
+        "count": 1,
+        "eligible": 1,
+        "oldest_active_seconds": 737873.43183
+      },
+      {
+        "kind": "clusters",
+        "status": "completed",
+        "count": 103,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "archive",
+        "status": "failed",
+        "count": 1,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "archive",
+        "status": "completed",
+        "count": 2,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "fullstats",
+        "status": "failed",
+        "count": 3,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "funnel_recent",
+        "status": "completed",
+        "count": 184,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "fullstats_history",
+        "status": "completed",
+        "count": 8,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "funnel",
+        "status": "completed",
+        "count": 1,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "funnel_month",
+        "status": "completed",
+        "count": 19,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "expenses",
+        "status": "completed",
+        "count": 178,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      },
+      {
+        "kind": "jam",
+        "status": "completed",
+        "count": 54,
+        "eligible": 0,
+        "oldest_active_seconds": null
+      }
+    ],
+    "captured_wb_last_15m": null,
+    "postgres": {
+      "xact_commit": 3573136,
+      "xact_rollback": 1598976,
+      "blks_read": 203497,
+      "blks_hit": 724459383,
+      "temp_bytes": 130106736,
+      "deadlocks": 0,
+      "tup_inserted": 696026,
+      "tup_updated": 220904,
+      "tup_deleted": 311191,
+      "stats_reset": null
+    }
+  },
+  "errors": [],
+  "limitations": [
+    "CPU host samples are interval averages; docker CPU is a short snapshot.",
+    "Database table row counts are PostgreSQL estimates.",
+    "Growth below one full day is preliminary; no purchasing conclusion from a short slope.",
+    "Captured WB journal excludes some operational and settings requests."
+  ]
+}

@@ -1,0 +1,185 @@
+{
+  "retrieved_utc": "2026-10-21T15:35:35.639428+00:00",
+  "sources": [
+    {
+      "url": "https://dev.wildberries.ru/api/swagger/yaml/ru/08-promotion.yaml",
+      "sha256": "9d8ff74c5c15c8d79f22cf6a6fc0ce017c8509688f862d388ce231d03d3b306a",
+      "endpoints": [
+        {
+          "endpoint": "/adv/v3/fullstats",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 3 запроса | 20 сек | 1 запрос |",
+            "| Сервисный | 1 мин | 3 запроса | 20 сек | 1 запрос |",
+            "| Базовый с секретом | 1 мин | 3 запроса | 20 сек | 1 запрос |",
+            "| Базовый | 1 ч | 1 запрос | 1 ч | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/adv/v1/upd",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 сек | 1 запрос | 1 сек | 5 запросов |",
+            "| Сервисный | 1 сек | 1 запрос | 1 сек | 5 запросов |",
+            "| Базовый с секретом | 1 сек | 1 запрос | 1 сек | 5 запросов |",
+            "| Базовый | 1 ч | 1 запрос | 1 ч | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/adv/v1/normquery/stats",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 10 запросов | 6 сек | 20 запросов |",
+            "| Сервисный | 1 мин | 10 запросов | 6 сек | 20 запросов |",
+            "| Базовый с секретом | 1 мин | 10 запросов | 6 сек | 20 запросов |",
+            "| Базовый | 1 ч | 2 запроса | 30 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/api/advert/v2/adverts",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 сек | 5 запросов | 200 мс | 5 запросов |",
+            "| Сервисный | 1 сек | 5 запросов | 200 мс | 5 запросов |",
+            "| Базовый с секретом | 1 сек | 5 запросов | 200 мс | 5 запросов |",
+            "| Базовый | 1 ч | 1 запрос | 1 ч | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/adv/v0/normquery/get-bids",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 сек | 5 запросов | 200 мс | 10 запросов |",
+            "| Сервисный | 1 сек | 5 запросов | 200 мс | 10 запросов |",
+            "| Базовый с секретом | 1 сек | 5 запросов | 200 мс | 10 запросов |",
+            "| Базовый | 1 ч | 5 запросов | 12 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/adv/v0/normquery/get-minus",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 сек | 5 запросов | 200 мс | 10 запросов |",
+            "| Сервисный | 1 сек | 5 запросов | 200 мс | 10 запросов |",
+            "| Базовый с секретом | 1 сек | 5 запросов | 200 мс | 10 запросов |",
+            "| Базовый | 1 ч | 5 запросов | 12 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/api/advert/v2/budget",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 20 запросов | 3 сек | 4 запроса |",
+            "| Сервисный | 1 мин | 20 запросов | 3 сек | 4 запроса |",
+            "| Базовый с секретом | 1 мин | 20 запросов | 3 сек | 4 запроса |",
+            "| Базовый | 1 ч | 4 запроса | 15 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/adv/v1/balance",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 сек | 1 запрос | 1 сек | 5 запросов |",
+            "| Сервисный | 1 сек | 1 запрос | 1 сек | 5 запросов |",
+            "| Базовый с секретом | 1 сек | 1 запрос | 1 сек | 5 запросов |",
+            "| Базовый | 1 ч | 2 запроса | 30 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        }
+      ]
+    },
+    {
+      "url": "https://dev.wildberries.ru/api/swagger/yaml/ru/11-analytics.yaml",
+      "sha256": "81e0a1d8920e84e4995337d13da172723fd5d964398ea82d0374abfbda2737fb",
+      "endpoints": [
+        {
+          "endpoint": "/api/analytics/v3/sales-funnel/products",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Сервисный | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Базовый с секретом | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Базовый | 1 ч | 2 запроса | 30 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/api/analytics/v3/sales-funnel/grouped/history",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Сервисный | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Базовый с секретом | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Базовый | 1 ч | 2 запроса | 30 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/api/v2/search-report/product/search-texts",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Сервисный | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Базовый с секретом | 1 мин | 3 запроса | 20 сек | 3 запроса |",
+            "| Базовый | 1 ч | 1 запрос | 1 ч | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/api/analytics/v1/stocks-report/seller-warehouses",
+          "found": true,
+          "limits": [
+            "| 1 мин | 3 запроса | 20 сек | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        }
+      ]
+    },
+    {
+      "url": "https://dev.wildberries.ru/api/swagger/yaml/ru/12-reports.yaml",
+      "sha256": "d604e7fb34f598f57042f8d59a96c56230fb3939722056454cacfe0eb1caae90",
+      "endpoints": [
+        {
+          "endpoint": "/api/v1/warehouse_remains",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 1 запрос | 1 мин | 5 запросов |",
+            "| Сервисный | 1 мин | 1 запрос | 1 мин | 5 запросов |",
+            "| Базовый с секретом | 1 мин | 1 запрос | 1 мин | 5 запросов |",
+            "| Базовый | 1 ч | 4 запроса | 15 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/api/v1/warehouse_remains/tasks/{task_id}/status",
+          "found": true,
+          "limits": [
+            "| Персональный | 5 сек | 1 запрос | 5 сек | 5 запросов |",
+            "| Сервисный | 5 сек | 1 запрос | 5 сек | 5 запросов |",
+            "| Базовый с секретом | 5 сек | 1 запрос | 5 сек | 5 запросов |",
+            "| Базовый | 1 ч | 4 запроса | 15 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        },
+        {
+          "endpoint": "/api/v1/warehouse_remains/tasks/{task_id}/download",
+          "found": true,
+          "limits": [
+            "| Персональный | 1 мин | 1 запрос | 1 мин | 1 запрос |",
+            "| Сервисный | 1 мин | 1 запрос | 1 мин | 1 запрос |",
+            "| Базовый с секретом | 1 мин | 1 запрос | 1 мин | 1 запрос |",
+            "| Базовый | 1 ч | 4 запроса | 15 мин | 1 запрос |"
+          ],
+          "scope": "<a href=\"/openapi/api-information#tag/introduction/Limity-zaprosov\">Лимит запросов</a> на один профиль продавца:"
+        }
+      ]
+    }
+  ]
+}

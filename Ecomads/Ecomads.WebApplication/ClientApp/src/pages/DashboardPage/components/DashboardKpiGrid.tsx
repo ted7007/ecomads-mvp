@@ -9,6 +9,7 @@ import { metricColors } from '../../../shared/ui/DailyChart';
 import type { MetricKey } from '../../../shared/ui/DailyChart';
 import { KpiCard, KpiGrid } from '../../../shared/ui/KpiCard';
 import type { KpiCardProps } from '../../../shared/ui/KpiCard';
+import { spendSummary } from './spendSummary';
 
 type DashboardTotals = {
   revenue: number;
@@ -39,14 +40,10 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
   const loadedOrderDays = days.filter((day) => day.totalOrderSum != null).length;
   const ordersNote = currentOrders === null ? `загружено ${loadedOrderDays} из ${days.length} дней` : undefined;
   const drrTotal = coverage?.drr ?? null;
-  const expenseDays = coverage?.days ?? [];
-  const spendTotal = days.length > 0 && expenseDays.length === days.length &&
-    expenseDays.every((day) => day.spend != null)
-      ? expenseDays.reduce((sum, day) => sum + day.spend!, 0) : null;
-  const previousSpendDays = previousCoverage?.days ?? [];
-  const priorSpendTotal = previousDays.length > 0 && previousSpendDays.length === previousDays.length &&
-    previousSpendDays.every((day) => day.spend != null)
-      ? previousSpendDays.reduce((sum, day) => sum + day.spend!, 0) : null;
+  const expense = spendSummary(coverage?.days ?? []);
+  const priorExpense = spendSummary(previousCoverage?.days ?? []);
+  const spendTotal = expense.total;
+  const priorSpendTotal = priorExpense.total;
   const priorDrrTotal = coverage?.status === 'complete' && previousCoverage?.status === 'complete'
     ? previousCoverage.drr : null;
   const orderComparison = currentOrders !== null && priorOrders !== null && previousDays.length === days.length
@@ -69,8 +66,11 @@ export function DashboardKpiGrid({ campaigns, priorCampaigns, days, previousDays
           note={ordersNote} hint={currentOrders === null ? ordersHint : undefined} {...toggle('orders')}
           delta={orderComparison?.delta} deltaTone={orderComparison?.tone} previous={orderComparison?.previous} />
         <KpiCard label="Расход" value={spendTotal === null ? '—' : formatMoney(spendTotal)}
-          note={spendTotal === null ? 'Ожидаем историю затрат WB' : undefined} {...toggle('spend')}
-          {...(spendTotal !== null && priorSpendTotal !== null && previousDays.length === days.length
+          note={spendTotal === null ? 'Нет подтверждённого расхода за выбранный период' :
+            !expense.complete ? `Предварительно · ${expense.confirmedDays} из ${expense.expectedDays} дней` : undefined}
+          hint={!expense.complete && expense.missingDates.length ? `Расход не подтверждён за: ${expense.missingDates.join(', ')}. Эти дни не входят в сумму.` : undefined}
+          {...toggle('spend')}
+          {...(spendTotal !== null && priorSpendTotal !== null && expense.complete && priorExpense.complete && expense.expectedDays === priorExpense.expectedDays
             ? (() => { const value = compareKpi(spendTotal, priorSpendTotal, 'money', 0);
               return { delta: value.delta, deltaTone: value.tone, previous: value.previous }; })() : {})} />
         <KpiCard label="ДРР от заказов" value={drrTotal === null ? '—' : formatPercent(drrTotal, 1)}

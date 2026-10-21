@@ -1,0 +1,243 @@
+{
+  "kind": "planning model, not live measurement",
+  "assumptions": {
+    "campaigns": 40,
+    "catalog_products": 100,
+    "campaign_product_pairs": 80,
+    "basic_token": true,
+    "refreshes_per_day": 2,
+    "results_enabled": true,
+    "worker_cadence_minutes": 2,
+    "fbs_attempts_included": true,
+    "pages": 1
+  },
+  "scenarios": [
+    {
+      "stores": 10,
+      "per_store_queued_requests": {
+        "fullstats": 3,
+        "expenses": 4,
+        "funnel_history": 2,
+        "funnel_month": 12,
+        "product_orders": 8,
+        "clusters": 2,
+        "jam": 4
+      },
+      "per_store_operational_attempts": {
+        "campaign_list": 24,
+        "settings_bids": 24,
+        "settings_minus": 24,
+        "budgets": 90,
+        "balance": 48,
+        "stocks_fbs_attempts": 48,
+        "fbw_create": 43,
+        "fbw_status": 43,
+        "fbw_download": 43,
+        "demand_products": 4
+      },
+      "per_store_total_attempts": 426,
+      "total_attempts_per_day": 4260,
+      "queued_request_steps_per_day": 350,
+      "queue_pause_hours_lower_bound": 1.4583333333333333,
+      "queue_pause_only_utilization": 0.06076388888888889,
+      "products_slot": {
+        "regular_requests": 24,
+        "daily_limit": 48,
+        "spare_requests": 24,
+        "nominal_older_history_requests": 168,
+        "optimistic_history_days": 7
+      },
+      "warnings": [
+        "Operational calls run outside WbSyncWorker; do not multiply them by its 15-second pause.",
+        "The 15-second total is a lower bound: HTTP, SQL, idle/check steps, retries and history add time.",
+        "FBS attempts are counted as attempts; ordinary basic-token access may be unavailable.",
+        "Extra cluster repairs, stock pagination, report polling, manual sync and 429 retries are excluded.",
+        "Base case assumes separate WB seller profiles; multiple local stores of one seller do not create new WB quota.",
+        "Different methods use existing application slot mapping; possible WB shared groups need separate verification.",
+        "History days are a quota-volume lower bound, not a completion-time SLA."
+      ]
+    },
+    {
+      "stores": 50,
+      "per_store_queued_requests": {
+        "fullstats": 3,
+        "expenses": 4,
+        "funnel_history": 2,
+        "funnel_month": 12,
+        "product_orders": 8,
+        "clusters": 2,
+        "jam": 4
+      },
+      "per_store_operational_attempts": {
+        "campaign_list": 24,
+        "settings_bids": 24,
+        "settings_minus": 24,
+        "budgets": 90,
+        "balance": 48,
+        "stocks_fbs_attempts": 48,
+        "fbw_create": 43,
+        "fbw_status": 43,
+        "fbw_download": 43,
+        "demand_products": 4
+      },
+      "per_store_total_attempts": 426,
+      "total_attempts_per_day": 21300,
+      "queued_request_steps_per_day": 1750,
+      "queue_pause_hours_lower_bound": 7.291666666666667,
+      "queue_pause_only_utilization": 0.3038194444444444,
+      "products_slot": {
+        "regular_requests": 24,
+        "daily_limit": 48,
+        "spare_requests": 24,
+        "nominal_older_history_requests": 168,
+        "optimistic_history_days": 7
+      },
+      "warnings": [
+        "Operational calls run outside WbSyncWorker; do not multiply them by its 15-second pause.",
+        "The 15-second total is a lower bound: HTTP, SQL, idle/check steps, retries and history add time.",
+        "FBS attempts are counted as attempts; ordinary basic-token access may be unavailable.",
+        "Extra cluster repairs, stock pagination, report polling, manual sync and 429 retries are excluded.",
+        "Base case assumes separate WB seller profiles; multiple local stores of one seller do not create new WB quota.",
+        "Different methods use existing application slot mapping; possible WB shared groups need separate verification.",
+        "History days are a quota-volume lower bound, not a completion-time SLA."
+      ]
+    },
+    {
+      "stores": 100,
+      "per_store_queued_requests": {
+        "fullstats": 3,
+        "expenses": 4,
+        "funnel_history": 2,
+        "funnel_month": 12,
+        "product_orders": 8,
+        "clusters": 2,
+        "jam": 4
+      },
+      "per_store_operational_attempts": {
+        "campaign_list": 24,
+        "settings_bids": 24,
+        "settings_minus": 24,
+        "budgets": 90,
+        "balance": 48,
+        "stocks_fbs_attempts": 48,
+        "fbw_create": 43,
+        "fbw_status": 43,
+        "fbw_download": 43,
+        "demand_products": 4
+      },
+      "per_store_total_attempts": 426,
+      "total_attempts_per_day": 42600,
+      "queued_request_steps_per_day": 3500,
+      "queue_pause_hours_lower_bound": 14.583333333333334,
+      "queue_pause_only_utilization": 0.6076388888888888,
+      "products_slot": {
+        "regular_requests": 24,
+        "daily_limit": 48,
+        "spare_requests": 24,
+        "nominal_older_history_requests": 168,
+        "optimistic_history_days": 7
+      },
+      "warnings": [
+        "Operational calls run outside WbSyncWorker; do not multiply them by its 15-second pause.",
+        "The 15-second total is a lower bound: HTTP, SQL, idle/check steps, retries and history add time.",
+        "FBS attempts are counted as attempts; ordinary basic-token access may be unavailable.",
+        "Extra cluster repairs, stock pagination, report polling, manual sync and 429 retries are excluded.",
+        "Base case assumes separate WB seller profiles; multiple local stores of one seller do not create new WB quota.",
+        "Different methods use existing application slot mapping; possible WB shared groups need separate verification.",
+        "History days are a quota-volume lower bound, not a completion-time SLA."
+      ]
+    }
+  ],
+  "pagination_sensitivity": [
+    {
+      "stores": 100,
+      "per_store_queued_requests": {
+        "fullstats": 3,
+        "expenses": 4,
+        "funnel_history": 2,
+        "funnel_month": 24,
+        "product_orders": 16,
+        "clusters": 2,
+        "jam": 4
+      },
+      "per_store_operational_attempts": {
+        "campaign_list": 24,
+        "settings_bids": 24,
+        "settings_minus": 24,
+        "budgets": 90,
+        "balance": 48,
+        "stocks_fbs_attempts": 48,
+        "fbw_create": 43,
+        "fbw_status": 43,
+        "fbw_download": 43,
+        "demand_products": 4
+      },
+      "per_store_total_attempts": 446,
+      "total_attempts_per_day": 44600,
+      "queued_request_steps_per_day": 5500,
+      "queue_pause_hours_lower_bound": 22.916666666666668,
+      "queue_pause_only_utilization": 0.9548611111111112,
+      "products_slot": {
+        "regular_requests": 48,
+        "daily_limit": 48,
+        "spare_requests": 0,
+        "nominal_older_history_requests": 336,
+        "optimistic_history_days": null
+      },
+      "warnings": [
+        "Operational calls run outside WbSyncWorker; do not multiply them by its 15-second pause.",
+        "The 15-second total is a lower bound: HTTP, SQL, idle/check steps, retries and history add time.",
+        "FBS attempts are counted as attempts; ordinary basic-token access may be unavailable.",
+        "Extra cluster repairs, stock pagination, report polling, manual sync and 429 retries are excluded.",
+        "Base case assumes separate WB seller profiles; multiple local stores of one seller do not create new WB quota.",
+        "Different methods use existing application slot mapping; possible WB shared groups need separate verification.",
+        "History days are a quota-volume lower bound, not a completion-time SLA."
+      ]
+    },
+    {
+      "stores": 100,
+      "per_store_queued_requests": {
+        "fullstats": 3,
+        "expenses": 4,
+        "funnel_history": 2,
+        "funnel_month": 36,
+        "product_orders": 24,
+        "clusters": 2,
+        "jam": 4
+      },
+      "per_store_operational_attempts": {
+        "campaign_list": 24,
+        "settings_bids": 24,
+        "settings_minus": 24,
+        "budgets": 90,
+        "balance": 48,
+        "stocks_fbs_attempts": 48,
+        "fbw_create": 43,
+        "fbw_status": 43,
+        "fbw_download": 43,
+        "demand_products": 4
+      },
+      "per_store_total_attempts": 466,
+      "total_attempts_per_day": 46600,
+      "queued_request_steps_per_day": 7500,
+      "queue_pause_hours_lower_bound": 31.25,
+      "queue_pause_only_utilization": 1.3020833333333333,
+      "products_slot": {
+        "regular_requests": 72,
+        "daily_limit": 48,
+        "spare_requests": 0,
+        "nominal_older_history_requests": 504,
+        "optimistic_history_days": null
+      },
+      "warnings": [
+        "Operational calls run outside WbSyncWorker; do not multiply them by its 15-second pause.",
+        "The 15-second total is a lower bound: HTTP, SQL, idle/check steps, retries and history add time.",
+        "FBS attempts are counted as attempts; ordinary basic-token access may be unavailable.",
+        "Extra cluster repairs, stock pagination, report polling, manual sync and 429 retries are excluded.",
+        "Base case assumes separate WB seller profiles; multiple local stores of one seller do not create new WB quota.",
+        "Different methods use existing application slot mapping; possible WB shared groups need separate verification.",
+        "History days are a quota-volume lower bound, not a completion-time SLA."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "measuredAtUtc": "2026-10-21T15:32:21.9661323Z",
+  "stores": 1,
+  "campaigns": 40,
+  "catalogProducts": 100,
+  "campaignProductPairs": 80,
+  "clustersPerPair": 3,
+  "days": 30,
+  "concurrency": 1,
+  "hostLogicalProcessors": 16,
+  "runtime": "10.0.13",
+  "seededDatabaseBytes": 13861379,
+  "databaseBytes": 15069999,
+  "database": "ecomads_capacity_1_2b6bfa192e1f417e81fa0aaf1ac39f55",
+  "phases": [
+    {
+      "name": "seed_30_days",
+      "elapsedSeconds": 1.3005778,
+      "processCpuSeconds": 1.09375,
+      "processCpuCores": 0.8409723739710151,
+      "allocatedBytes": 10689200,
+      "workingSetBytes": 135430144,
+      "peakWorkingSetBytes": 135430144,
+      "managedHeapBytes": 15447648
+    },
+    {
+      "name": "fullstats_import_7_days_one_store",
+      "elapsedSeconds": 4.0951347,
+      "processCpuSeconds": 3.859375,
+      "processCpuCores": 0.9424293174043823,
+      "allocatedBytes": 106031072,
+      "workingSetBytes": 190328832,
+      "peakWorkingSetBytes": 190328832,
+      "managedHeapBytes": 40823176
+    },
+    {
+      "name": "http_with_background_calculation",
+      "elapsedSeconds": 15.952512,
+      "processCpuSeconds": 16.09375,
+      "processCpuCores": 1.0088536526410385,
+      "allocatedBytes": 3491935688,
+      "workingSetBytes": 213266432,
+      "peakWorkingSetBytes": 218583040,
+      "managedHeapBytes": 27393952
+    }
+  ],
+  "routes": [
+    {
+      "route": "campaign",
+      "requests": 10,
+      "errors": 0,
+      "p50Ms": 56.6674,
+      "p95Ms": 122.2139,
+      "maxMs": 122.2139,
+      "responseBytes": 271890
+    },
+    {
+      "route": "projects",
+      "requests": 10,
+      "errors": 0,
+      "p50Ms": 10.0505,
+      "p95Ms": 201.8471,
+      "maxMs": 201.8471,
+      "responseBytes": 117510
+    },
+    {
+      "route": "summary",
+      "requests": 10,
+      "errors": 0,
+      "p50Ms": 1140.4978,
+      "p95Ms": 1941.2244,
+      "maxMs": 1941.2244,
+      "responseBytes": 123050
+    }
+  ],
+  "attempts": 0,
+  "limitations": [
+    "Application runs on the Windows host, not under a VPS CPU/RAM limit.",
+    "PostgreSQL container has a separate 1 CPU / 512 MiB limit; report process memory excludes PostgreSQL.",
+    "Synthetic 30-day data; no raw-response archive, historical decisions or year-long retention seeded.",
+    "Real recommendation worker is invoked once with external refresh disabled; WB requests are blocked.",
+    "HTTP uses ASP.NET TestServer, excludes TLS, reverse proxy, browser rendering and network latency.",
+    "One real fullstats importer measured; other importers and API quota timing require separate modelling."
+  ]
+}
