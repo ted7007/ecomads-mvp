@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT=/opt/ecomads
+[[ "$(id -u)" == 0 ]] || { echo 'Use sudo ecomadsctl'; exit 1; }
+access() {
+  chgrp -R ecomads-access "$ROOT/releases"
+  chmod -R g+rwX "$ROOT/releases"
+  find "$ROOT/releases" -type d -exec chmod g+s {} +
+  for file in .env .current-image .previous-image; do
+    if [[ -f "$ROOT/$file" ]]; then
+      chgrp ecomads-access "$ROOT/$file"
+      chmod 0640 "$ROOT/$file"
+    fi
+  done
+}
+compose() { docker compose --env-file "$ROOT/.env" -f "$ROOT/compose.production.yml" -p ecomads "$@"; }
+action="${1:-help}"
+if (( $# )); then shift; fi
+case "$action" in
+  status) [[ $# == 0 ]] || exit 2; compose ps ;;
+  logs) [[ $# == 0 ]] || exit 2; compose logs --tail=200 web caddy db ;;
+  restart) [[ $# == 0 ]] || exit 2; compose restart web ;;
+  apply) [[ $# == 0 ]] || exit 2; trap access EXIT; "$ROOT/archive-logs.sh" operator-apply; compose up -d --no-deps web ;;
+  secret) [[ $# == 1 ]] || exit 2; /usr/bin/python3 /usr/local/lib/ecomads-set-secret.py "$1" ;;
+  deploy)
+    [[ $# == 1 && "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$ ]] || exit 2
+    [[ -d "$ROOT/releases/$1" && ! -L "$ROOT/releases/$1" ]] || exit 2
+    trap access EXIT
+    bash "$ROOT/deploy-vps.sh" "$1" "$ROOT/releases/$1"
+    ;;
+  rollback) [[ $# == 0 ]] || exit 2; trap access EXIT; bash "$ROOT/rollback-vps.sh" ;;
+  access) [[ $# == 0 ]] || exit 2; access ;;
+  env) [[ $# == 0 ]] || exit 2; cat "$ROOT/.env" ;;
+  *) echo 'Usage: sudo ecomadsctl {status|logs|restart|apply|secret NAME|deploy VERSION|rollback|access|env}'; [[ "$action" == help ]] ;;
+esac

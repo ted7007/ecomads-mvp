@@ -1,5 +1,5 @@
 param(
-    [string]$SshHost = "my-vps",
+    [string]$SshHost = "ecomads-new",
     [switch]$Logs
 )
 

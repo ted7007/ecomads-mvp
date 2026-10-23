@@ -1,11 +1,14 @@
 # Доступ оператора Ecomads
 
-Пользователь `ecomadsops`, сервер `31.76.53.166`, SSH-порт `22`.
+Отдельные пользователи `ecomadsops1` и `ecomadsops2`, сервер `31.207.76.37`, SSH-порт `22`.
+Каждому коллеге выдаётся собственный временный пароль.
+Отпечаток ED25519: `SHA256:sDDY4U3GIyiF/kOb7kZkRypbEoc0/Dc1QCnQV9/Qp5M`.
+В примерах ниже используется первый оператор; для второго замените логин на `ecomadsops2`.
 Пароль передаётся отдельно и не хранится в репозитории. При первом входе
 сервер потребует сменить временный пароль. После смены подключитесь повторно.
 
 ```sh
-ssh ecomadsops@31.76.53.166
+ssh ecomadsops1@31.207.76.37
 ```
 
 После входа рабочий каталог — `/opt/ecomads`; `~/project` ведёт туда же.
@@ -87,8 +90,8 @@ sudo ecomadsctl status
 Для блокировки пароля, истечения учётной записи и завершения текущих сессий:
 
 ```powershell
-ssh my-vps "usermod -L ecomadsops && usermod --expiredate 1 ecomadsops"
-ssh my-vps "pkill -KILL -u ecomadsops"
+ssh ecomads-new "usermod -L ecomadsops1 && usermod --expiredate 1 ecomadsops1"
+ssh ecomads-new "pkill -KILL -u ecomadsops1"
 ```
 
 Если доступ к секретам больше нельзя доверять, их также нужно сменить.

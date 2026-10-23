@@ -126,9 +126,10 @@ for release in "${expired_releases[@]}"; do
   [[ "$release" =~ ^[A-Za-z0-9._-]+$ ]] || continue
   expired_path="$(realpath -m "$ROOT/releases/$release")"
   [[ "$expired_path" == "$ROOT/releases/"* ]] || continue
-  if [[ "ecomads:$release" != "$new_image" && "ecomads:$release" != "$previous_image" ]]; then
-    docker image rm "ecomads:$release" >/dev/null 2>&1 || true
+  if [[ "ecomads:$release" == "$new_image" || "ecomads:$release" == "$previous_image" ]]; then
+    continue
   fi
+  docker image rm "ecomads:$release" >/dev/null 2>&1 || true
   rm -rf -- "$expired_path"
 done
 

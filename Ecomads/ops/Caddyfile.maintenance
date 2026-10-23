@@ -1,0 +1,12 @@
+http://31.76.53.166 {
+    redir https://ecomads.ru{uri} permanent
+}
+
+ecomads.ru {
+    header Retry-After "120"
+    respond "Ecomads временно недоступен: выполняем перенос на новый сервер. Пожалуйста, зайдите позже." 503
+}
+
+www.ecomads.ru {
+    redir https://ecomads.ru{uri} permanent
+}

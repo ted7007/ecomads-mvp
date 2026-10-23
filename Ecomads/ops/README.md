@@ -1,6 +1,11 @@
 # Ecomads production deployment
 
 The production stack runs Caddy, the ASP.NET/React application, and PostgreSQL.
+Production moved to `31.207.76.37` on 2026-10-24 (Asia/Vladivostok).
+The deployment SSH alias is `ecomads-new`; `my-vps` remains the old VPN VPS.
+DNS switching is pending with the domain operator; meanwhile the old Caddy
+proxies to the new VPS over verified HTTPS.
+See [the migration record](MIGRATION-2026-10-24.md) for checkpoints and rollback.
 PostgreSQL is available only inside the private Docker network. Secrets stay in
 `/opt/ecomads/.env` on the VPS and are not uploaded by deployments.
 
@@ -56,16 +61,16 @@ by root, and retained for up to 14 days within a 1 GB total cap. Docker rotates 
 remain on the same VPS and are not an offsite backup.
 
 ```powershell
-ssh my-vps "sudo systemctl status ecomads-log-archive.timer --no-pager"
-ssh my-vps "sudo ls -lh /opt/ecomads/logs"
-ssh my-vps "sudo gzip -cd /opt/ecomads/logs/NAME.log.gz | tail -100"
+ssh ecomads-new "sudo systemctl status ecomads-log-archive.timer --no-pager"
+ssh ecomads-new "sudo ls -lh /opt/ecomads/logs"
+ssh ecomads-new "sudo gzip -cd /opt/ecomads/logs/NAME.log.gz | tail -100"
 ```
 
 ## Operations
 
 ```powershell
-ssh my-vps "docker compose --env-file /opt/ecomads/.env -f /opt/ecomads/compose.production.yml -p ecomads ps"
-ssh my-vps "docker compose --env-file /opt/ecomads/.env -f /opt/ecomads/compose.production.yml -p ecomads logs --tail=200 web caddy db"
+ssh ecomads-new "docker compose --env-file /opt/ecomads/.env -f /opt/ecomads/compose.production.yml -p ecomads ps"
+ssh ecomads-new "docker compose --env-file /opt/ecomads/.env -f /opt/ecomads/compose.production.yml -p ecomads logs --tail=200 web caddy db"
 ```
 
 For Telegram, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_BOT_USERNAME` in the

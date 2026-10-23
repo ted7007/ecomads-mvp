@@ -1,0 +1,17 @@
+http://31.76.53.166 {
+    redir https://ecomads.ru{uri} permanent
+}
+
+ecomads.ru {
+    encode zstd gzip
+    reverse_proxy https://31.207.76.37 {
+        header_up Host ecomads.ru
+        transport http {
+            tls_server_name ecomads.ru
+        }
+    }
+}
+
+www.ecomads.ru {
+    redir https://ecomads.ru{uri} permanent
+}

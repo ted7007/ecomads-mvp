@@ -1,1 +1,3 @@
 ops/*.sh text eol=lf
+ops/*.py text eol=lf
+ops/ecomadsctl text eol=lf

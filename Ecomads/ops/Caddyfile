@@ -1,4 +1,4 @@
-http://31.76.53.166 {
+http://31.207.76.37 {
     redir https://ecomads.ru{uri} permanent
 }
 

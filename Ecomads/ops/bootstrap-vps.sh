@@ -80,4 +80,7 @@ fi
 
 chmod 0600 "$ROOT/.env"
 docker compose --env-file "$ROOT/.env" -f "$ROOT/compose.production.yml" -p ecomads config --quiet
+if [[ -x /usr/local/sbin/ecomadsctl ]] && getent group ecomads-access >/dev/null; then
+  /usr/local/sbin/ecomadsctl access
+fi
 echo "VPS bootstrap is ready at $ROOT"

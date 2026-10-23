@@ -1,94 +1,88 @@
-import subprocess as sp, pathlib as P, secrets, string, os, pty, select, time, json
-def run(args,**kw): return sp.run(args,check=True,text=True,**kw)
-user='ecomadsops'
-if sp.run(['id',user],stdout=sp.DEVNULL,stderr=sp.DEVNULL).returncode==0: raise SystemExit('Account exists; refusing overwrite')
-helper=P.Path('/usr/local/sbin/ecomadsctl')
-if helper.exists(): raise SystemExit('Helper exists; refusing overwrite')
-run(['groupadd','--force','ecomads-access'])
-run(['useradd','-m','-s','/bin/bash','-c','Ecomads application operator',user])
-run(['usermod','-aG','ecomads-access',user])
-password=''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(28))
-run(['chpasswd'],input=user+':'+password+'\n')
-helper.write_text("""#!/usr/bin/env bash
-set -Eeuo pipefail
-ROOT=/opt/ecomads
-[[ "$(id -u)" == 0 ]] || { echo "Use sudo ecomadsctl"; exit 1; }
-access() {
-  chgrp -R ecomads-access "$ROOT/releases"
-  chmod -R g+rwX "$ROOT/releases"
-  find "$ROOT/releases" -type d -exec chmod g+s {} +
-  for file in .env .current-image .previous-image; do
-    if [[ -f "$ROOT/$file" ]]; then
-      chgrp ecomads-access "$ROOT/$file"
-      chmod 0640 "$ROOT/$file"
-    fi
-  done
-}
-action="${1:-help}"
-if (( $# )); then shift; fi
-compose() { docker compose --env-file "$ROOT/.env" -f "$ROOT/compose.production.yml" -p ecomads "$@"; }
-case "$action" in
-  status) [[ $# == 0 ]] || exit 2; compose ps ;;
-  logs) [[ $# == 0 ]] || exit 2; compose logs --tail=200 web caddy db ;;
-  restart) [[ $# == 0 ]] || exit 2; compose restart web ;;
-  deploy)
-    [[ $# == 1 && "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$ ]] || exit 2
-    [[ -d "$ROOT/releases/$1" && ! -L "$ROOT/releases/$1" ]] || exit 2
-    trap access EXIT
-    bash "$ROOT/deploy-vps.sh" "$1" "$ROOT/releases/$1"
-    ;;
-  rollback) [[ $# == 0 ]] || exit 2; trap access EXIT; bash "$ROOT/rollback-vps.sh" ;;
-  access) [[ $# == 0 ]] || exit 2; access ;;
-  env) [[ $# == 0 ]] || exit 2; cat "$ROOT/.env" ;;
-  *) echo "Usage: sudo ecomadsctl {status|logs|restart|deploy VERSION|rollback|access|env}"; [[ "$action" == help ]] ;;
-esac
-""")
-os.chmod(helper,0o755)
-sudoers=P.Path('/etc/sudoers.d/ecomadsops')
-sudoers.write_text('ecomadsops ALL=(root) NOPASSWD: /usr/local/sbin/ecomadsctl\n')
-os.chmod(sudoers,0o440)
-run(['visudo','-cf',str(sudoers)])
-run([str(helper),'access'])
-sshconf=P.Path('/etc/ssh/sshd_config.d/90-ecomadsops.conf')
-sshconf.write_text('Match User ecomadsops\n    PasswordAuthentication yes\n    PubkeyAuthentication yes\n    PermitEmptyPasswords no\n    MaxAuthTries 3\nMatch all\n')
-try: run(['/usr/sbin/sshd','-t'])
-except:
- sshconf.unlink()
- raise
-run(['systemctl','reload','ssh'])
-home=P.Path('/home')/user
-(home/'project').symlink_to('/opt/ecomads',target_is_directory=True)
-with (home/'.bashrc').open('a') as f: f.write('\n# Start interactive sessions in the application directory.\nif [[ $- == *i* ]]; then cd /opt/ecomads; fi\n')
-run(['chown','-h',user+':'+user,str(home/'project')])
-known=P.Path('/run/ecomadsops-verify-known-hosts')
-key=P.Path('/etc/ssh/ssh_host_ed25519_key.pub').read_text().split()
-known.write_text('127.0.0.1 '+key[0]+' '+key[1]+'\n')
-cmd=['ssh','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile='+str(known),'-o','PreferredAuthentications=password','-o','PubkeyAuthentication=no','-o','NumberOfPasswordPrompts=1',user+'@127.0.0.1','set -e; id; test -r /opt/ecomads/.env; test ! -w /opt/ecomads/.env; test ! -w /opt/ecomads/deploy-vps.sh; test ! -w /opt/ecomads; test ! -w /var/run/docker.sock; probe=$(mktemp /opt/ecomads/releases/.access-check.XXXXXX); rm -- "$probe"; echo PROJECT_ACCESS_OK; sudo -n ecomadsctl status; if sudo -n /usr/bin/id 2>/dev/null; then exit 1; else echo SUDO_SCOPED_OK; fi; if sudo -n ecomadsctl restart db; then exit 1; else echo ARGUMENT_RESTRICTION_OK; fi']
-pid,fd=pty.fork()
-if pid==0: os.execvp(cmd[0],cmd)
-output=b''; sent=False; status=None; deadline=time.time()+30
-try:
- while time.time()<deadline:
-  ready,_,_=select.select([fd],[],[],0.25)
-  if ready:
-   try: chunk=os.read(fd,8192)
-   except OSError: break
-   if not chunk: break
-   output+=chunk
-   if b'password:' in output.lower() and not sent:
-    os.write(fd,(password+'\n').encode()); sent=True
-  done,code=os.waitpid(pid,os.WNOHANG)
-  if done: status=code; break
- if status is None:
-  done,code=os.waitpid(pid,os.WNOHANG)
-  if not done:
-   os.kill(pid,15); _,code=os.waitpid(pid,0)
-  status=code
-finally:
- os.close(fd); known.unlink(missing_ok=True)
-result=output.decode(errors='replace')
-if not sent or os.waitstatus_to_exitcode(status)!=0 or 'ARGUMENT_RESTRICTION_OK' not in result:
- print(result); raise SystemExit('Login verification failed')
-run(['chage','-d','0',user])
-health=run(['curl','--fail','--silent','--show-error','--max-time','10','--resolve','ecomads.ru:443:127.0.0.1','https://ecomads.ru/health'],capture_output=True)
-print(json.dumps({'user':user,'password':password,'verification':result,'health':health.stdout,'must_change_password':True}))
+#!/usr/bin/env python3
+"""Provision named operators; repeat runs preserve accounts and passwords.
+
+Run as root beside ecomadsctl and vps-set-secret.py. New credentials are written
+only to /root/ecomads-operator-credentials.json, never standard output.
+"""
+import argparse
+import json
+import os
+import pathlib
+import re
+import secrets
+import shutil
+import subprocess
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, text=True, **kwargs)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('users', nargs='+')
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        parser.error('Run as root')
+    if any(not re.fullmatch(r'ecomadsops[0-9]*', user) for user in args.users):
+        parser.error('Expected ecomadsops or ecomadsops followed by digits')
+    source = pathlib.Path(__file__).resolve().parent
+    for filename in ('ecomadsctl', 'vps-set-secret.py'):
+        if not (source / filename).is_file():
+            parser.error(f'Missing {filename}')
+    credentials_path = pathlib.Path('/root/ecomads-operator-credentials.json')
+    credentials = json.loads(credentials_path.read_text()) if credentials_path.exists() else {}
+    run('groupadd', '--force', 'ecomads-access')
+    for user in dict.fromkeys(args.users):
+        exists = subprocess.run(['id', user], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        if not exists:
+            run('useradd', '-m', '-s', '/bin/bash', '-c', 'Ecomads application operator', user)
+            password = secrets.token_urlsafe(24)
+            credentials[user] = {'password': password, 'must_change_password': True}
+            fd = os.open(credentials_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w') as file:
+                json.dump(credentials, file, indent=2)
+            os.chmod(credentials_path, 0o600)
+            run('chpasswd', input=f'{user}:{password}\n')
+            run('chage', '-d', '0', user)
+        run('usermod', '-aG', 'ecomads-access', user)
+        home = pathlib.Path('/home') / user
+        project = home / 'project'
+        if not project.exists() and not project.is_symlink():
+            project.symlink_to('/opt/ecomads', target_is_directory=True)
+            run('chown', '-h', f'{user}:{user}', str(project))
+        bashrc = home / '.bashrc'
+        line = 'if [[ $- == *i* ]]; then cd /opt/ecomads; fi'
+        if line not in bashrc.read_text():
+            with bashrc.open('a') as file:
+                file.write('\n' + line + '\n')
+        sudoers = pathlib.Path('/etc/sudoers.d') / user
+        sudoers.write_text(f'{user} ALL=(root) NOPASSWD: /usr/local/sbin/ecomadsctl\n')
+        sudoers.chmod(0o440)
+        run('visudo', '-cf', str(sudoers))
+    for filename, destination in (
+        ('ecomadsctl', '/usr/local/sbin/ecomadsctl'),
+        ('vps-set-secret.py', '/usr/local/lib/ecomads-set-secret.py'),
+    ):
+        shutil.copyfile(source / filename, destination)
+        os.chown(destination, 0, 0)
+        os.chmod(destination, 0o755)
+    config = pathlib.Path('/etc/ssh/sshd_config.d/00-ecomads-operators.conf')
+    previous = config.read_text() if config.exists() else None
+    config.write_text('Match Group ecomads-access\n    PasswordAuthentication yes\n    PubkeyAuthentication yes\n    PermitEmptyPasswords no\n    MaxAuthTries 3\nMatch all\n')
+    try:
+        run('/usr/sbin/sshd', '-t')
+    except subprocess.CalledProcessError:
+        if previous is None:
+            config.unlink()
+        else:
+            config.write_text(previous)
+        raise
+    run('systemctl', 'reload', 'ssh')
+    run('/usr/local/sbin/ecomadsctl', 'access')
+    print('Operators provisioned: ' + ', '.join(args.users))
+    print('New credentials: /root/ecomads-operator-credentials.json (root only)')
+
+
+if __name__ == '__main__':
+    main()
