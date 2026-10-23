@@ -115,12 +115,20 @@ builder.Services.AddDbContext<EcomadsDbContext>(options =>
     }));
 
 builder.Services.AddControllers();
+builder.Services.Configure<PilotApplicationOptions>(builder.Configuration.GetSection("PilotApplications"));
+builder.Services.AddSingleton<PilotApplicationAccess>();
+builder.Services.AddHostedService<PilotApplicationRetention>();
+builder.Services.AddRateLimiter(PublicRequestLimits.Configure);
 builder.Services.AddHealthChecks();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
+    options.ForwardLimit = 1;
+    foreach (var network in (builder.Configuration["ReverseProxy:TrustedNetworks"] ?? "127.0.0.0/8,::1/128")
+        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(network));
 });
 
 
@@ -133,12 +141,53 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseForwardedHeaders();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        if (context.Context.Request.Path.StartsWithSegments("/assets"))
+            context.Context.Response.Headers.CacheControl = "public,max-age=31536000,immutable";
+        else context.Context.Response.Headers.CacheControl = "no-cache";
+    }
+});
+app.UseRouting();
+app.UseRateLimiter();
 
 // Добавляем middleware для аутентификации и авторизации
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<DemoAccessMiddleware>();
+
+// Database errors on this public form must not log submitted contact parameters.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/pilot-applications") ||
+        context.Request.Path.StartsWithSegments("/api/admin/pilot-applications"))
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        if (context.Request.Path.Equals("/api/pilot-applications", StringComparison.OrdinalIgnoreCase) &&
+            context.Request.ContentLength > 8192)
+        {
+            context.Response.StatusCode = 413;
+            await context.Response.WriteAsJsonAsync(new { message = "Заявка слишком большая." });
+            return;
+        }
+        try { await next(); }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+        catch (BadHttpRequestException error)
+        {
+            context.Response.StatusCode = error.StatusCode;
+            await context.Response.WriteAsJsonAsync(new { message = "Не удалось прочитать заявку." });
+        }
+        catch (Exception)
+        {
+            if (context.Response.HasStarted) throw;
+            context.Response.StatusCode = 503;
+            await context.Response.WriteAsJsonAsync(new { message = "Не удалось сохранить заявку. Попробуйте ещё раз." });
+        }
+    }
+    else await next();
+});
 
 app.MapControllers();
 app.MapHealthChecks("/health");

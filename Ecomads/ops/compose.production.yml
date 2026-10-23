@@ -44,6 +44,8 @@ services:
       JwtSettings__Issuer: ecomads_api
       JwtSettings__Audience: ecomads_clients
       JwtSettings__ExpiryMinutes: 1440
+      PilotApplications__AdminSellerIds: ${PILOT_ADMIN_SELLER_IDS:-}
+      ReverseProxy__TrustedNetworks: ${TRUSTED_PROXY_NETWORKS:-172.19.0.0/16}
       Wb__AutoRefresh__Enabled: ${WB_AUTO_REFRESH_ENABLED:-true}
       Wb__AutoRefresh__StoreIds: ${WB_AUTO_REFRESH_STORE_IDS:-}
       Wb__Journal__SpoolPath: /var/lib/ecomads/wb-journal

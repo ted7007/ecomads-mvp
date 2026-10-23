@@ -5,6 +5,7 @@ namespace Ecomads.WebApplication.Data;
 
 public class EcomadsDbContext : DbContext
 {
+    public DbSet<PilotApplication> PilotApplications { get; set; }
     public DbSet<WbResultObservation> WbResultObservations { get; set; }
     public DbSet<WbResultRecommendation> WbResultRecommendations { get; set; }
     public DbSet<WbResultExposure> WbResultExposures { get; set; }
@@ -51,6 +52,14 @@ public class EcomadsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<PilotApplication>(e =>
+        {
+            e.ToTable("pilot_applications");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.SubmissionId).IsUnique();
+            e.HasIndex(x => x.CreatedAtUtc);
+            e.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+        });
         modelBuilder.Entity<WbResultObservation>(e => {
             e.ToTable("wb_result_observations"); e.HasKey(x => x.Id);
             e.Property(x => x.PayloadJson).HasColumnType("jsonb");

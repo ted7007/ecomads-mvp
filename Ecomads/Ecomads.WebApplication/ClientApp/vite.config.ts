@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: '/',
   plugins: [react()],
   build: {
@@ -12,11 +12,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'https://localhost:5001',
+        target: loadEnv(mode, '.', '').ECOMADS_DEV_API || 'https://localhost:5001',
         changeOrigin: true,
         secure: false
       }
     }
   }
-});
+}));
 

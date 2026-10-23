@@ -6,7 +6,10 @@ import { useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { appRoutes } from '../../app/routes';
 import { login, register } from '../../shared/auth/authApi';
-import { getToken, persistAuthResponse } from '../../shared/auth/tokenStorage';
+import { clearAuth, persistAuthResponse } from '../../shared/auth/tokenStorage';
+import { useSession, SessionStatus } from '../../shared/auth/useSession';
+import { safeReturnTo, withReturnTo } from '../../shared/auth/returnTo';
+import { BrandLogo } from '../../shared/ui/BrandLogo';
 import { loginFormSchema, registerFormSchema, type LoginFormValues, type RegisterFormValues } from './loginSchemas';
 
 type AuthMode = 'login' | 'demo';
@@ -22,11 +25,15 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTo = (location.state as LocationState | null)?.from?.pathname ?? appRoutes.dashboard;
+  const session = useSession();
+  const redirectTo = safeReturnTo(new URLSearchParams(location.search).get('returnTo') ?? (location.state as LocationState | null)?.from?.pathname);
 
-  if (getToken()) {
-    return <Navigate to={appRoutes.dashboard} replace />;
+  if (session.token && !session.invalid) {
+    if (session.isPending) return <SessionStatus retry={() => void session.refetch()} />;
+    if (session.isError) return <SessionStatus error retry={() => void session.refetch()} />;
+    return <Navigate to={redirectTo} replace />;
   }
+  if (session.invalid) clearAuth();
 
   const handleSuccess = () => {
     navigate(redirectTo, { replace: true });
@@ -46,9 +53,7 @@ export function LoginPage() {
       <Container maxWidth="sm" disableGutters>
         <Stack spacing={3}>
           <Stack spacing={1} alignItems="center">
-            <Typography component="h1" variant="h4" fontWeight={900} color="#F8FAFC" textAlign="center">
-              EcomAds
-            </Typography>
+            <Link href={withReturnTo(appRoutes.site, redirectTo)} aria-label="EcomAds — на лендинг"><BrandLogo white height={42} /></Link>
             <Typography color="#CBD5E1" textAlign="center">
               Аналитика рекламы и рекомендации для Wildberries
             </Typography>

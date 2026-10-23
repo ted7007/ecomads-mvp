@@ -7,6 +7,7 @@ import { Sidebar } from './Sidebar';
 import { workspaceLightTheme } from '../../app/theme';
 import { lightUiTokens as ui } from '../../app/lightUiTokens';
 import '../assets/fonts/golos-text.css';
+import { BrandLogo } from './BrandLogo';
 
 export function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -21,7 +22,7 @@ export function AppLayout() {
           bgcolor: ui.surface.popup, backdropFilter: ui.surface.blur, WebkitBackdropFilter: ui.surface.blur
         } }}>
         <IconButton aria-label="Открыть меню" onClick={() => setMenuOpen(true)}><MenuIcon /></IconButton>
-        <Typography fontWeight={700}>EcomAds</Typography>
+        <BrandLogo height={28} />
       </Box>
       <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} sx={{ display: { xs: 'block', md: 'none' } }} slotProps={{ paper: { sx: { width: 280, bgcolor: ui.background, boxShadow: 'none' } } }}>
         <Sidebar mobile onNavigate={() => setMenuOpen(false)} />

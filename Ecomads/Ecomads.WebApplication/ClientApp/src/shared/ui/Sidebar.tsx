@@ -1,10 +1,11 @@
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import { BrandLogo } from './BrandLogo';
 import LogoutIcon from '@mui/icons-material/Logout';
 import TelegramIcon from '@mui/icons-material/Telegram';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import TuneIcon from '@mui/icons-material/Tune';
 import { Box, Chip, List, ListItemButton, ListItemIcon, ListItemText, Stack, Typography } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { appRoutes } from '../../app/routes';
@@ -25,6 +26,7 @@ const navItems = [
 ];
 
 export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
   const periodParams = new URLSearchParams(location.search);
@@ -46,8 +48,9 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
 
   const logout = () => {
     clearAuth();
+    queryClient.clear();
     onNavigate?.();
-    navigate(appRoutes.login, { replace: true });
+    navigate(appRoutes.site, { replace: true });
   };
 
   return (
@@ -72,11 +75,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3, flexShrink: 0 }}>
-        <Box sx={{ width: 30, height: 30, borderRadius: '8px', bgcolor: 'primary.main', color: '#fff',
-          display: 'grid', placeItems: 'center', fontWeight: 800, flexShrink: 0 }}>E</Box>
-        <Typography variant="h6" fontWeight={700}>
-          EcomAds
-        </Typography>
+        <BrandLogo height={32} />
       </Box>
 
       <Box sx={{ mb: 2.5, flexShrink: 0 }}>
@@ -100,6 +99,9 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
       ) : null}
 
       <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', p: 0 }}>
+        {currentUser?.canManagePilotApplications && <ListItemButton component={NavLink} to={appRoutes.pilotApplications} onClick={onNavigate}>
+          <ListItemText primary="Заявки в пилот" />
+        </ListItemButton>}
         {navItems.map((item) => (
           <ListItemButton
             key={item.label}

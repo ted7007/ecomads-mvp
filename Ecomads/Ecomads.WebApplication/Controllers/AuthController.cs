@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.RateLimiting;
+using Ecomads.WebApplication.Services;
 
 namespace Ecomads.WebApplication.Controllers;
 
@@ -35,6 +37,7 @@ public class AuthController : ControllerBase
     /// Вход пользователя
     /// </summary>
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     [AllowAnonymous]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
@@ -59,6 +62,7 @@ public class AuthController : ControllerBase
     /// Создание demo-user на 3 дня. Публичная regular-регистрация закрыта до открытия продукта.
     /// </summary>
     [HttpPost("register")]
+    [EnableRateLimiting("register")]
     [AllowAnonymous]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
@@ -157,7 +161,14 @@ public class AuthController : ControllerBase
             return NotFound(new { message = "Пользователь не найден" });
         }
         
-        return Ok(seller);
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new
+        {
+            seller.Id, seller.Name, seller.Email, seller.Phone, seller.CreatedAt, seller.LastLoginAt,
+            seller.IsDemoUser, seller.AccessType, seller.DemoStatus, seller.DemoStartedAtUtc,
+            seller.DemoExpiresAtUtc, seller.DemoFeedbackSubmittedAtUtc, seller.MvpAccessGrantedAtUtc,
+            CanManagePilotApplications = HttpContext.RequestServices.GetRequiredService<PilotApplicationAccess>().CanManage(User)
+        });
     }
 }
 

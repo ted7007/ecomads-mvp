@@ -1,51 +1,45 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
-import { CampaignPage } from '../pages/CampaignPage/CampaignPage';
-import { DashboardPage } from '../pages/DashboardPage/DashboardPage';
-import { DemoFeedbackPage } from '../pages/DemoFeedbackPage/DemoFeedbackPage';
-import { LoginPage } from '../pages/LoginPage/LoginPage';
-import { WbStoresPage } from '../pages/WbStoresPage/WbStoresPage';
-import { NormsPage } from '../pages/NormsPage/NormsPage';
-import { ResultsPage } from '../pages/ResultsPage/ResultsPage';
 import { RequireAuth } from '../shared/auth/RequireAuth';
-import { AppLayout } from '../shared/ui/AppLayout';
 import { appRoutes } from './routes';
 
 export const router = createBrowserRouter(
   [
+    { path: appRoutes.site, lazy: async () => ({ Component: (await import('../pages/LandingPage/LandingPage')).LandingPage }) },
     {
       path: appRoutes.login,
-      element: <LoginPage />
+      lazy: async () => ({ Component: (await import('../pages/LoginPage/LoginPage')).LoginPage })
     },
     {
       element: <RequireAuth />,
       children: [
         {
-          element: <AppLayout />,
+          lazy: async () => ({ Component: (await import('../shared/ui/AppLayout')).AppLayout }),
           children: [
+            { path: appRoutes.pilotApplications, lazy: async () => ({ Component: (await import('../pages/PilotApplicationsPage/PilotApplicationsPage')).PilotApplicationsPage }) },
             {
               path: appRoutes.root,
               element: <Navigate to={appRoutes.dashboard} replace />
             },
             {
               path: appRoutes.dashboard,
-              element: <DashboardPage />
+              lazy: async () => ({ Component: (await import('../pages/DashboardPage/DashboardPage')).DashboardPage })
             },
             {
               path: appRoutes.wbStores,
-              element: <WbStoresPage />
+              lazy: async () => ({ Component: (await import('../pages/WbStoresPage/WbStoresPage')).WbStoresPage })
             },
             {
               path: appRoutes.norms,
-              element: <NormsPage />
+              lazy: async () => ({ Component: (await import('../pages/NormsPage/NormsPage')).NormsPage })
             },
-            { path: appRoutes.results, element: <ResultsPage /> },
+            { path: appRoutes.results, lazy: async () => ({ Component: (await import('../pages/ResultsPage/ResultsPage')).ResultsPage }) },
             {
               path: appRoutes.demoFeedback,
-              element: <DemoFeedbackPage />
+              lazy: async () => ({ Component: (await import('../pages/DemoFeedbackPage/DemoFeedbackPage')).DemoFeedbackPage })
             },
             {
               path: appRoutes.campaign,
-              element: <CampaignPage />
+              lazy: async () => ({ Component: (await import('../pages/CampaignPage/CampaignPage')).CampaignPage })
             }
           ]
         }

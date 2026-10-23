@@ -1,4 +1,5 @@
 export type CurrentUser = {
+  canManagePilotApplications?: boolean;
   id: string;
   name: string;
   email: string;

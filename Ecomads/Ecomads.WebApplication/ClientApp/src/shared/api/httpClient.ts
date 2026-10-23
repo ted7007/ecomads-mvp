@@ -1,4 +1,5 @@
 import { clearAuth, getToken } from '../auth/tokenStorage';
+import { withReturnTo } from '../auth/returnTo';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -59,7 +60,7 @@ export async function sendRequest(url: string, options: HttpClientOptions = {}):
 
   if (response.status === 401 && !skipAuth) {
     clearAuth();
-    window.location.href = '/login';
+    window.location.href = withReturnTo('/site', window.location.pathname + window.location.search + window.location.hash);
   }
 
   if (response.status === 403 && !skipAuth) {

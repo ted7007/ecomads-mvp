@@ -1,3 +1,10 @@
+{
+    servers {
+        trusted_proxies static 31.76.53.166/32
+        trusted_proxies_strict
+    }
+}
+
 http://31.207.76.37 {
     redir https://ecomads.ru{uri} permanent
 }
@@ -5,7 +12,13 @@ http://31.207.76.37 {
 # Caddy obtains and renews certificates after these names resolve to the VPS.
 ecomads.ru {
     encode zstd gzip
-    reverse_proxy web:8080
+    @pilot path /api/pilot-applications
+    request_body @pilot {
+        max_size 8KB
+    }
+    reverse_proxy web:8080 {
+        header_up X-Forwarded-For {client_ip}
+    }
 }
 
 www.ecomads.ru {
