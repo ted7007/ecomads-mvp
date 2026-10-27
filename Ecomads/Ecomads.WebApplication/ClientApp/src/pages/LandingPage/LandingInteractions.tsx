@@ -29,7 +29,7 @@ export function PilotForm() {
   const submit = handleSubmit(async (values) => {
     setError(null);
     try {
-      const response = await httpClient<unknown>('/api/pilot-applications', { method: 'POST', skipAuth: true,
+      const response = await httpClient<unknown>('/api/pilot-applications', { method: 'POST', skipAuth: true, signal: AbortSignal.timeout(15_000),
         body: { ...values, submissionId, stores: values.stores || null, budget: values.budget || null, jam: values.jam || null } });
       z.object({ accepted: z.literal(true) }).parse(response);
       setSent(true);

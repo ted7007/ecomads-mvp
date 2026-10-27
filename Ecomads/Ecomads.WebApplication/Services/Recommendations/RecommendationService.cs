@@ -342,10 +342,18 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
     private async Task<RecommendationResponse> WithDecisionsAsync(RecommendationResponse report, CancellationToken ct)
     {
         var decisions = await db.WbSnapshotDecisions.AsNoTracking().Where(x => x.RunId == report.RunId).ToListAsync(ct);
-        return report with { Cards = report.Cards.Select(card =>
+        return ApplyDecisions(report, decisions, WbSyncPlanner.Today(Now));
+    }
+
+    public static RecommendationResponse ApplyDecisions(RecommendationResponse report,
+        IReadOnlyList<WbSnapshotDecision> decisions, DateOnly today)
+    {
+        var cards = report.Cards.Select(card =>
         {
-            var d = decisions.Where(x => x.EvaluationId == card.EvaluationId && x.RuleId == card.Rule.RuleId).OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).FirstOrDefault();
+            var d = decisions.Where(x => x.RunId == report.RunId && x.EvaluationId == card.EvaluationId && x.RuleId == card.Rule.RuleId).OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).FirstOrDefault();
             return card with { Decision = d == null ? null : new(d.Status, d.SnoozeUntil, d.Reason, d.Comment, d.CreatedAtUtc) };
-        }).ToArray() };
+        }).Where(card => card.Decision?.Status != "irrelevant" &&
+            !(card.Decision?.Status == "snoozed" && card.Decision.SnoozeUntil > today)).ToArray();
+        return report with { Cards = cards, Packages = RecommendationActions.Packages(cards) };
     }
 }

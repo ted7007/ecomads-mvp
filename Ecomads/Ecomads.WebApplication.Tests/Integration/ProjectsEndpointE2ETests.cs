@@ -62,6 +62,7 @@ public sealed class ProjectsEndpointE2ETests
                 Spend = 100,
                 Revenue = 500,
                 Clicks = 20,
+                Impressions = 1600,
                 Ctr = 10,
                 Drr = 20
             });
@@ -83,6 +84,7 @@ public sealed class ProjectsEndpointE2ETests
         Assert.Equal(campaign.Name, project.GetProperty("name").GetString());
         Assert.Equal(100, project.GetProperty("kpi").GetProperty("spend").GetDouble());
         Assert.Equal(500, project.GetProperty("kpi").GetProperty("revenue").GetDouble());
+        Assert.Equal(1.25m, project.GetProperty("kpi").GetProperty("ctr").GetDecimal());
         Assert.Equal(JsonValueKind.Null, project.GetProperty("kpi").GetProperty("orderedAmount").ValueKind);
         Assert.Equal(1, project.GetProperty("kpi").GetProperty("coverageDays").GetInt32());
         Assert.Equal(7, project.GetProperty("kpi").GetProperty("expectedDays").GetInt32());

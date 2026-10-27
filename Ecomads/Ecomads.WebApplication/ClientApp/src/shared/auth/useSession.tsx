@@ -9,7 +9,7 @@ export function useSession() {
   const query = useQuery({
     queryKey: ['auth-session', token], enabled: Boolean(token), retry: false, staleTime: 60_000,
     queryFn: async () => currentUserSchema.parse(await httpClient<unknown>('/api/auth/me', {
-      skipAuth: true, headers: { Authorization: `Bearer ${token}` }
+      skipAuth: true, headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000)
     }))
   });
   const invalid = query.error instanceof HttpError && [401, 404].includes(query.error.status);

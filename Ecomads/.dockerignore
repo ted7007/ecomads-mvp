@@ -4,6 +4,7 @@
 **/bin/
 **/obj/
 **/node_modules/
+**/.env*
 
 artifacts/
 TestConsoleApp/bin/

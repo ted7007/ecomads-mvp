@@ -1,5 +1,7 @@
 # EcomAds docs
 
+- [Лендинг, заявки в пилот и администраторы](landing-and-pilot.md)
+
 - [Задача 3 — план страницы рекламной кампании по макету v10](scenario-plans/campaign-ui-task-3.md)
 - [Реализованный первый спринт рекомендаций и доступность в сервисе](recommendations-sprint-1.md)
 - [План первого спринта с решениями пользователя](scenario-plans/recommendations-sprint-1-plan.md)

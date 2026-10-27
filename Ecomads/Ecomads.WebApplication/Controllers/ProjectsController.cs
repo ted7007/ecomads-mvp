@@ -60,7 +60,7 @@ public class ProjectsController : ControllerBase
                         (int)g.Sum(x => x.Clicks),
                         g.Sum(x => x.Impressions),
                         g.Sum(x => x.Impressions) > 0
-                            ? g.Sum(x => x.Clicks) * 100 / g.Sum(x => x.Impressions)
+                            ? g.Sum(x => x.Clicks) * 100m / g.Sum(x => x.Impressions)
                             : 0,
                         g.Count(),
                         expectedDays

@@ -148,6 +148,33 @@ public sealed class RecommendationEndpointTests(PostgresFixture postgres)
         Assert.Equal(5, summary.RootElement.GetProperty("top").GetArrayLength());
         Assert.Equal(1, summary.RootElement.GetProperty("remaining").GetInt32());
         Assert.All(summary.RootElement.GetProperty("top").EnumerateArray(), x => Assert.Equal(run, x.GetProperty("runId").GetGuid()));
+
+        using var rejected = await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = new[] { ids[0] }, ruleId = "R03", status = "irrelevant", reason = "Не подходит" });
+        Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+        using var rejectedReport = JsonDocument.Parse(await rejected.Content.ReadAsStringAsync());
+        Assert.DoesNotContain(rejectedReport.RootElement.GetProperty("cards").EnumerateArray(), c => c.GetProperty("evaluationId").GetGuid() == ids[0]);
+        Assert.Equal(5, Assert.Single(rejectedReport.RootElement.GetProperty("packages").EnumerateArray()).GetProperty("evaluationIds").GetArrayLength());
+
+        var tomorrow = Ecomads.WebApplication.Services.Wb.WbSyncPlanner.Today().AddDays(1);
+        using var snoozed = await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = new[] { ids[1] }, ruleId = "R03", status = "snoozed", snoozeUntil = tomorrow });
+        Assert.Equal(HttpStatusCode.OK, snoozed.StatusCode);
+        using var updated = JsonDocument.Parse(await client.GetStringAsync(url));
+        Assert.Equal(4, updated.RootElement.GetProperty("cards").GetArrayLength());
+        Assert.Empty(updated.RootElement.GetProperty("packages").EnumerateArray());
+        Assert.DoesNotContain(updated.RootElement.GetProperty("cards").EnumerateArray(), c => ids.Contains(c.GetProperty("evaluationId").GetGuid()));
+        using var updatedSummary = JsonDocument.Parse(await client.GetStringAsync($"/api/wb/recommendations/summary?storeId={store.Id}"));
+        Assert.Equal(4, updatedSummary.RootElement.GetProperty("top").GetArrayLength());
+        Assert.Equal(0, updatedSummary.RootElement.GetProperty("remaining").GetInt32());
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
+            var decision = Assert.Single(db.WbSnapshotDecisions.Where(x => x.RunId == run && x.Status == "snoozed"));
+            decision.SnoozeUntil = tomorrow.AddDays(-1);
+            await db.SaveChangesAsync();
+        }
+        using var resumed = JsonDocument.Parse(await client.GetStringAsync(url));
+        Assert.Contains(resumed.RootElement.GetProperty("cards").EnumerateArray(), c => c.GetProperty("evaluationId").GetGuid() == ids[1]);
+        Assert.DoesNotContain(resumed.RootElement.GetProperty("cards").EnumerateArray(), c => c.GetProperty("evaluationId").GetGuid() == ids[0]);
         client.DefaultRequestHeaders.Remove("X-Test-Seller"); client.DefaultRequestHeaders.Add("X-Test-Seller", Guid.NewGuid().ToString());
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = ids, ruleId = "R03", status = "accepted" })).StatusCode);
     }

@@ -15,6 +15,7 @@ function CopyButton({ text, label = 'Копировать кластер', disab
 }
 export function ClusterRecommendations({ campaignId, report }: { campaignId: string; report: ClusterRecommendationResponse }) {
   const [page, setPage] = useState(0), [size, setSize] = useState(5), [opened, setOpened] = useState<RecommendationCard | null>(null);
+  const openedCard = opened ? report.cards.find(c => c.evaluationId === opened.evaluationId && c.rule.ruleId === opened.rule.ruleId) : null;
   const bundles = (report.packages ?? []).map(b => ({ ...b, cards: packageCards(report, b.evaluationIds) })).filter(b => b.cards.length);
   const packaged = new Set(bundles.flatMap(b => b.cards.map(c => `${c.evaluationId}:${c.rule.ruleId}`)));
   const singles = [...new Map(report.cards.filter(c => !packaged.has(`${c.evaluationId}:${c.rule.ruleId}`)).map(c => [`${c.evaluationId}:${c.rule.ruleId}`, c])).values()];
@@ -33,7 +34,7 @@ export function ClusterRecommendations({ campaignId, report }: { campaignId: str
     </CardContent></Card>)}</Box>
     {singles.length ? <PaginationBar desktopSizeButtons count={singles.length} page={safePage} rowsPerPage={size} onPageChange={setPage} onRowsPerPageChange={n => { setSize(n); setPage(0); }} /> : null}
     {!report.cards.length ? <Typography color="text.secondary">{report.message}</Typography> : null}
-    <DetailsDrawer open={!!opened} onClose={() => setOpened(null)} title="Рекомендация">{opened ? <ClusterRecommendationCard card={report.cards.find(c => c.evaluationId === opened.evaluationId && c.rule.ruleId === opened.rule.ruleId) ?? opened} runId={report.runId} /> : null}</DetailsDrawer>
+    <DetailsDrawer open={!!openedCard} onClose={() => setOpened(null)} title="Рекомендация">{openedCard ? <ClusterRecommendationCard card={openedCard} runId={report.runId} /> : null}</DetailsDrawer>
   </Stack>;
 }
 function ExclusionPackage({ report, cards, onOpen }: { report: ClusterRecommendationResponse; cards: RecommendationCard[]; onOpen: (card: RecommendationCard) => void }) {
