@@ -43,10 +43,13 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
-        var state = await db.TelegramBotStates.SingleOrDefaultAsync(x => x.Id == 1, cancellationToken);
+        // Each bot has its own update counter, so after switching to another bot the new one starts from zero
+        // instead of inheriting the old bot's position (which would make it ignore new messages).
+        var stateKey = bot.BotId is { } botId ? (int)(botId % 1_000_000_000) + 1000 : 1;
+        var state = await db.TelegramBotStates.SingleOrDefaultAsync(x => x.Id == stateKey, cancellationToken);
         if (state == null)
         {
-            state = new TelegramBotState();
+            state = new TelegramBotState { Id = stateKey };
             db.TelegramBotStates.Add(state);
             await db.SaveChangesAsync(cancellationToken);
         }

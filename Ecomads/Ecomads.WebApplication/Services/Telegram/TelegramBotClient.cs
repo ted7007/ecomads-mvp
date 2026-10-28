@@ -14,6 +14,9 @@ public interface ITelegramBotClient
 {
     bool IsConfigured { get; }
     string? BotUsername { get; }
+
+    /// <summary>Numeric bot id (the part of the token before the colon). Null when unknown.</summary>
+    long? BotId => null;
     Task<IReadOnlyList<TelegramIncoming>> GetUpdatesAsync(long offset, CancellationToken cancellationToken);
     Task SendMessageAsync(long chatId, string text, CancellationToken cancellationToken);
 
@@ -42,6 +45,7 @@ public sealed class TelegramBotClient(IConfiguration configuration) : ITelegramB
     private readonly string? _token = configuration["Telegram:BotToken"];
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_token);
     public string? BotUsername => configuration["Telegram:BotUsername"]?.TrimStart('@');
+    public long? BotId => long.TryParse(_token?.Split(':')[0], out var id) ? id : null;
 
     public async Task<IReadOnlyList<TelegramIncoming>> GetUpdatesAsync(long offset, CancellationToken cancellationToken)
     {
