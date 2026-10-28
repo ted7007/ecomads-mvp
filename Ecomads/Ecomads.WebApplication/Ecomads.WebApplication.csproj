@@ -20,6 +20,7 @@
     <ItemGroup>
       <EmbeddedResource Include="Services\Telegram\Fonts\Inter-Regular.otf" LogicalName="Inter-Regular.otf" />
       <EmbeddedResource Include="Services\Telegram\Fonts\Inter-Bold.otf" LogicalName="Inter-Bold.otf" />
+      <EmbeddedResource Include="Services\Telegram\Fonts\ecomads-logo.png" LogicalName="ecomads-logo.png" />
     </ItemGroup>
 
     <ItemGroup>

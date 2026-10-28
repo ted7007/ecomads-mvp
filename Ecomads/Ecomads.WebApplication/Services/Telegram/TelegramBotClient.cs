@@ -169,10 +169,14 @@ public sealed class TelegramBotClient(IConfiguration configuration) : ITelegramB
         object? replyMarkup = null)
     {
         if (!IsConfigured) throw new TelegramApiException(0);
-        using var response = await Http.PostAsJsonAsync($"/bot{_token}/sendMessage", new
+        // Fields that are not used are left out entirely: Telegram can reject an explicit null.
+        var payload = new Dictionary<string, object?>
         {
-            chat_id = chatId, text, parse_mode = parseMode, disable_web_page_preview = true, reply_markup = replyMarkup
-        }, cancellationToken);
+            ["chat_id"] = chatId, ["text"] = text, ["disable_web_page_preview"] = true
+        };
+        if (parseMode != null) payload["parse_mode"] = parseMode;
+        if (replyMarkup != null) payload["reply_markup"] = replyMarkup;
+        using var response = await Http.PostAsJsonAsync($"/bot{_token}/sendMessage", payload, cancellationToken);
         if (!response.IsSuccessStatusCode) throw new TelegramApiException((int)response.StatusCode);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);

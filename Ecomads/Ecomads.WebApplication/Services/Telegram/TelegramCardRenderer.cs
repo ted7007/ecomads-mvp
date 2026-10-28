@@ -71,10 +71,7 @@ public static class TelegramCardRenderer
 
         // Header
         y = Pad + 26;
-        Text(canvas, "ecom", Pad, y, 26, Bold.Value, Ink);
-        var brandWidth = Measure("ecom", 26, Bold.Value);
-        Text(canvas, ":", Pad + brandWidth, y, 26, Bold.Value, Orange);
-        Text(canvas, "ads", Pad + brandWidth + Measure(":", 26, Bold.Value), y, 26, Bold.Value, Ink);
+        DrawLogo(canvas, Pad, y - 30, 40);
         Text(canvas, card.DateLabel, W - Pad, y, 18, Regular.Value, Muted, right: true);
         y += 22 + 40;
         Text(canvas, Fit(card.Title, W - 2 * Pad, 36, Bold.Value), Pad, y, 36, Bold.Value, Ink);
@@ -120,6 +117,29 @@ public static class TelegramCardRenderer
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Png, 100);
         return data.ToArray();
+    }
+
+    private static readonly Lazy<SKBitmap?> Logo = new(() =>
+    {
+        try
+        {
+            using var stream = typeof(TelegramCardRenderer).Assembly.GetManifestResourceStream("ecomads-logo.png");
+            return stream == null ? null : SKBitmap.Decode(stream);
+        }
+        catch (Exception) { return null; }
+    });
+
+    /// <summary>Draws the EcomAds logo with the given height; falls back to a text mark if the picture is unavailable.</summary>
+    private static void DrawLogo(SKCanvas canvas, float x, float y, float height)
+    {
+        if (Logo.Value is { } bitmap)
+        {
+            var width = height * bitmap.Width / bitmap.Height;
+            using var paint = new SKPaint { IsAntialias = true, FilterQuality = SKFilterQuality.High };
+            canvas.DrawBitmap(bitmap, new SKRect(x, y, x + width, y + height), paint);
+            return;
+        }
+        Text(canvas, "ecomads", x, y + height * 0.75f, 26, Bold.Value, Orange);
     }
 
     private static void Tile(SKCanvas canvas, float x, float y, float width, string label, string value,
