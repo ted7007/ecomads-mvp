@@ -91,6 +91,7 @@ builder.Services.AddHostedService<WbSparseReplayWorker>();
 builder.Services.AddHostedService<WbAutoRefreshWorker>();
 builder.Services.AddSingleton<ITelegramBotClient, TelegramBotClient>();
 builder.Services.AddScoped<TelegramDailySender>();
+builder.Services.AddScoped<TelegramBotMenu>();
 builder.Services.AddHostedService<TelegramUpdatesWorker>();
 builder.Services.AddHostedService<TelegramDailySummaryWorker>();
 builder.Services.AddHttpClient<IWbPromotionClient, WbPromotionClient>(client =>

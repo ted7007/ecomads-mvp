@@ -91,10 +91,9 @@ public static class TelegramSummaryFormatter
         var previous = period ? null : summary.Previous;
         if (summary.IsTest) sb.AppendLine("ТЕСТОВОЕ СООБЩЕНИЕ 🧪 · данные ниже демонстрационные").AppendLine();
         sb.AppendLine($"📊 <b>EcomAds · {Esc(Shorten(summary.StoreName, 60))}</b>");
-        sb.AppendLine(period
+        sb.AppendLine("<blockquote>" + (period
             ? $"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy} – {summary.ReportEndDate:dd.MM.yyyy}, МСК"
-            : $"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy}, МСК");
-        sb.AppendLine();
+            : $"Рекламная сводка за {summary.ReportDate:dd.MM.yyyy}, МСК") + "</blockquote>");
         if (summary.SourceWarnings is { Count: > 0 })
         {
             sb.AppendLine("⚠️ Сводка предварительная. Неподтверждённые показатели обозначены прочерком.");
@@ -140,19 +139,64 @@ public static class TelegramSummaryFormatter
                 sb.AppendLine($"CTR: <b>{(summary.TotalClicks.Value * 100m / summary.TotalImpressions.Value).ToString("F1", Numbers)}%</b>");
         }
         sb.AppendLine();
+        AppendComparisonTable(sb, summary, previous);
         sb.AppendLine($"🏆 <b>Кампании по расходу — топ {campaigns.Count}</b>");
+        // Expandable quote: three lines are visible, the rest opens with a tap, so the message stays short.
+        if (campaigns.Count > 0) sb.Append("<blockquote expandable>");
         for (var i = 0; i < campaigns.Count; i++)
         {
             var c = campaigns[i];
-            sb.AppendLine($"{i + 1}. <b>{Esc(Shorten(c.Name, MaxNameLength))}</b>: {FormatMoney(c.Spend)} ₽ · " +
-                          $"{c.Orders.ToString("N0", Numbers)} заказов · ДРР {FormatDrr(c.Drr)}");
+            if (i > 0) sb.AppendLine();
+            sb.Append($"{i + 1}. <b>{Esc(Shorten(c.Name, MaxNameLength))}</b>: {FormatMoney(c.Spend)} ₽ · " +
+                      $"{c.Orders.ToString("N0", Numbers)} заказов · ДРР {FormatDrr(c.Drr)}");
         }
+        if (campaigns.Count > 0) sb.AppendLine("</blockquote>");
         sb.AppendLine();
         sb.AppendLine($"🕒 Данные: {Esc(summary.UpdatedAtText ?? "время обновления неизвестно")}");
         sb.AppendLine($"{Esc(summary.DashboardLinkLabel)}: {Esc(summary.DashboardUrl)}");
         sb.Append("Отключить сообщения: /stop");
         return sb.ToString();
     }
+
+    /// <summary>Monospace table "yesterday / day before / change". Shown only when there is a previous day to compare with.</summary>
+    private static void AppendComparisonTable(StringBuilder sb, TelegramSummary summary, TelegramPrevious? previous)
+    {
+        if (previous == null) return;
+        var rows = new List<(string Name, string Now, string Before, string Change)>();
+        void Money(string name, decimal? now, decimal? before)
+        {
+            if (!now.HasValue || before is not > 0) return;
+            var change = (now.Value - before.Value) / before.Value * 100m;
+            rows.Add((name, FormatRub(now.Value), FormatRub(before.Value),
+                (change > 0 ? "+" : change < 0 ? "−" : string.Empty) + Math.Abs(change).ToString("F0", Numbers) + "%"));
+        }
+        Money("Расход", summary.StoreSpend, previous.StoreSpend);
+        Money("Заказы", summary.StoreOrderSum, previous.StoreOrderSum);
+        Money("Реклама", summary.TotalSpend, previous.AdSpend);
+        if (summary.StoreSpend.HasValue && summary.StoreOrderSum > 0 && previous.StoreSpend.HasValue && previous.StoreOrderSum > 0)
+        {
+            var now = summary.StoreSpend.Value / summary.StoreOrderSum.Value * 100m;
+            var before = previous.StoreSpend.Value / previous.StoreOrderSum.Value * 100m;
+            var diff = now - before;
+            rows.Add(("ДРР", FormatDrr(now), FormatDrr(before),
+                (diff > 0 ? "+" : diff < 0 ? "−" : string.Empty) + Math.Abs(diff).ToString("F1", Numbers) + " п.п."));
+        }
+        if (rows.Count == 0) return;
+        const int labelWidth = 8;
+        var nowWidth = Math.Max(5, rows.Max(x => x.Now.Length));
+        var beforeWidth = Math.Max(7, rows.Max(x => x.Before.Length));
+        sb.AppendLine("📋 <b>Сравнение с предыдущим днём</b>");
+        sb.AppendLine("<pre>" + "Показ.".PadRight(labelWidth) + "Вчера".PadLeft(nowWidth + 1) + "Позавч.".PadLeft(beforeWidth + 2) + "  Δ");
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            sb.Append(r.Name.PadRight(labelWidth) + r.Now.PadLeft(nowWidth + 1) + r.Before.PadLeft(beforeWidth + 2) + "  " + r.Change);
+            sb.AppendLine(i == rows.Count - 1 ? "</pre>" : string.Empty);
+        }
+        sb.AppendLine();
+    }
+
+    public static string FormatRub(decimal value) => value.ToString("N0", Numbers);
 
     public static string FormatMoney(decimal value) => value.ToString("N2", Numbers);
 

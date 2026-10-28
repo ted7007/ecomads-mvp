@@ -135,4 +135,15 @@ public sealed class TelegramSummaryFormatterTests
 
         Assert.DoesNotContain("к пред. дню", text);
     }
+
+    [Fact]
+    public void HtmlSummaryUsesQuotesAndKeepsCampaignList()
+    {
+        var html = TelegramSummaryFormatter.FormatHtml(Sample([new("Пледы", 100m, 1, 10m)]));
+
+        Assert.Contains("<blockquote>Рекламная сводка за", html);
+        Assert.Contains("<blockquote expandable>1. <b>Пледы</b>", html);
+        Assert.Contains("</blockquote>", html);
+        Assert.Contains("1. Пледы: ", TelegramHtml.ToPlain(html));
+    }
 }

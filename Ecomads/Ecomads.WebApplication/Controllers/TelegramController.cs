@@ -106,11 +106,13 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             MoscowText(DateTime.UtcNow), DashboardUrl(day), IsTest: true));
 
         var demoDays = Enumerable.Range(0, 7).Select(i => day.AddDays(i - 6)).ToList();
-        decimal?[] demoSpend = [6100, 6400, 5900, 6800, 7300, 7700, 8900];
-        decimal?[] demoDrr = [7.4m, 5.9m, 6.9m, 7.6m, 5.5m, 6.6m, 8.4m];
-        decimal?[] demoPrevSpend = [6500, 6000, 4400, 5000, 6300, 7100, 6700];
-        decimal?[] demoPrevDrr = [6.2m, 6.0m, 7.2m, 7.5m, 4.9m, 6.2m, 7.2m];
-        var demoChart = TelegramChartRenderer.Render(demoDays, demoSpend, demoDrr, demoPrevSpend, demoPrevDrr);
+        var demoCard = new TelegramCardData("Демо-кабинет", "Реклама за день", TelegramDailySender.RussianDate(day),
+            MoscowText(DateTime.UtcNow), 8920m, 16m, 106250m, 23m, 8.4m, 0.6m, 2.0m, demoDays,
+            new decimal?[] { 6100, 6400, 5900, 6800, 7300, 7700, 8900 },
+            new decimal?[] { 7.4m, 5.9m, 6.9m, 7.6m, 5.5m, 6.6m, 8.4m },
+            new decimal?[] { 6.2m, 6.0m, 7.2m, 7.5m, 4.9m, 6.2m, 7.2m },
+            demo, IsTest: true);
+        var demoPicture = TelegramCardRenderer.RenderOrFallback(demoCard);
 
         var sent = 0;
         var failed = 0;
@@ -118,13 +120,13 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         {
             try
             {
-                await bot.SendHtmlAsync(chat.ChatId, message, cancellationToken);
-                sent++;
-                if (demoChart != null)
+                if (demoPicture != null)
                 {
-                    try { await bot.SendPhotoAsync(chat.ChatId, demoChart, "Демо-график. " + TelegramChartRenderer.Caption, cancellationToken); }
+                    try { await bot.SendPhotoAsync(chat.ChatId, demoPicture, "<b>Демо-кабинет</b> · тестовая карточка, данные демонстрационные", cancellationToken); }
                     catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
                 }
+                await bot.SendMenuAsync(chat.ChatId, message, TelegramDailySender.SummaryButtons(DashboardUrl(day)), cancellationToken);
+                sent++;
             }
             catch (TelegramApiException error)
             {

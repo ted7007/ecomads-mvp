@@ -3,7 +3,12 @@ using System.Text.Json;
 
 namespace Ecomads.WebApplication.Services.Telegram;
 
-public sealed record TelegramIncoming(long UpdateId, long ChatId, string Text, string? DisplayName, bool IsPrivate);
+/// <summary>CallbackId is set when the update is a button press; Text then holds the button's data.</summary>
+public sealed record TelegramIncoming(long UpdateId, long ChatId, string Text, string? DisplayName, bool IsPrivate,
+    string? CallbackId = null);
+
+/// <summary>An inline button: either a link (Url) or a press that comes back to the bot (Data).</summary>
+public sealed record TelegramButton(string Text, string? Url = null, string? Data = null);
 
 public interface ITelegramBotClient
 {
@@ -18,6 +23,16 @@ public interface ITelegramBotClient
 
     /// <summary>Sends a PNG picture with a caption. Implementations without picture support skip it.</summary>
     Task SendPhotoAsync(long chatId, byte[] png, string caption, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>Sends HTML text with rows of inline buttons. Implementations without buttons send the text only.</summary>
+    Task SendMenuAsync(long chatId, string html, IReadOnlyList<IReadOnlyList<TelegramButton>> buttons,
+        CancellationToken cancellationToken) => SendHtmlAsync(chatId, html, cancellationToken);
+
+    /// <summary>Stops the spinner on a pressed button.</summary>
+    Task AnswerCallbackAsync(string callbackId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>Fills the "Menu" list next to the message box.</summary>
+    Task SetCommandsAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed class TelegramBotClient(IConfiguration configuration) : ITelegramBotClient
@@ -33,7 +48,7 @@ public sealed class TelegramBotClient(IConfiguration configuration) : ITelegramB
         if (!IsConfigured) return [];
         using var response = await Http.PostAsJsonAsync($"/bot{_token}/getUpdates", new
         {
-            offset, timeout = 20, limit = 50, allowed_updates = new[] { "message" }
+            offset, timeout = 20, limit = 50, allowed_updates = new[] { "message", "callback_query" }
         }, cancellationToken);
         if (!response.IsSuccessStatusCode) throw new TelegramApiException((int)response.StatusCode);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -45,6 +60,22 @@ public sealed class TelegramBotClient(IConfiguration configuration) : ITelegramB
         foreach (var update in result.EnumerateArray())
         {
             var updateId = update.GetProperty("update_id").GetInt64();
+            if (update.TryGetProperty("callback_query", out var callback))
+            {
+                var callbackId = callback.TryGetProperty("id", out var idValue) ? idValue.GetString() : null;
+                var data = callback.TryGetProperty("data", out var dataValue) ? dataValue.GetString() ?? string.Empty : string.Empty;
+                if (callbackId != null && callback.TryGetProperty("message", out var source) &&
+                    source.TryGetProperty("chat", out var sourceChat))
+                {
+                    var from = callback.TryGetProperty("from", out var user) && user.TryGetProperty("first_name", out var firstName)
+                        ? firstName.GetString() : null;
+                    var isPrivateChat = sourceChat.TryGetProperty("type", out var chatType) && chatType.GetString() == "private";
+                    updates.Add(new TelegramIncoming(updateId, sourceChat.GetProperty("id").GetInt64(), data, from, isPrivateChat, callbackId));
+                    continue;
+                }
+                updates.Add(new TelegramIncoming(updateId, 0, string.Empty, null, false));
+                continue;
+            }
             if (!update.TryGetProperty("message", out var message) ||
                 !message.TryGetProperty("chat", out var chat))
             {
@@ -79,11 +110,13 @@ public sealed class TelegramBotClient(IConfiguration configuration) : ITelegramB
     public async Task SendPhotoAsync(long chatId, byte[] png, string caption, CancellationToken cancellationToken)
     {
         if (!IsConfigured) throw new TelegramApiException(0);
+        var html = caption.Length <= 1024;
         using var form = new MultipartFormDataContent
         {
             { new StringContent(chatId.ToString()), "chat_id" },
-            { new StringContent(caption.Length > 1024 ? caption[..1024] : caption), "caption" }
+            { new StringContent(html ? caption : TelegramHtml.ToPlain(caption)[..Math.Min(1024, TelegramHtml.ToPlain(caption).Length)]), "caption" }
         };
+        if (html) form.Add(new StringContent("HTML"), "parse_mode");
         var file = new ByteArrayContent(png);
         file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
         form.Add(file, "photo", "chart.png");
@@ -91,12 +124,54 @@ public sealed class TelegramBotClient(IConfiguration configuration) : ITelegramB
         if (!response.IsSuccessStatusCode) throw new TelegramApiException((int)response.StatusCode);
     }
 
-    private async Task SendAsync(long chatId, string text, string? parseMode, CancellationToken cancellationToken)
+    public async Task SendMenuAsync(long chatId, string html, IReadOnlyList<IReadOnlyList<TelegramButton>> buttons,
+        CancellationToken cancellationToken)
+    {
+        var markup = new
+        {
+            inline_keyboard = buttons.Select(row => row.Select(b => b.Url != null
+                ? (object)new { text = b.Text, url = b.Url } : new { text = b.Text, callback_data = b.Data ?? "m" }).ToArray()).ToArray()
+        };
+        try
+        {
+            await SendAsync(chatId, html, "HTML", cancellationToken, markup);
+        }
+        catch (TelegramApiException error) when (error.StatusCode == 400)
+        {
+            // Telegram refused the markup or a button link (nothing was delivered): send the text on its own.
+            await SendHtmlAsync(chatId, html, cancellationToken);
+        }
+    }
+
+    public async Task AnswerCallbackAsync(string callbackId, CancellationToken cancellationToken)
+    {
+        if (!IsConfigured) return;
+        using var response = await Http.PostAsJsonAsync($"/bot{_token}/answerCallbackQuery",
+            new { callback_query_id = callbackId }, cancellationToken);
+    }
+
+    public async Task SetCommandsAsync(CancellationToken cancellationToken)
+    {
+        if (!IsConfigured) return;
+        using var response = await Http.PostAsJsonAsync($"/bot{_token}/setMyCommands", new
+        {
+            commands = new[]
+            {
+                new { command = "menu", description = "Меню: сводки и настройки" },
+                new { command = "summary", description = "Сводка за вчера" },
+                new { command = "help", description = "Как пользоваться ботом" },
+                new { command = "stop", description = "Отключить сообщения" }
+            }
+        }, cancellationToken);
+    }
+
+    private async Task SendAsync(long chatId, string text, string? parseMode, CancellationToken cancellationToken,
+        object? replyMarkup = null)
     {
         if (!IsConfigured) throw new TelegramApiException(0);
         using var response = await Http.PostAsJsonAsync($"/bot{_token}/sendMessage", new
         {
-            chat_id = chatId, text, parse_mode = parseMode, disable_web_page_preview = true
+            chat_id = chatId, text, parse_mode = parseMode, disable_web_page_preview = true, reply_markup = replyMarkup
         }, cancellationToken);
         if (!response.IsSuccessStatusCode) throw new TelegramApiException((int)response.StatusCode);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
