@@ -463,6 +463,7 @@ public class EcomadsDbContext : DbContext
         modelBuilder.Entity<WbCampaignNorms>(entity =>
         {
             entity.ToTable("wb_campaign_norms");
+            entity.Property(x => x.BudgetAutoReplenishmentEnabled).HasColumnName("budget_auto_replenishment_enabled").HasDefaultValue(false);
             entity.HasKey(x => x.CampaignId);
             entity.Property(x => x.CampaignId).HasColumnName("campaign_id");
             entity.Property(x => x.CustomName).HasColumnName("custom_name").HasMaxLength(255);

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
+using Ecomads.WebApplication.Services.Recommendations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,7 +17,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
     public sealed record StoreNormRequest(decimal TargetDrr, int MinClicks, decimal MinSpend,
         int MinOrders, decimal DeviationPercent, decimal MinCtr = 3m, int MinViews = 1000, int MinCarts = 20, decimal? CartConversion = null, decimal? OrderCartConversion = null, decimal? OrderClickConversion = null);
     public sealed record CampaignNormRequest(string? CustomName, string? Goal, decimal? TargetDrr,
-        int? MinClicks, decimal? MinSpend, int? MinOrders, decimal? DeviationPercent, decimal? MinCtr = null, DateOnly? LaunchDate = null, int? MinViews = null, int? MinCarts = null, decimal? CartConversion = null, decimal? OrderCartConversion = null, decimal? OrderClickConversion = null, string RecommendationMode = "profit");
+        int? MinClicks, decimal? MinSpend, int? MinOrders, decimal? DeviationPercent, decimal? MinCtr = null, DateOnly? LaunchDate = null, int? MinViews = null, int? MinCarts = null, decimal? CartConversion = null, decimal? OrderCartConversion = null, decimal? OrderClickConversion = null, string RecommendationMode = "profit", bool? BudgetAutoReplenishmentEnabled = null);
     public sealed record StoreNormResponse(Guid StoreId, StoreNormRequest Values, int Version, DateTime? UpdatedAtUtc);
     public sealed record CampaignNormResponse(Guid CampaignId, CampaignNormRequest Overrides,
         StoreNormRequest Effective, int Version, int StoreVersion, DateTime? UpdatedAtUtc);
@@ -113,13 +114,8 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
             request.MinCtr.HasValue && !ValidCtr(request.MinCtr.Value) || !ValidDiagnostics(request.MinViews, request.MinCarts, request.CartConversion, request.OrderCartConversion, request.OrderClickConversion))
             return BadRequest(new { message = "Проверьте длину названия и допустимые значения норм." });
 
-        var norms = await db.WbCampaignNorms.SingleOrDefaultAsync(x => x.CampaignId == campaignId, cancellationToken);
-        if (norms == null)
-        {
-            norms = new WbCampaignNorms { CampaignId = campaignId };
-            db.WbCampaignNorms.Add(norms);
-        }
-        else norms.Version++;
+        var norms = await CampaignRecommendationSettings.GetOrCreateAsync(db, campaignId, cancellationToken);
+        CampaignRecommendationSettings.SetAutoReplenishment(norms, request.BudgetAutoReplenishmentEnabled);
         norms.CustomName = string.IsNullOrWhiteSpace(request.CustomName) ? null : request.CustomName.Trim();
         norms.LaunchDate = request.LaunchDate;
         norms.Goal = string.IsNullOrWhiteSpace(request.Goal) ? null : request.Goal.Trim();
@@ -135,12 +131,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
         norms.MinSpend = request.MinSpend;
         norms.MinOrders = request.MinOrders;
         norms.DeviationPercent = request.DeviationPercent;
-        norms.UpdatedAtUtc = DateTime.UtcNow;
-        db.WbNormRevisions.Add(new WbNormRevision
-        {
-            Id = Guid.NewGuid(), StoreId = storeId.Value, CampaignId = campaignId, Version = norms.Version,
-            SettingsJson = JsonSerializer.Serialize(request), CreatedAtUtc = norms.UpdatedAtUtc
-        });
+        CampaignRecommendationSettings.RecordRevision(db, storeId.Value, norms);
         await db.SaveChangesAsync(cancellationToken);
         var storeNorms = await db.WbStoreNorms.AsNoTracking()
             .SingleOrDefaultAsync(x => x.StoreId == storeId.Value, cancellationToken);
@@ -156,7 +147,7 @@ public sealed class WbNormsController(EcomadsDbContext db) : ControllerBase
     {
         var defaults = ToStoreResponse(store?.StoreId ?? Guid.Empty, store).Values;
         var overrides = new CampaignNormRequest(campaign?.CustomName, campaign?.Goal, campaign?.TargetDrr,
-            campaign?.MinClicks, campaign?.MinSpend, campaign?.MinOrders, campaign?.DeviationPercent, campaign?.MinCtr, campaign?.LaunchDate, campaign?.MinViews, campaign?.MinCarts, campaign?.CartConversion, campaign?.OrderCartConversion, campaign?.OrderClickConversion, campaign?.RecommendationMode ?? "profit");
+            campaign?.MinClicks, campaign?.MinSpend, campaign?.MinOrders, campaign?.DeviationPercent, campaign?.MinCtr, campaign?.LaunchDate, campaign?.MinViews, campaign?.MinCarts, campaign?.CartConversion, campaign?.OrderCartConversion, campaign?.OrderClickConversion, campaign?.RecommendationMode ?? "profit", campaign?.BudgetAutoReplenishmentEnabled ?? false);
         var effective = new StoreNormRequest(overrides.TargetDrr ?? defaults.TargetDrr,
             overrides.MinClicks ?? defaults.MinClicks, overrides.MinSpend ?? defaults.MinSpend,
             overrides.MinOrders ?? defaults.MinOrders, overrides.DeviationPercent ?? defaults.DeviationPercent,

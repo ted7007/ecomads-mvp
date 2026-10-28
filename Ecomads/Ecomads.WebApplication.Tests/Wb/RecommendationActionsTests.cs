@@ -126,6 +126,29 @@ public sealed class RecommendationActionsTests
     }
 
     [Fact]
+    public void ImportedArticleBidAppliesWithoutClusterOverrideAndCpcIsExplicitlyUnsupported()
+    {
+        var now = DateTime.UtcNow;
+        var campaign = new Ecomads.WebApplication.Services.Wb.WbCampaignInfo(123, "C", 9, "cpm", [1, 2],
+            BidType: "manual", ArticleBids: [new(1, 125m, null), new(2, 130m, null)]);
+        var payload = new AdvertisingSettingsPayload([], [new("1", [])], campaign, now);
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var row = new WbAdvertisingSettings { Status = "ready", BidType = "manual", PaymentType = "cpm",
+            ReceivedAtUtc = now, PayloadJson = System.Text.Json.JsonSerializer.Serialize(payload, json) };
+        var control = AdvertisingSettingsPayload.Control(row, "1", "cluster", now);
+        Assert.Equal(125m, control.CurrentBid); Assert.False(control.Excluded);
+        Assert.Equal("ready", control.Status);
+        Assert.Equal("unknown", AdvertisingSettingsPayload.Control(row, "2", "cluster", now).Status);
+        row.PayloadJson = System.Text.Json.JsonSerializer.Serialize(payload with { Bids = [new("1", "cluster", 150m)] }, json);
+        Assert.Equal(150m, AdvertisingSettingsPayload.Control(row, "1", "cluster", now).CurrentBid);
+        row.Status = "source_error";
+        row.PayloadJson = System.Text.Json.JsonSerializer.Serialize(payload with { Campaign = campaign with { PaymentType = "cpc" } }, json);
+        control = AdvertisingSettingsPayload.Control(row, "1", "cluster", now);
+        Assert.Equal("unsupported", control.Status); Assert.Equal("cpc", control.PaymentType); Assert.Equal("manual", control.BidType);
+        Assert.Null(control.Excluded);
+    }
+
+    [Fact]
     public void SettingsSourceNeverTurnsMissingExclusionsIntoFalse()
     {
         var row = new WbAdvertisingSettings { Status = "ready", ReceivedAtUtc = DateTime.UtcNow, PayloadJson = "{\"bids\":[],\"minus\":[]}" };

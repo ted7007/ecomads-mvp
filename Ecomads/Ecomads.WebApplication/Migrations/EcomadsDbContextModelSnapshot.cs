@@ -776,6 +776,12 @@ namespace Ecomads.WebApplication.Migrations
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbCampaignNorms", b =>
                 {
+                    b.Property<bool>("BudgetAutoReplenishmentEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("budget_auto_replenishment_enabled");
+
                     b.Property<Guid>("CampaignId")
                         .HasColumnType("uuid")
                         .HasColumnName("campaign_id");
@@ -1664,6 +1670,9 @@ namespace Ecomads.WebApplication.Migrations
 
             modelBuilder.Entity("Ecomads.WebApplication.Data.Models.WbSnapshotDecision", b =>
                 {
+                    b.Property<string>("ReasonCode")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");

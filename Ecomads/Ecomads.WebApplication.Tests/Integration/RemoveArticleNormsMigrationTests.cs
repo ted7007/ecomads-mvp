@@ -26,7 +26,6 @@ public sealed class RemoveArticleNormsMigrationTests(PostgresFixture postgres)
         var date = new DateOnly(2026, 10, 1);
         db.Sellers.Add(seller); db.Stores.Add(store); db.Campaigns.Add(campaign); db.Nomenclatures.Add(article);
         db.WbStoreNorms.Add(new() { StoreId = store.Id, TargetDrr = 30 });
-        db.WbCampaignNorms.Add(new() { CampaignId = campaign.Id, TargetDrr = 25, LaunchDate = date });
         db.WbNormRevisions.Add(new() { Id = Guid.NewGuid(), StoreId = store.Id, CampaignId = campaign.Id,
             NomenclatureId = article.Id, Version = 7, SettingsJson = "{\"targetDrr\":40}" });
         var runId = Guid.NewGuid();
@@ -38,6 +37,8 @@ public sealed class RemoveArticleNormsMigrationTests(PostgresFixture postgres)
             StartDate = date, EndDate = date, CalculatedAtUtc = DateTime.UtcNow, SchemaVersion = 3, Fingerprint = "historical",
             SnapshotJson = JsonSerializer.Serialize(oldReport, new JsonSerializerOptions(JsonSerializerDefaults.Web)) });
         await db.SaveChangesAsync();
+        // Seed the old schema without asking the current EF model to return newly added columns.
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO wb_campaign_norms (campaign_id, target_drr, \"LaunchDate\", \"RecommendationMode\", version, updated_at_utc) VALUES ({campaign.Id}, 25, {date}, 'profit', 1, {DateTime.UtcNow})");
         await db.Database.ExecuteSqlInterpolatedAsync($@"INSERT INTO wb_article_norms
             (""CampaignId"", ""NomenclatureId"", ""TargetDrr"", ""Version"", ""UpdatedAtUtc"", ""LaunchDate"")
             VALUES ({campaign.Id}, {article.Id}, 40, 7, {DateTime.UtcNow}, {date})");

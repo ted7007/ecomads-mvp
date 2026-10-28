@@ -337,9 +337,11 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.NotEqual(report.RunId, changed.RunId);
         Assert.All(changed.Cards, c => Assert.Null(c.Decision));
         var snapshot = (await service.SnapshotAsync(seed.Seller.Id, seed.Campaign.Id, report.RunId.Value, default))!;
-        Assert.Equal(.2m, snapshot.Cards[0].Norm.Value);
-        Assert.Equal(card.Presentation!.Primary, snapshot.Cards[0].Presentation!.Primary);
-        Assert.Equal("irrelevant", snapshot.Cards[0].Decision!.Status);
+        Assert.DoesNotContain(snapshot.Cards, c => c.EvaluationId == card.EvaluationId);
+        Assert.Equal(.2m, snapshot.Evaluations.Single(e => e.EvaluationId == card.EvaluationId).Norm.Value);
+        Assert.Equal(card.Presentation!.Primary, snapshot.Evaluations.Single(e => e.EvaluationId == card.EvaluationId).Presentation!.Primary);
+        Assert.Equal("irrelevant", (await db.WbSnapshotDecisions.Where(d => d.EvaluationId == card.EvaluationId)
+            .OrderByDescending(d => d.CreatedAtUtc).FirstAsync()).Status);
         var row = await db.WbRecommendationRuns.SingleAsync(x => x.Id == report.RunId);
         row.CalculatedAtUtc = DateTime.UtcNow.AddDays(-100);
         await db.SaveChangesAsync();
@@ -388,14 +390,18 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.Empty((await service.SnapshotAsync(seed.Seller.Id, seed.Campaign.Id, protectedReport.RunId!.Value, default))!.Cards);
     }
 
-    [Fact]
-    public async Task R03ConversionUsesThirtyDaysOfItsOwnCampaignAndArticleAndSnapshotsStayImmutable()
+    [Theory]
+    [InlineData(1000, 77, 39)]
+    [InlineData(227, 8, 86)]
+    [InlineData(410, 40, 31)]
+    [InlineData(1441, 77, 57)]
+    public async Task R03ConversionUsesThirtyDaysOfItsOwnCampaignAndArticleAndSnapshotsStayImmutable(int clicks, int units, int minimum)
     {
         await using var db = await postgres.CreateMigratedDbContextAsync();
         var seed = await SeedAsync(db);
         var articleRows = await db.CampaignNomenclatureStatistics.Where(x => x.CampaignId == seed.Campaign.Id).OrderBy(x => x.Date).ToListAsync();
         foreach (var row in articleRows) { row.Clicks = 0; row.OrderedProducts = 0; row.Revenue = 0; }
-        articleRows[0].Clicks = 1000; articleRows[0].OrderedProducts = 77; articleRows[0].Revenue = 154000;
+        articleRows[0].Clicks = clicks; articleRows[0].OrderedProducts = units; articleRows[0].Revenue = units * 2000;
         var crStart = Window.EndDate.AddDays(-29);
         for (var day = crStart; day < Window.StartDate; day = day.AddDays(1))
             db.WbCampaignDailyChecks.Add(new() { CampaignId = seed.Campaign.Id, Date = day, Result = "zero" });
@@ -414,10 +420,15 @@ public sealed class RecommendationFoundationTests(PostgresFixture postgres)
         Assert.Equal(Window, report.Window);
         var evidence = card.Presentation!.ClickEvidence!;
         Assert.Equal(new(crStart, Window.EndDate), evidence.Window);
-        Assert.Equal(.077m, evidence.Cr); Assert.Equal("actual", evidence.Source);
-        Assert.Equal(39m, evidence.MinimumClicks); Assert.Equal("sufficient", evidence.Result);
+        Assert.Equal((decimal)units / clicks, evidence.Cr); Assert.Equal("actual", evidence.Source);
+        Assert.Equal((decimal)minimum, evidence.MinimumClicks);
+        Assert.Equal(card.Facts.Clicks >= minimum ? "sufficient" : "insufficient", evidence.Result);
         var missing = await db.WbCampaignDailyChecks.SingleAsync(x => x.CampaignId == seed.Campaign.Id && x.Date == crStart);
         db.WbCampaignDailyChecks.Remove(missing); await db.SaveChangesAsync();
+        var partial = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
+        Assert.Equal(evidence, partial.Cards.Single(c => c.Rule.RuleId == "R03").Presentation!.ClickEvidence);
+        // Only a sample below 100 verified clicks uses 2%; a missing calendar day does not.
+        articleRows[0].Clicks = 99; await db.SaveChangesAsync();
         var changed = (await service.CalculateAsync(seed.Seller.Id, seed.Campaign.Id, Window, default))!;
         Assert.Equal("fallback", changed.Cards.Single(c => c.Rule.RuleId == "R03").Presentation!.ClickEvidence!.Source);
         Assert.NotEqual(report.RunId, changed.RunId);

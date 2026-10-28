@@ -33,7 +33,9 @@ public static class RecommendationActions
         if (!quality.Complete) restrictions.Add(new("incomplete", $"Предварительно: расчёт по {quality.AvailableDays ?? 0} из {quality.ExpectedDays ?? window.Days} дней."));
         if (window.EndDate > today.AddDays(-2)) restrictions.Add(new("recent", "Свежий период: только предварительная диагностика. Для действий выберите конец не позднее D−2 по МСК."));
         if (control.Status != "ready") restrictions.Add(new("settings_" + control.Status, control.Status == "stale"
-            ? "Настройки рекламы устарели; дождитесь обновления." : "Настройки рекламы неизвестны или недоступны; действие не подтверждено."));
+            ? "Настройки рекламы устарели; дождитесь обновления." : control.Status == "unsupported"
+            ? "Кампания CPC: WB не поддерживает управление ставками и исключениями поисковых кластеров для этого типа оплаты."
+            : "Настройки рекламы неизвестны или недоступны; действие не подтверждено."));
         if (share is null && !(rule.RuleId == "R03" && facts.OrderedProducts == 0)) restrictions.Add(new("key_unknown", "Ключевая доля неизвестна: исключение недоступно."));
         if (key) restrictions.Add(new("key", "Ключевой кластер: не менее 20% заказанных единиц товара. Исключение запрещено."));
         if (control.Excluded == true) restrictions.Add(new("excluded", "Кластер уже исключён."));

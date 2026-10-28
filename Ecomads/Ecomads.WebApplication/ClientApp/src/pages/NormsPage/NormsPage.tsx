@@ -1,4 +1,4 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Grid, MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, FormControlLabel, Grid, MenuItem, Stack, Switch, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fragment, useEffect, useState } from 'react';
 import { getWbStores } from '../WbStoresPage/wbStoresApi';
@@ -8,7 +8,7 @@ import { PaginationBar } from '../../shared/ui/PaginationBar';
 
 const defaults: StoreNormValues = { targetDrr: 20, minClicks: 30, minSpend: 500,
   minOrders: 3, deviationPercent: 40, minCtr: 3, minViews: 1000, minCarts: 20, cartConversion: null, orderCartConversion: null, orderClickConversion: null };
-const emptyOverrides: CampaignNormOverrides = { recommendationMode: 'profit', customName: null, goal: null, targetDrr: null,
+const emptyOverrides: CampaignNormOverrides = { budgetAutoReplenishmentEnabled: false, recommendationMode: 'profit', customName: null, goal: null, targetDrr: null,
   minClicks: null, minSpend: null, minOrders: null, deviationPercent: null, minCtr: null, launchDate: null, minViews: null, minCarts: null, cartConversion: null, orderCartConversion: null, orderClickConversion: null };
 const numericFields = [
   { key: 'targetDrr', label: 'Целевой рекламный ДРР, %' },
@@ -72,6 +72,12 @@ export function NormsPage() {
     onError: () => setMessage('Не удалось сохранить настройки кампании.') });
   const storeDirty = Boolean(storeNorms.data) && JSON.stringify(storeValues) !== JSON.stringify(storeNorms.data?.values);
   const campaignDirty = Boolean(campaignNorms.data) && JSON.stringify(overrides) !== JSON.stringify(campaignNorms.data?.overrides);
+  const autoReplenishmentControl = <Stack spacing={.25}>
+    <FormControlLabel label="Включено автопополнение бюджета" control={<Switch checked={overrides.budgetAutoReplenishmentEnabled}
+      disabled={campaignNorms.isLoading || saveCampaign.isPending} onChange={(_, enabled) => setOverrides(old => ({ ...old, budgetAutoReplenishmentEnabled: enabled }))} />} />
+    <Typography variant="caption" color="text.secondary">Отметка скрывает рекомендации о пополнении бюджета этой кампании. Автопополнение в WB настраивается отдельно.</Typography>
+  </Stack>;
+  const resetOverrides = () => setOverrides(old => ({ ...emptyOverrides, budgetAutoReplenishmentEnabled: old.budgetAutoReplenishmentEnabled }));
 
   return <Stack spacing={2.5} sx={{ maxWidth: 1200 }}>
     <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'center' }} gap={1.5}>
@@ -110,7 +116,7 @@ export function NormsPage() {
       </Stack>
     </Stack></CardContent></Card></Grid>
       <Grid item xs={12}><Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}><AccordionSummary expandIcon="⌄"><Typography variant="body2">Как рассчитываются нормы и оценки</Typography></AccordionSummary><AccordionDetails>
-        <Typography variant="body2" color="text.secondary">Целевой ДРР относится к рекламной сумме заказов. В новой диагностике расход без заказанных единиц проверяется по денежному порогу от средней цены товара за выбранный период, независимо от числа кликов. Остальные минимумы используются существующими проверками. WB не передаёт фактическую выручку кластера.</Typography>
+        <Typography variant="body2" color="text.secondary">Целевой ДРР относится к рекламной сумме заказов. Денежный порог от средней цены товара определяет появление рекомендации о расходе без заказанных единиц. Для исключения кластера дополнительно проверяется достаточность кликов; при недостатке предлагается снижение ставки или наблюдение. Остальные минимумы используются существующими проверками. WB не передаёт фактическую выручку кластера.</Typography>
       </AccordionDetails></Accordion></Grid>
     </Grid> : null}
 
@@ -144,6 +150,7 @@ export function NormsPage() {
             <Typography variant="caption" color="text.secondary">Дополнительные настройки кампании</Typography><TextField select label="Режим рекомендаций" size="small" value={overrides.recommendationMode} onChange={e => setOverrides(old => ({ ...old, recommendationMode: e.target.value as CampaignNormOverrides['recommendationMode'] }))}>
               <MenuItem value="profit">Прибыль</MenuItem><MenuItem value="growth">Рост</MenuItem><MenuItem value="clearance">Распродажа</MenuItem>
             </TextField>
+            {autoReplenishmentControl}
             <TextField type="date" size="small" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
               onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Первые 21 день после запуска кампании защищены." />
             <TextField label="Своё название" size="small" sx={{ maxWidth: 320 }} value={overrides.customName ?? ''} onChange={(event) => setOverrides((previous) => ({ ...previous, customName: event.target.value || null }))} />
@@ -151,7 +158,7 @@ export function NormsPage() {
               onChange={(event) => setOverrides((previous) => ({ ...previous, [key]: event.target.value === '' ? null : Number(event.target.value) }))}
               helperText={overrides[key] === null ? `Наследуется: ${campaignNorms.data?.effective[key] ?? storeValues[key]}` : 'Переопределено'} />)}</Stack>
             {campaignDirty ? <Typography variant="caption" color="warning.main">Есть несохранённые изменения</Typography> : null}
-            <Button sx={{ alignSelf: 'flex-start' }} onClick={() => setOverrides(emptyOverrides)}>Сбросить переопределения</Button>
+            <Button sx={{ alignSelf: 'flex-start' }} onClick={resetOverrides}>Сбросить переопределения</Button>
           </Stack></TableCell></TableRow> : null}</Fragment>)}</TableBody>
       </Table></TableContainer>
       <Box sx={{ display: { xs: 'none', md: 'block' } }}><PaginationBar count={normList.data?.length ?? 0} page={page} rowsPerPage={rowsPerPage} onPageChange={setPage} onRowsPerPageChange={(size) => { setRowsPerPage(size); setPage(0); }} /></Box>
@@ -163,7 +170,8 @@ export function NormsPage() {
         {campaigns.data?.map((campaign) => <MenuItem key={campaign.id} value={campaign.id}>
           {campaign.name} · {campaign.wbCampaignId}</MenuItem>)}
       </TextField>
-      {campaignId ? <>
+      {campaignId ? <Stack spacing={2}>
+        {autoReplenishmentControl}
         <TextField type="date" label="Дата запуска кампании" value={overrides.launchDate ?? ''} InputLabelProps={{ shrink: true }}
           onChange={e => setOverrides(old => ({ ...old, launchDate: e.target.value || null }))} helperText="Защита первых 21 дня после запуска кампании." />
         <TextField select label="Режим рекомендаций" size="small" value={overrides.recommendationMode} onChange={e => setOverrides(old => ({ ...old, recommendationMode: e.target.value as CampaignNormOverrides['recommendationMode'] }))}>
@@ -185,8 +193,8 @@ export function NormsPage() {
         </Stack>
         <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!campaignDirty || saveCampaign.isPending || campaignNorms.isLoading}
           onClick={() => saveCampaign.mutate()}>Сохранить настройки кампании</Button>
-        <Button size="small" sx={{ ml: 1 }} onClick={() => setOverrides(emptyOverrides)}>Сбросить переопределения</Button>
-      </> : null}
+        <Button size="small" sx={{ ml: 1 }} onClick={resetOverrides}>Сбросить переопределения</Button>
+      </Stack> : null}
       </Box>
     </Stack></CardContent></Card> : null}
   </Stack>;

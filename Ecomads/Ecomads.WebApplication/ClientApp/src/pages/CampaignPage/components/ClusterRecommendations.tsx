@@ -5,7 +5,8 @@ import { formatMoney } from '../../../shared/lib/formatMoney';
 import { ClusterRecommendationCard, DecisionButtons } from '../../../shared/ui/ClusterRecommendationCard';
 import { PaginationBar } from '../../../shared/ui/PaginationBar';
 import { DetailsDrawer } from './DetailsDrawer';
-import { packageCards } from './campaignReportModel';
+import { recommendationItems } from './campaignReportModel';
+import { recommendationLimitation, recommendationMoney } from '../../../shared/lib/recommendationPresentation';
 import { RecommendationExposure } from '../../../shared/ui/RecommendationExposure';
 const clamp = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as const;
 const titles: Record<string, string> = { R01: 'Реклама и остатки', R02: 'Пополнить бюджет', R03: 'Расход без заказов', R06: 'ДРР кластера выше нормы', R07: 'ДРР товара выше нормы' };
@@ -16,23 +17,26 @@ function CopyButton({ text, label = 'Копировать кластер', disab
 export function ClusterRecommendations({ campaignId, report }: { campaignId: string; report: ClusterRecommendationResponse }) {
   const [page, setPage] = useState(0), [size, setSize] = useState(5), [opened, setOpened] = useState<RecommendationCard | null>(null);
   const openedCard = opened ? report.cards.find(c => c.evaluationId === opened.evaluationId && c.rule.ruleId === opened.rule.ruleId) : null;
-  const bundles = (report.packages ?? []).map(b => ({ ...b, cards: packageCards(report, b.evaluationIds) })).filter(b => b.cards.length);
-  const packaged = new Set(bundles.flatMap(b => b.cards.map(c => `${c.evaluationId}:${c.rule.ruleId}`)));
-  const singles = [...new Map(report.cards.filter(c => !packaged.has(`${c.evaluationId}:${c.rule.ruleId}`)).map(c => [`${c.evaluationId}:${c.rule.ruleId}`, c])).values()];
-  const safePage = Math.min(page, Math.max(0, Math.ceil(singles.length / size) - 1));
+  const items = recommendationItems(report);
+  const safePage = Math.min(page, Math.max(0, Math.ceil(items.length / size) - 1));
   return <Stack spacing={2}><Typography component="h2" variant="h6" fontWeight={700}>Рекомендации кампании</Typography><Typography variant="caption" color="text.secondary">За 14 дней: {report.window.startDate} — {report.window.endDate}, МСК</Typography>
-    {bundles.map(b => <ExclusionPackage key={`${report.runId}:${b.id}`} report={report} cards={b.cards} onOpen={setOpened} />)}
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>{singles.slice(safePage * size, (safePage + 1) * size).map(card => <Card key={`${card.evaluationId}:${card.rule.ruleId}`}><CardContent sx={{ height: 280, minWidth: 0, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: .5, '& > *': { flexShrink: 0 }, '& .MuiButton-root': { fontSize: 12, minHeight: 28, py: .25 }, '&:last-child': { pb: 2 } }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>{items.slice(safePage * size, (safePage + 1) * size).map(item => {
+      if (item.kind === 'package') return <Box key={item.id} sx={{ gridColumn: '1 / -1' }}><ExclusionPackage report={report} cards={item.cards} onOpen={setOpened} /></Box>;
+      const card = item.card;
+      const money = recommendationMoney(card), limitation = recommendationLimitation(card);
+      return <Card key={item.id}><CardContent sx={{ minHeight: 300, minWidth: 0, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: .5, '& > *': { flexShrink: 0 }, '& .MuiButton-root': { fontSize: 12, minHeight: 28, py: .25 }, '&:last-child': { pb: 2 } }}>
       <RecommendationExposure runId={report.runId} evaluationId={card.evaluationId} ruleId={card.rule.ruleId} /><Stack direction="row" gap={1} alignItems="center"><Chip size="small" color="warning" variant="outlined" label={titles[card.rule.ruleId] ?? card.rule.ruleId} />{card.preliminary ? <Chip size="small" variant="outlined" label="Предварительно" /> : null}{card.decision ? <Chip size="small" color={card.decision.status === 'accepted' ? 'success' : card.decision.status === 'snoozed' ? 'info' : 'default'} label={card.decision.status === 'accepted' ? 'Принял' : card.decision.status === 'snoozed' ? 'Отложено' : 'Не актуально'} /> : null}</Stack>
       <ButtonBase onClick={() => setOpened(card)} aria-label={`Открыть рекомендацию: ${card.subject.clusterName ?? card.subject.nomenclatureName ?? 'Вся кампания'}`} sx={{ display: 'block', width: '100%', textAlign: 'left', borderRadius: 1 }}><Typography fontWeight={700} sx={{ fontSize: 14, lineHeight: '20px' }} noWrap title={card.subject.clusterName ?? card.subject.nomenclatureName ?? 'Вся кампания'}>{card.subject.clusterName ?? card.subject.nomenclatureName ?? 'Вся кампания'}</Typography></ButtonBase>
       <Typography variant="caption" sx={{ fontSize: 11, lineHeight: '16px' }} color="text.secondary">{card.subject.nomenclatureId ? `Артикул ${card.subject.nomenclatureId}` : 'Кампания'} · Расход {formatMoney(card.facts.spend)}</Typography>
       {card.rule.ruleId === 'R03' ? <Typography variant="caption">{card.facts.clicks ?? '—'} кликов · {card.facts.orderedProducts ?? '—'} заказанных единиц · ДЦЗ {formatMoney(card.economy.allowedSpendPerUnit)}</Typography> : null}
       <Typography variant="body2" sx={{ ...clamp, fontSize: 13, lineHeight: '18px', maxHeight: 36 }}>Почему: {card.rule.explanation}</Typography><Typography variant="body2" sx={{ ...clamp, fontSize: 13, lineHeight: '18px', maxHeight: 36 }}>Действие: {[card.presentation?.primary.label ?? card.rule.explanation, ...(card.presentation?.alternatives.map(a => `или ${a.label.toLocaleLowerCase('ru-RU')}`) ?? [])].join(' · ')}</Typography>
-      {card.subject.scope === 'cluster' && card.presentation ? <Typography variant="caption">≈ {formatMoney(card.presentation.weeklySpend)} в неделю</Typography> : null}
+      {money ? <Typography variant="caption" title={money.explanation} fontWeight={700}>{card.preliminary ? 'Предварительно · ' : ''}{money.text}</Typography> : null}
+      {limitation ? <Typography variant="caption" color="text.secondary">{limitation}</Typography> : null}
+      {card.subject.scope === 'cluster' && card.presentation && card.ranking?.basis !== 'spend_without_units' ? <Typography variant="caption">Расход кластера ≈ {formatMoney(card.presentation.weeklySpend)}/нед.</Typography> : null}
       <Stack direction="row" sx={{ mt: 'auto' }}>{card.subject.clusterName ? <CopyButton text={card.subject.clusterName} /> : null}</Stack>
       {report.runId && card.presentation ? <DecisionButtons compact campaignId={campaignId} runId={report.runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}
-    </CardContent></Card>)}</Box>
-    {singles.length ? <PaginationBar desktopSizeButtons count={singles.length} page={safePage} rowsPerPage={size} onPageChange={setPage} onRowsPerPageChange={n => { setSize(n); setPage(0); }} /> : null}
+    </CardContent></Card>; })}</Box>
+    {items.length ? <PaginationBar desktopSizeButtons count={items.length} page={safePage} rowsPerPage={size} onPageChange={setPage} onRowsPerPageChange={n => { setSize(n); setPage(0); }} /> : null}
     {!report.cards.length ? <Typography color="text.secondary">{report.message}</Typography> : null}
     <DetailsDrawer open={!!openedCard} onClose={() => setOpened(null)} title="Рекомендация">{openedCard ? <ClusterRecommendationCard card={openedCard} runId={report.runId} /> : null}</DetailsDrawer>
   </Stack>;

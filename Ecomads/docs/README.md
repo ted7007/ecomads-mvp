@@ -29,6 +29,8 @@
 
 ## Рекомендательная система
 
+- [Денежное ранжирование и отметка автопополнения бюджета — дополнение к ТЗ v1.3](recommendation-ranking-and-budget-auto-replenishment.md)
+
 - [Четыре архитектурные схемы EcomAds для домашнего задания: Context, Container и Component](architecture/ecomads-c4-homework.md)
 
 0. `expert-review/recommendation-logic-for-marketplace-expert.md`

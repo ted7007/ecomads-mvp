@@ -19,7 +19,7 @@ using Xunit;
 namespace Ecomads.WebApplication.Tests.Integration;
 
 [Collection(PostgresCollection.Name)]
-public sealed class RecommendationEndpointTests(PostgresFixture postgres)
+public sealed partial class RecommendationEndpointTests(PostgresFixture postgres)
 {
     [Fact]
     public async Task HttpEndpointMatchesSnapshotTableAndInvalidatesAfterCampaignNormChange()

@@ -12,26 +12,36 @@ namespace Ecomads.WebApplication.Controllers;
 public sealed class WbSnapshotDecisionsController(EcomadsDbContext db, RecommendationService service, ResultsService? results = null) : ControllerBase
 {
     public sealed record DecisionRequest(IReadOnlyList<Guid> EvaluationIds, string RuleId, string Status,
-        DateOnly? SnoozeUntil = null, string? Reason = null, string? Comment = null);
+        DateOnly? SnoozeUntil = null, string? Reason = null, string? Comment = null, string? ReasonCode = null);
     [HttpPost]
     public async Task<IActionResult> Save(Guid campaignId, Guid runId, DecisionRequest request, CancellationToken ct)
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var seller)) return Unauthorized();
+        var autoReplenishment = request.ReasonCode == CampaignRecommendationSettings.AutoReplenishmentReason;
         if (request.EvaluationIds is null || request.EvaluationIds.Count is < 1 or > 1000 ||
             request.Status is not ("accepted" or "snoozed" or "irrelevant") || request.RuleId is not ("R01" or "R02" or "R03" or "R06" or "R07") ||
             request.Status == "snoozed" && (!request.SnoozeUntil.HasValue || request.SnoozeUntil <= Services.Wb.WbSyncPlanner.Today()) ||
-            request.Status == "irrelevant" && string.IsNullOrWhiteSpace(request.Reason) || request.Reason?.Length > 1000 || request.Comment?.Length > 2000)
+            request.ReasonCode != null && (!autoReplenishment || request.RuleId != "R02" || request.Status != "irrelevant") ||
+            request.Status == "irrelevant" && !autoReplenishment && string.IsNullOrWhiteSpace(request.Reason) || request.Reason?.Length > 1000 || request.Comment?.Length > 2000)
             return BadRequest(new { message = "Для откладывания нужна будущая дата, для отказа — причина. Проверьте решение." });
-        var report = await service.SnapshotAsync(seller, campaignId, runId, ct);
+        // Validate ownership and IDs against immutable evidence, including an already hidden card.
+        var report = await service.SnapshotAsync(seller, campaignId, runId, ct, applyPresentation: false);
         if (report == null) return NotFound();
         if (report.SchemaVersion < 2) return BadRequest(new { message = "Откройте новый расчёт: старый снимок не содержит конкретного действия." });
         var ids = request.EvaluationIds.Distinct().ToArray();
         if (ids.Any(id => !report.Cards.Any(c => c.EvaluationId == id && c.Rule.RuleId == request.RuleId))) return NotFound();
         if (results != null) await results.RegisterAsync(seller, ids.Select(id => new ResultExposureRequest(runId, id, request.RuleId)).ToArray(), ct);
-        // One atomic insert for all selected elements. The immutable run stores facts and the available actions.
+        if (autoReplenishment)
+        {
+            var settings = await CampaignRecommendationSettings.GetOrCreateAsync(db, campaignId, ct);
+            CampaignRecommendationSettings.SetAutoReplenishment(settings, true);
+            CampaignRecommendationSettings.RecordRevision(db, report.Cards[0].Subject.StoreId, settings);
+        }
+        // One SaveChanges transaction commits decisions, preference and revision together.
         foreach (var id in ids) db.WbSnapshotDecisions.Add(new WbSnapshotDecision { Id = Guid.NewGuid(), RunId = runId,
             EvaluationId = id, RuleId = request.RuleId, Status = request.Status, SnoozeUntil = request.Status == "snoozed" ? request.SnoozeUntil : null,
-            Reason = request.Status == "irrelevant" ? request.Reason!.Trim() : null, Comment = request.Comment?.Trim() });
+            Reason = request.Status == "irrelevant" ? autoReplenishment ? CampaignRecommendationSettings.AutoReplenishmentLabel : request.Reason!.Trim() : null,
+            ReasonCode = request.ReasonCode, Comment = request.Comment?.Trim() });
         await db.SaveChangesAsync(ct);
         return Ok(await service.SnapshotAsync(seller, campaignId, runId, ct));
     }

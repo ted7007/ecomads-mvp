@@ -1,5 +1,7 @@
 # Local build verification output
 /artifacts/build-check*/
+/artifacts/pilot-blockers/
+/artifacts/ranking-tests/
 /ops/capacity/__pycache__/
 
 # One-off local workbook analysis

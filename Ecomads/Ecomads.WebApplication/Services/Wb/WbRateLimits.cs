@@ -26,6 +26,8 @@ public static class WbRateLimits
 
     public static TimeSpan IntervalFor(string kind) => kind switch
     {
+        // One request to each read endpoint per pass: basic tokens allow one per 12 minutes.
+        "cluster_settings" => TimeSpan.FromMinutes(12),
         "operations_fbw_report_0" or "operations_fbw_report_1" or "operations_fbw_report_2" => TimeSpan.FromMinutes(15),
         "operations_stocks_fbw" or "operations_stocks_fbs" => TimeSpan.FromSeconds(21),
         "operations_budgets" => TimeSpan.FromMinutes(15),

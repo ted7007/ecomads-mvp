@@ -20,6 +20,7 @@ public sealed class WbStoreNorms
 
 public sealed class WbCampaignNorms
 {
+    public bool BudgetAutoReplenishmentEnabled { get; set; }
     public string RecommendationMode { get; set; } = "profit";
     public DateOnly? LaunchDate { get; set; }
     public int? MinViews { get; set; }

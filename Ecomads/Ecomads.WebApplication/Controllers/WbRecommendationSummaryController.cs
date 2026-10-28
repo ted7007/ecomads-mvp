@@ -18,10 +18,9 @@ public sealed class WbRecommendationSummaryController(RecommendationService serv
         if (storeId.HasValue && !await db.Stores.AnyAsync(x => x.Id == storeId && x.SellerId == seller, ct)) return NotFound();
         var reports = await service.CalculateManyAsync(seller, storeId, window, ct);
         window = reports.FirstOrDefault()?.Window ?? window;
-        var cards = reports.SelectMany(r => r.Cards.Select(card => new { r.RunId, Card = card }))
-            .OrderBy(x => x.Card.Rule.Group).ThenBy(x => x.Card.Presentation?.Priority ?? 4).ThenByDescending(x => x.Card.Presentation?.WeeklySpend ?? x.Card.Facts.Spend / window.Days * 7)
-            .ThenBy(x => x.Card.Subject.CampaignId).ThenBy(x => x.Card.Subject.NomenclatureId, StringComparer.Ordinal).ThenBy(x => x.Card.Subject.ClusterName, StringComparer.Ordinal).ToArray();
-        return Ok(new { schemaVersion = 3, window, enabled = reports.Any(x => x.Enabled), top = cards.Take(5), remaining = Math.Max(0, cards.Length - 5),
+        var cards = reports.SelectMany(r => r.Cards.Select(card => new RecommendationSummaryItem(r.RunId, card))).ToArray();
+        var top = RecommendationRanking.Top(cards, window);
+        return Ok(new { schemaVersion = 3, window, enabled = reports.Any(x => x.Enabled), top, remaining = cards.Length - top.Count,
             campaigns = reports.Select(r => new { campaignId = r.CampaignId, name = r.CampaignName ?? "Кампания",
                 r.RunId, r.Status, r.Message, count = r.Cards.Count,
                 weeklySpend = r.Cards.Where(c => c.Subject.Scope == "cluster").DistinctBy(c => (c.Subject.ArticleId, c.Subject.ClusterName)).Sum(c => c.Presentation?.WeeklySpend ?? c.Facts.Spend / window.Days * 7) }) });

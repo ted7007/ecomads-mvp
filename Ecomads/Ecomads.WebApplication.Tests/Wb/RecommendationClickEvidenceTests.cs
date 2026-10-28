@@ -14,11 +14,27 @@ public class RecommendationClickEvidenceTests
     [InlineData(99, 77, true, 149, "fallback", "insufficient", 150)]
     [InlineData(99, 77, true, 150, "fallback", "sufficient", 150)]
     [InlineData(100, 10, true, 30, "actual", "sufficient", 30)]
+    [InlineData(1441, 77, true, 56, "actual", "insufficient", 57)]
+    [InlineData(1441, 77, true, 57, "actual", "sufficient", 57)]
+    [InlineData(1441, 77, true, 86, "actual", "sufficient", 57)]
     [InlineData(1000, 77, false, 39, "fallback", "insufficient", 150)]
     public void Boundaries(int clicks, int units, bool complete, int clusterClicks, string source, string result, int minimum)
     {
         var e = RecommendationClickEvidence.Calculate(Window, clicks, units, complete, clusterClicks);
         Assert.Equal(source, e.Source); Assert.Equal(result, e.Result); Assert.Equal((decimal)minimum, e.MinimumClicks);
+    }
+
+    [Fact]
+    public void NapkinWithEightySixClicksIsExcludedAtMeasuredProductConversion()
+    {
+        var facts = new RecommendationFacts(600, 1000, 86, 0, 0, 0, 1425);
+        var norm = new RecommendationNorm(.2m, "default", 0, 0, 0);
+        var evidence = RecommendationClickEvidence.Calculate(Window, 1441, 77, true, 86);
+        var presentation = RecommendationActions.Select(new("R03", 2, 2, true, "triggered", "", "", 570),
+            facts, norm, new(true, true, true, true), RecommendationEngine.Economy(facts, norm, .2m),
+            new("ready", "unified", "cpm", false), 77, null, Window, new(2026, 10, 14), evidence);
+        Assert.Equal(57m, evidence.MinimumClicks);
+        Assert.Equal("exclude", presentation.Primary.Kind);
     }
 
     [Fact]

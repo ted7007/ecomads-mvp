@@ -7,7 +7,7 @@ async function load(path) {
  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
 }
 const {sortRows}=await load('../src/shared/lib/sortRows.ts');
-const {pairKey,clusterCtr,jamCandidates,packageCards}=await load('../src/pages/CampaignPage/components/campaignReportModel.ts');
+const {pairKey,clusterCtr,jamCandidates,packageCards,recommendationItems}=await load('../src/pages/CampaignPage/components/campaignReportModel.ts');
 test('null, undefined and NaN stay last in both directions; zero is known; source unchanged',()=>{
  const rows=[{id:'b',v:2},{id:'a',v:2},{id:'nil',v:null},{id:'nan',v:NaN},{id:'zero',v:0},{id:'missing'}];
  for(const asc of [true,false]){
@@ -42,4 +42,26 @@ test('package deduplication applies only to R03; missing IDs and empty packages 
  assert.deepEqual(packageCards(report,['a','a','missing']),[a]);
  assert.deepEqual(packageCards(report,[]),[]);
  assert.equal(report.cards.length,4);
+});
+
+test('package occupies the rank of its first member and does not duplicate members',()=>{
+ const expensive={evaluationId:'expensive',rule:{ruleId:'R06'}};
+ const a={evaluationId:'a',rule:{ruleId:'R03'}}, b={evaluationId:'b',rule:{ruleId:'R03'}};
+ const middle={evaluationId:'middle',rule:{ruleId:'R06'}};
+ const items=recommendationItems({cards:[expensive,a,middle,b],packages:[{id:'package',evaluationIds:['b','a']}]});
+ assert.deepEqual(items.map(x=>x.id),['expensive:R06','package','middle:R06']);
+ assert.deepEqual(items[1].cards,[a,b]);
+});
+
+const {recommendationMoney,recommendationLimitation}=await load('../src/shared/lib/recommendationPresentation.ts');
+test('money explains the problem rather than promising savings; missing money remains missing',()=>{
+ assert.equal(recommendationMoney({ranking:null}),null);
+ const money=recommendationMoney({preliminary:true,ranking:{weeklyInefficientSpend:5000,basis:'spend_above_norm'}});
+ assert.match(money.text,/Расход сверх нормы/); assert.match(money.explanation,/не прогноз экономии/); assert.match(money.explanation,/Предварительно/);
+});
+test('click restriction includes actual and required clicks and fallback conversion',()=>{
+ const c={facts:{clicks:40},presentation:{restrictions:[{code:'insufficient_clicks',label:'Мало кликов'}],clickEvidence:{minimumClicks:150,source:'fallback'},primary:{kind:'watch'}}};
+ assert.match(recommendationLimitation(c),/40 из 150 при базовой конверсии 2%/);
+ c.presentation.restrictions.unshift({code:'incomplete',label:'Данные неполные'});
+ assert.equal(recommendationLimitation(c),'Данные неполные');
 });

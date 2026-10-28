@@ -29,7 +29,7 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
                 logger.LogWarning("Telegram polling failed with HTTP {StatusCode}", error.StatusCode);
                 await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
             }
-            catch (Exception error) when (error is HttpRequestException or JsonException or DbUpdateException)
+            catch (Exception error) when (error is HttpRequestException or JsonException or DbUpdateException or OperationCanceledException)
             {
                 logger.LogWarning("Telegram polling failed: {ErrorType}", error.GetType().Name);
                 await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);

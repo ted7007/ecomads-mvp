@@ -21,6 +21,7 @@ public sealed class WbSnapshotDecision
     public string Status { get; set; } = "";
     public DateOnly? SnoozeUntil { get; set; }
     public string? Reason { get; set; }
+    public string? ReasonCode { get; set; }
     public string? Comment { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }

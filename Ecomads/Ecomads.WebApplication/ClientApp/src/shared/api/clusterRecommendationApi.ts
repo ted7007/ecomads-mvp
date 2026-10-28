@@ -28,7 +28,9 @@ const presentation = z.object({ primary: action, alternatives: z.array(action), 
   control: z.object({ status: z.string(), bidType: z.string().nullable(), paymentType: z.string().nullable(), excluded: z.boolean().nullable(), currentBid: z.number().nullable(), minimumBid: z.number().nullable(), bidStep: z.number().nullable(), receivedAtUtc: z.string().nullable() }).nullish() });
 const decision = z.object({ status: z.string(), snoozeUntil: z.string().nullable(), reason: z.string().nullable(), comment: z.string().nullable(), createdAtUtc: z.string() });
 const cardSchema = z.object({ evaluationId: z.string().uuid(), subject, rule, facts, norm, economy, preliminary: z.boolean(),
-  presentation: presentation.nullish(), decision: decision.nullish() });
+  presentation: presentation.nullish(), decision: decision.nullish(),
+  ranking: z.object({ version: z.number(), queue: z.enum(['urgent', 'actionable', 'review']),
+    weeklyInefficientSpend: z.number().nullable(), basis: z.string() }).nullish() });
 export type RecommendationCard = z.infer<typeof cardSchema>;
 const evaluation = z.object({ evaluationId: z.string().uuid(), subject, facts, norm, economy, rules: z.array(rule),
   presentation: presentation.nullish(), quality: z.object({ fullStatsComplete: z.boolean(), clustersComplete: z.boolean(), fieldsVerified: z.boolean(),
@@ -47,9 +49,9 @@ export async function getClusterRecommendations(campaignId: string) {
 }
 
 export async function saveSnapshotDecision(campaignId: string, runId: string, evaluationIds: string[], ruleId: string,
-  status: string, snoozeUntil: string | null, reason: string | null, comment: string | null) {
+  status: string, snoozeUntil: string | null, reason: string | null, comment: string | null, reasonCode: string | null = null) {
   return schema.parse(await httpClient<unknown>(`/api/wb/campaigns/${campaignId}/recommendations/runs/${runId}/decisions`,
-    { method: 'POST', body: { evaluationIds, ruleId, status, snoozeUntil, reason, comment } }));
+    { method: 'POST', body: { evaluationIds, ruleId, status, snoozeUntil, reason, comment, reasonCode } }));
 }
 const summary = z.object({ window: z.object({ startDate: z.string(), endDate: z.string() }), enabled: z.boolean(), schemaVersion: z.number(), top: z.array(z.object({ runId: z.string(), card: cardSchema })), remaining: z.number(),
   campaigns: z.array(z.object({ campaignId: z.string().nullable(), name: z.string(), runId: z.string().nullable(), status: z.string(), message: z.string(), count: z.number(), weeklySpend: z.number() })) });

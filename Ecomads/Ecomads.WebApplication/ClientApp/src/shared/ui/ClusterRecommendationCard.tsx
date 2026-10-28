@@ -1,4 +1,4 @@
-import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { RecommendationCard } from '../api/clusterRecommendationApi';
@@ -6,6 +6,7 @@ import { saveSnapshotDecision } from '../api/clusterRecommendationApi';
 import { formatMoney } from '../lib/formatMoney';
 import { moscowToday } from '../../pages/DashboardPage/components/PeriodFilter';
 import { RecommendationExposure } from './RecommendationExposure';
+import { recommendationLimitation, recommendationMoney } from '../lib/recommendationPresentation';
 
 const labels: Record<string, string> = { accepted: 'Принял', snoozed: 'Отложено', irrelevant: 'Не актуально' };
 export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, compact = false }: {
@@ -15,24 +16,31 @@ export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, comp
   const [status, setStatus] = useState('');
   const [date, setDate] = useState('');
   const [reason, setReason] = useState('');
+  const [reasonType, setReasonType] = useState('other');
+  const autoReplenishment = ruleId === 'R02' && status === 'irrelevant' && reasonType === 'budget_auto_replenishment';
   const [comment, setComment] = useState('');
   const cache = useQueryClient();
-  const save = useMutation({ mutationFn: () => saveSnapshotDecision(campaignId, runId, evaluationIds, ruleId, status, date || null, reason || null, comment || null),
+  const save = useMutation({ mutationFn: () => saveSnapshotDecision(campaignId, runId, evaluationIds, ruleId, status, date || null,
+    autoReplenishment ? 'Включено автопополнение' : reason || null, comment || null, autoReplenishment ? 'budget_auto_replenishment' : null),
     onSuccess: async () => { setStatus(''); await Promise.all([
-      cache.invalidateQueries({ queryKey: ['wb-cluster-recommendations'] }), cache.invalidateQueries({ queryKey: ['wb-recommendation-summary'] }), cache.invalidateQueries({ queryKey: ['wb-results'] })
+      cache.invalidateQueries({ queryKey: ['wb-cluster-recommendations'] }), cache.invalidateQueries({ queryKey: ['wb-recommendation-summary'] }), cache.invalidateQueries({ queryKey: ['wb-results'] }),
+      cache.invalidateQueries({ queryKey: ['wb-campaign-norms', campaignId] }), cache.invalidateQueries({ queryKey: ['wb-campaign-norm-list'] })
     ]); } });
-  const invalid = status === 'snoozed' && (!date || date <= moscowToday()) || status === 'irrelevant' && !reason.trim();
+  const invalid = status === 'snoozed' && (!date || date <= moscowToday()) || status === 'irrelevant' && !autoReplenishment && !reason.trim();
   return <>
     <Stack direction="row" gap={1} useFlexGap flexWrap="wrap">{Object.entries(labels).map(([key, label]) =>
       <Button key={key} size="small" variant={compact ? key === 'accepted' ? 'contained' : 'outlined' : 'text'}
         sx={compact ? { flex: { xs: 1, md: 'initial' }, px: 1, minWidth: 0, fontSize: 12, whiteSpace: 'nowrap' } : undefined}
-        disabled={!evaluationIds.length} onClick={() => { setStatus(key); save.reset(); }}>{label === 'Отложено' ? 'Отложить' : label}</Button>)}</Stack>
+        disabled={!evaluationIds.length} onClick={() => { setStatus(key); setReasonType('other'); save.reset(); }}>{label === 'Отложено' ? 'Отложить' : label}</Button>)}</Stack>
     <Dialog open={Boolean(status)} onClose={() => !save.isPending && setStatus('')} fullWidth maxWidth="sm">
       <DialogTitle>{labels[status]} · выбрано: {evaluationIds.length}</DialogTitle>
       <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-        <Typography variant="body2">Решение сохранится для этих цифр и действия. Изменения в рекламе WB выполняются вручную.</Typography>
+        <Typography variant="body2">{autoReplenishment ? 'Рекомендации о пополнении бюджета этой кампании будут скрыты. Вернуть их можно в разделе «Нормы».' : 'Решение сохранится для этих цифр и действия. Изменения в рекламе WB выполняются вручную.'}</Typography>
         {status === 'snoozed' ? <TextField type="date" label="Отложить до" InputLabelProps={{ shrink: true }} value={date} onChange={e => setDate(e.target.value)} required /> : null}
-        {status === 'irrelevant' ? <TextField label="Причина" value={reason} onChange={e => setReason(e.target.value)} required inputProps={{ maxLength: 1000 }} /> : null}
+        {status === 'irrelevant' && ruleId === 'R02' ? <TextField select label="Причина" value={reasonType} onChange={e => setReasonType(e.target.value)}>
+          <MenuItem value="budget_auto_replenishment">Включено автопополнение</MenuItem><MenuItem value="other">Другая причина</MenuItem>
+        </TextField> : null}
+        {status === 'irrelevant' && !autoReplenishment ? <TextField label={ruleId === 'R02' ? 'Укажите причину' : 'Причина'} value={reason} onChange={e => setReason(e.target.value)} required inputProps={{ maxLength: 1000 }} /> : null}
         <TextField multiline label="Комментарий (необязательно)" value={comment} onChange={e => setComment(e.target.value)} inputProps={{ maxLength: 2000 }} />
         {save.isError ? <Alert severity="error">Не удалось сохранить решение. Проверьте данные и повторите.</Alert> : null}
       </Stack></DialogContent>
@@ -43,6 +51,8 @@ export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, comp
 
 export function ClusterRecommendationCard({ card, runId, showDecisionButtons = true }: { card: RecommendationCard; runId: string | null; showDecisionButtons?: boolean }) {
   const p = card.presentation;
+  const money = recommendationMoney(card);
+  const limitation = recommendationLimitation(card);
   const details = p?.details;
   const titles: Record<string, string> = { R01: 'Реклама и остаток товара', R02: 'Бюджета кампании осталось меньше дня', R03: 'Расход без заказанных единиц', R06: 'ДРР кластера выше нормы', R07: 'ДРР товара при единой ставке выше нормы' };
   const sources: Record<string, string> = { stocks_fbw: 'Остатки FBW/FBO', stocks_fbs: 'Остатки FBS', demand: 'Заказы по всем каналам', advertising: 'Состав кампании и ставки', budgets: 'Бюджет кампании', balance: 'Общий баланс' };
@@ -77,6 +87,8 @@ export function ClusterRecommendationCard({ card, runId, showDecisionButtons = t
     <Typography variant="body2">{card.rule.ruleId === 'R03' ? `Порог расхода ${formatMoney(card.rule.threshold ?? 0)}` : `Оценочный ДРР ${number(card.economy.drr == null ? null : card.economy.drr * 100)}% · сценарный диапазон ${number(card.economy.drrMin == null ? null : card.economy.drrMin * 100)} — ${number(card.economy.drrMax == null ? null : card.economy.drrMax * 100)}% · с одной дополнительной единицей ${number(card.economy.drrPlusOne == null ? null : card.economy.drrPlusOne * 100)}%`}</Typography>
     </>}
     <Typography fontWeight={700}>{p?.primary.label ?? card.rule.explanation}</Typography>
+    {money ? <Tooltip title={money.explanation}><Typography variant="body2" fontWeight={700}>{card.preliminary ? 'Предварительно · ' : ''}{money.text}</Typography></Tooltip> : null}
+    {limitation ? <Typography variant="body2" color="text.secondary">{limitation}</Typography> : null}
     {p?.alternatives.map(a => <Typography key={a.kind} variant="body2">или {a.label.toLocaleLowerCase('ru-RU')}</Typography>)}
     {p?.warning ? <Typography variant="body2">{p.warning}</Typography> : null}
     {p?.restrictions.map(r => <Typography key={r.code} variant="body2" color="text.secondary">{r.label}</Typography>)}

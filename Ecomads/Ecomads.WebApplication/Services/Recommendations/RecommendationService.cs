@@ -19,7 +19,8 @@ public sealed record ClusterEvaluation(Guid EvaluationId, RecommendationSubject 
     RecommendationEconomy Economy, IReadOnlyList<RuleEvaluation> Rules, RecommendationPresentation? Presentation = null);
 public sealed record RecommendationCard(Guid EvaluationId, RecommendationSubject Subject,
     RuleEvaluation Rule, RecommendationFacts Facts, RecommendationNorm Norm, RecommendationEconomy Economy,
-    bool Preliminary, RecommendationPresentation? Presentation = null, RecommendationDecisionState? Decision = null);
+    bool Preliminary, RecommendationPresentation? Presentation = null, RecommendationDecisionState? Decision = null,
+    RecommendationRankingInfo? Ranking = null);
 public sealed record RecommendationCoverageSummary(int Enabled, int Evaluated, int Triggered, int Skipped);
 public sealed record RecommendationResponse(bool Enabled, bool IsWbConnected, Guid? RunId, int SchemaVersion,
     RecommendationWindow Window, DateTime? CalculatedAtUtc, string Status, string Message,
@@ -198,19 +199,21 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                     ? basis.Sum(x => x.OrderedProducts!.Value) : null;
                 var control = AdvertisingSettingsPayload.Control(advertising, group.Key.WbNomenclatureId, group.Key.ClusterName, now);
                 var crWindow = new RecommendationWindow(window.EndDate.AddDays(-29), window.EndDate);
+                // A conversion sample needs 100 verified clicks, not a row/check for every
+                // calendar day. Missing days contribute neither clicks nor ordered units.
                 var crRows = batch.Articles.Where(x => x.CampaignId == campaignId && x.NomenclatureId == group.Key.Id &&
-                    DateOnly.FromDateTime(x.Date) >= crWindow.StartDate && DateOnly.FromDateTime(x.Date) <= crWindow.EndDate).ToArray();
-                var crComplete = Enumerable.Range(0, 30).All(i =>
+                    DateOnly.FromDateTime(x.Date) >= crWindow.StartDate && DateOnly.FromDateTime(x.Date) <= crWindow.EndDate &&
+                    x.RecommendationFieldsVerified == true && x.OrderedProducts is >= 0 && x.Clicks >= 0).Where(x =>
                 {
-                    var day = crWindow.StartDate.AddDays(i);
+                    var day = DateOnly.FromDateTime(x.Date);
                     return batch.Checks.Any(x => x.CampaignId == campaignId && x.Date == day &&
                         x.Result is "data" or "zero" &&
                         !(x.LastAttemptResult == "no_data" && x.LastAttemptAtUtc >= x.CheckedAtUtc)) &&
                         SourceConfirmed("fullstats", campaignId.ToString(), day, day) &&
                         SourceConfirmed("fullstats", $"{campaignId}:{group.Key.Id}", day, day);
-                }) && crRows.All(x => x.RecommendationFieldsVerified == true && x.OrderedProducts is >= 0 && x.Clicks >= 0);
+                }).ToArray();
                 var clickEvidence = RecommendationClickEvidence.Calculate(crWindow,
-                    crRows.Sum(x => (long)x.Clicks), crRows.Sum(x => (long)(x.OrderedProducts ?? 0)), crComplete, facts.Clicks);
+                    crRows.Sum(x => (long)x.Clicks), crRows.Sum(x => (long)x.OrderedProducts!.Value), true, facts.Clicks);
                 var presentation = RecommendationActions.Select(rules.FirstOrDefault(x => x.Status == "triggered") ?? rules[0],
                     facts, norm, quality, economy, control, articleUnits, launch, window, today, clickEvidence);
                 rules = rules.Select(r => r.Status == "triggered" ? r with { ActionKind = presentation.Primary.Kind } : r).ToArray();
@@ -267,7 +270,7 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             // Hash includes coverage/empty results too, avoiding stale "no data" snapshots after imports.
             var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
             {
-                sellerId, campaignId, window, engineVersion = 6,
+                sellerId, campaignId, window, engineVersion = 7,
                 settings.PriceScenario, settings.NoUnitsSpendFloor, settings.HighDrrMinimumUnits,
                 settings.Rule01Enabled, settings.Rule03Enabled, settings.Rule06Enabled, settings.SourcesComparable,
                 checks = checks.Select(x => new { x.Date, x.Result, x.Spend }), intervals,
@@ -282,8 +285,7 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             var cards = evaluations.SelectMany(x => x.Rules.Where(rule => rule.Status == "triggered")
                 .Select(rule => new RecommendationCard(x.EvaluationId, x.Subject, rule, x.Facts, x.Norm, x.Economy,
                       window.EndDate > today.AddDays(-2) || !x.Quality.Complete || (x.Subject.Scope == "cluster" && x.Presentation?.Control?.Status != "ready"), x.Presentation)))
-                .OrderBy(x => x.Rule.Group).ThenBy(x => x.Presentation?.Priority ?? 4).ThenByDescending(x => x.Presentation?.WeeklySpend ?? 0)
-                .ThenBy(x => x.Subject.NomenclatureId, StringComparer.Ordinal).ThenBy(x => x.Subject.ClusterName, StringComparer.Ordinal).ToArray();
+                .ToArray();
             var allRules = evaluations.SelectMany(x => x.Rules).ToArray();
             var coverage = new RecommendationCoverageSummary(allRules.Count(x => x.Enabled),
                 allRules.Count(x => x.Status is "triggered" or "not_triggered"), cards.Length,
@@ -327,33 +329,44 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             }
             logger.LogInformation("Recommendations {RunId}: evaluated={Evaluated}, triggered={Triggered}, skipped={Skipped}",
                 runId, coverage.Evaluated, coverage.Triggered, coverage.Skipped);
-            return response;
+            return await WithDecisionsAsync(response, ct);
         });
     }
 
-    public async Task<RecommendationResponse?> SnapshotAsync(Guid sellerId, Guid campaignId, Guid runId, CancellationToken ct)
+    public async Task<RecommendationResponse?> SnapshotAsync(Guid sellerId, Guid campaignId, Guid runId, CancellationToken ct,
+        bool applyPresentation = true)
     {
         var run = await db.WbRecommendationRuns.AsNoTracking().Where(x => x.Id == runId && x.SellerId == sellerId &&
             x.CampaignId == campaignId && db.Campaigns.Any(c => c.Id == x.CampaignId && c.Store.SellerId == sellerId))
             .SingleOrDefaultAsync(ct);
-        return run == null || !options.Value.Enabled ? null : await WithDecisionsAsync(JsonSerializer.Deserialize<RecommendationResponse>(run.SnapshotJson, Json)!, ct);
+        if (run == null || !options.Value.Enabled) return null;
+        var evidence = JsonSerializer.Deserialize<RecommendationResponse>(run.SnapshotJson, Json)!;
+        return applyPresentation ? await WithDecisionsAsync(evidence, ct) : evidence;
     }
 
     private async Task<RecommendationResponse> WithDecisionsAsync(RecommendationResponse report, CancellationToken ct)
     {
         var decisions = await db.WbSnapshotDecisions.AsNoTracking().Where(x => x.RunId == report.RunId).ToListAsync(ct);
-        return ApplyDecisions(report, decisions, WbSyncPlanner.Today(Now));
+        var autoReplenishment = report.CampaignId.HasValue && await db.WbCampaignNorms.AsNoTracking()
+            .AnyAsync(x => x.CampaignId == report.CampaignId && x.BudgetAutoReplenishmentEnabled, ct);
+        return RecommendationRanking.Apply(ApplyDecisions(report, decisions, WbSyncPlanner.Today(Now), autoReplenishment));
     }
 
     public static RecommendationResponse ApplyDecisions(RecommendationResponse report,
-        IReadOnlyList<WbSnapshotDecision> decisions, DateOnly today)
+        IReadOnlyList<WbSnapshotDecision> decisions, DateOnly today, bool autoReplenishment = false)
     {
         var cards = report.Cards.Select(card =>
         {
-            var d = decisions.Where(x => x.RunId == report.RunId && x.EvaluationId == card.EvaluationId && x.RuleId == card.Rule.RuleId).OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).FirstOrDefault();
+            var d = decisions.Where(x => x.RunId == report.RunId && x.EvaluationId == card.EvaluationId && x.RuleId == card.Rule.RuleId &&
+                (autoReplenishment || x.ReasonCode != CampaignRecommendationSettings.AutoReplenishmentReason))
+                .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).FirstOrDefault();
             return card with { Decision = d == null ? null : new(d.Status, d.SnoozeUntil, d.Reason, d.Comment, d.CreatedAtUtc) };
-        }).Where(card => card.Decision?.Status != "irrelevant" &&
+        }).Where(card => !(autoReplenishment && card.Rule.RuleId == "R02") && card.Decision?.Status != "irrelevant" &&
             !(card.Decision?.Status == "snoozed" && card.Decision.SnoozeUntil > today)).ToArray();
-        return report with { Cards = cards, Packages = RecommendationActions.Packages(cards) };
+        var suppressed = autoReplenishment && report.Cards.Any(c => c.Rule.RuleId == "R02");
+        return report with { Cards = cards, Packages = RecommendationActions.Packages(cards),
+            Coverage = report.Coverage with { Triggered = cards.Length },
+            Status = suppressed && cards.Length == 0 ? "budget_auto_replenishment" : report.Status,
+            Message = suppressed && cards.Length == 0 ? "Рекомендация о бюджете скрыта: в «Нормах» отмечено автопополнение. Остальные проверки доступны в кампании." : report.Message };
     }
 }
