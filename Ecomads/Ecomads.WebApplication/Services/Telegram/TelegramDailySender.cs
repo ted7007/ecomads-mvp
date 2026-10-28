@@ -23,7 +23,7 @@ public sealed class TelegramDailySender(EcomadsDbContext db, ITelegramBotClient 
         var prepared = await ReadReportAsync(async () =>
         {
             var ready = await reportReadiness.GetAsync(store.Id, yesterday, ct);
-            if (!ready.Collected) return (Readiness: ready, Message: (string?)null);
+            if (!ready.Collected) return (Readiness: ready, Message: (string?)null, Chart: (byte[]?)null);
             var day = DateTime.SpecifyKind(yesterday.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
             var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == store.Id &&
                 ready.ConfirmedCampaignIds.Contains(x.Id))
@@ -32,7 +32,7 @@ public sealed class TelegramDailySender(EcomadsDbContext db, ITelegramBotClient 
             var campaignIds = campaigns.Select(x => x.Id).ToArray();
             var stats = await db.CampaignStatistics.AsNoTracking()
                 .Where(x => campaignIds.Contains(x.CampaignId) && x.Date == day)
-                .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders })
+                .Select(x => new { x.CampaignId, x.Spend, x.Revenue, x.Orders, x.Clicks, x.Impressions })
                 .ToListAsync(ct);
 
             var campaignTargets = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
@@ -53,20 +53,48 @@ public sealed class TelegramDailySender(EcomadsDbContext db, ITelegramBotClient 
             decimal? storeOrders = ready.Sources.Any(x => x.Kind == "orders" && x.Ready) ?
                 await db.WbStoreDailyOrders.Where(x => x.StoreId == store.Id && x.Date == yesterday)
                     .Select(x => (decimal?)x.OrderSum).SingleOrDefaultAsync(ct) : null;
+            // Comparison with the previous day only where both days are fully confirmed; otherwise it is left out.
+            var previousDate = yesterday.AddDays(-1);
+            var previousReady = await reportReadiness.GetAsync(store.Id, previousDate, ct);
+            decimal? previousStoreSpend = null, previousStoreOrders = null, previousAdSpend = null, previousAdRevenue = null;
+            if (previousReady.Collected)
+            {
+                if (SourceReady(ready, "expenses") && SourceReady(previousReady, "expenses"))
+                    previousStoreSpend = await db.WbStoreDailySpends.Where(x => x.StoreId == store.Id && x.Date == previousDate)
+                        .Select(x => (decimal?)x.Spend).SingleOrDefaultAsync(ct);
+                if (SourceReady(ready, "orders") && SourceReady(previousReady, "orders"))
+                    previousStoreOrders = await db.WbStoreDailyOrders.Where(x => x.StoreId == store.Id && x.Date == previousDate)
+                        .Select(x => (decimal?)x.OrderSum).SingleOrDefaultAsync(ct);
+                if (ready.Ready && previousReady.Ready)
+                {
+                    var previousDay = DateTime.SpecifyKind(previousDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+                    var previousStats = await db.CampaignStatistics.AsNoTracking()
+                        .Where(x => campaignIds.Contains(x.CampaignId) && x.Date == previousDay)
+                        .Select(x => new { x.Spend, x.Revenue }).ToListAsync(ct);
+                    previousAdSpend = previousStats.Sum(x => (decimal)x.Spend);
+                    previousAdRevenue = previousStats.Sum(x => (decimal)x.Revenue);
+                }
+            }
             var checkedAt = ready.Sources.Where(x => x.CheckedAtUtc.HasValue).Min(x => x.CheckedAtUtc);
-            var text = TelegramSummaryFormatter.Format(new TelegramSummary(store.Name, yesterday,
+            var text = TelegramSummaryFormatter.FormatHtml(new TelegramSummary(store.Name, yesterday,
                 totalSpend, totalRevenue, stats.Sum(x => (long)x.Orders),
                 rows.Select(x => new TelegramSummaryCampaign(x.Name, x.Spend, x.Orders, x.Drr)).ToArray(),
                 MoscowText(checkedAt), dashboardUrl,
                 MissingCampaignNames: ready.MissingCampaigns.Select(x => $"{x.Name} (ID {x.WbCampaignId})").ToArray(),
                 SourceWarnings: ready.Sources.Where(x => !x.Ready && x.Kind != "fullstats")
                     .Select(x => x.Reason ?? "Данные источника не подтверждены.").ToArray(),
-                StoreSpend: storeSpend, StoreOrderSum: storeOrders));
+                StoreSpend: storeSpend, StoreOrderSum: storeOrders,
+                TotalClicks: stats.Sum(x => (long)x.Clicks), TotalImpressions: stats.Sum(x => (long)x.Impressions),
+                Previous: new TelegramPrevious(previousStoreSpend, previousStoreOrders, previousAdSpend, previousAdRevenue)));
 
-            return (Readiness: ready, Message: (string?)text);
+            byte[]? chart = null;
+            if (SourceReady(ready, "expenses") && SourceReady(ready, "orders"))
+                chart = await BuildChartAsync(store.Id, yesterday, ct);
+            return (Readiness: ready, Message: (string?)text, Chart: chart);
         }, ct);
         var readiness = prepared.Readiness;
         var message = prepared.Message;
+        var chartPng = prepared.Chart;
         if (message == null) return new TelegramDailyResult(yesterday, false, readiness, 0, 0, 0, 0);
         var sent = 0;
         var skipped = 0;
@@ -116,9 +144,15 @@ public sealed class TelegramDailySender(EcomadsDbContext db, ITelegramBotClient 
                 await db.SaveChangesAsync(ct);
                 try
                 {
-                    await bot.SendMessageAsync(chat.ChatId, message, ct);
+                    await bot.SendHtmlAsync(chat.ChatId, message, ct);
                     delivery.Status = "sent";
                     sent++;
+                    if (chartPng != null)
+                    {
+                        // The picture is a bonus: the summary is already delivered, so a failure here changes nothing.
+                        try { await bot.SendPhotoAsync(chat.ChatId, chartPng, TelegramChartRenderer.Caption, ct); }
+                        catch (Exception) when (!ct.IsCancellationRequested) { }
+                    }
                 }
                 catch (TelegramApiException error)
                 {
@@ -144,6 +178,29 @@ public sealed class TelegramDailySender(EcomadsDbContext db, ITelegramBotClient 
         }
         return new TelegramDailyResult(yesterday, true, readiness, sent, skipped, failed, unknown);
     }
+
+    /// <summary>Spend and DRR (spend / orders) for the 7 days up to the report date and the 7 days before them.</summary>
+    private async Task<byte[]?> BuildChartAsync(Guid storeId, DateOnly last, CancellationToken ct)
+    {
+        var first = last.AddDays(-13);
+        var spends = await db.WbStoreDailySpends.AsNoTracking()
+            .Where(x => x.StoreId == storeId && x.Date >= first && x.Date <= last)
+            .Select(x => new { x.Date, x.Spend }).ToDictionaryAsync(x => x.Date, x => (decimal)x.Spend, ct);
+        var orders = await db.WbStoreDailyOrders.AsNoTracking()
+            .Where(x => x.StoreId == storeId && x.Date >= first && x.Date <= last)
+            .Select(x => new { x.Date, x.OrderSum }).ToDictionaryAsync(x => x.Date, x => (decimal)x.OrderSum, ct);
+        decimal? Spend(DateOnly d) => spends.TryGetValue(d, out var v) ? v : null;
+        decimal? Drr(DateOnly d) => spends.TryGetValue(d, out var s) && orders.TryGetValue(d, out var o) && o > 0 ? s * 100m / o : null;
+        var days = Enumerable.Range(0, 7).Select(i => last.AddDays(i - 6)).ToList();
+        var before = days.Select(d => d.AddDays(-7)).ToList();
+        var current = days.Select(Spend).ToList();
+        if (current.Count(x => x.HasValue) < 2) return null;
+        return TelegramChartRenderer.Render(days, current, days.Select(Drr).ToList(),
+            before.Select(Spend).ToList(), before.Select(Drr).ToList());
+    }
+
+    private static bool SourceReady(WbReportReadiness readiness, string kind) =>
+        readiness.Sources.Any(x => x.Kind == kind && x.Ready);
 
     private Task<T> ReadReportAsync<T>(Func<Task<T>> prepare, CancellationToken ct) =>
         db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>

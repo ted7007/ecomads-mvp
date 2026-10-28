@@ -101,9 +101,16 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
             new("Демо: автоматическая кампания с очень длинным названием для проверки переноса", 8300m, 12, 36.8m),
             new("Демо: без выручки", 1200m, 0, null)
         };
-        var message = TelegramSummaryFormatter.Format(new TelegramSummary("Демо-кабинет", day,
+        var message = TelegramSummaryFormatter.FormatHtml(new TelegramSummary("Демо-кабинет", day,
             demo.Sum(x => x.Spend), 87650m, demo.Sum(x => x.Orders), demo,
             MoscowText(DateTime.UtcNow), DashboardUrl(day), IsTest: true));
+
+        var demoDays = Enumerable.Range(0, 7).Select(i => day.AddDays(i - 6)).ToList();
+        decimal?[] demoSpend = [6100, 6400, 5900, 6800, 7300, 7700, 8900];
+        decimal?[] demoDrr = [7.4m, 5.9m, 6.9m, 7.6m, 5.5m, 6.6m, 8.4m];
+        decimal?[] demoPrevSpend = [6500, 6000, 4400, 5000, 6300, 7100, 6700];
+        decimal?[] demoPrevDrr = [6.2m, 6.0m, 7.2m, 7.5m, 4.9m, 6.2m, 7.2m];
+        var demoChart = TelegramChartRenderer.Render(demoDays, demoSpend, demoDrr, demoPrevSpend, demoPrevDrr);
 
         var sent = 0;
         var failed = 0;
@@ -111,8 +118,13 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         {
             try
             {
-                await bot.SendMessageAsync(chat.ChatId, message, cancellationToken);
+                await bot.SendHtmlAsync(chat.ChatId, message, cancellationToken);
                 sent++;
+                if (demoChart != null)
+                {
+                    try { await bot.SendPhotoAsync(chat.ChatId, demoChart, "Демо-график. " + TelegramChartRenderer.Caption, cancellationToken); }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+                }
             }
             catch (TelegramApiException error)
             {
@@ -198,7 +210,7 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         {
             try
             {
-                await bot.SendMessageAsync(chat.ChatId, message, cancellationToken);
+                await bot.SendHtmlAsync(chat.ChatId, message, cancellationToken);
                 sent++;
             }
             catch (TelegramApiException error)
@@ -266,7 +278,7 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         var campaignIds = campaigns.Select(x => x.Id).ToArray();
         var stats = await db.CampaignStatistics.AsNoTracking()
             .Where(x => campaignIds.Contains(x.CampaignId) && x.Date >= fromDay && x.Date <= toDay)
-            .Select(x => new { x.CampaignId, x.Date, x.Spend, x.Revenue, x.Orders })
+            .Select(x => new { x.CampaignId, x.Date, x.Spend, x.Revenue, x.Orders, x.Clicks, x.Impressions })
             .ToListAsync(cancellationToken);
         stats = stats.Where(x => confirmedDays.Contains((x.CampaignId, DateOnly.FromDateTime(x.Date)))).ToList();
         var names = await db.WbCampaignNorms.AsNoTracking().Where(x => campaignIds.Contains(x.CampaignId))
@@ -285,12 +297,13 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
         var orderRows = ordersReady ? await db.WbStoreDailyOrders.AsNoTracking().Where(x => x.StoreId == store.Id && x.Date >= from && x.Date <= to)
             .Select(x => x.OrderSum).ToArrayAsync(cancellationToken) : [];
         var days = to.DayNumber - from.DayNumber + 1;
-        return TelegramSummaryFormatter.Format(new TelegramSummary(
+        return TelegramSummaryFormatter.FormatHtml(new TelegramSummary(
             store.Name, from, rows.Sum(x => x.Spend), stats.Sum(x => (decimal)x.Revenue), stats.Sum(x => (long)x.Orders),
             rows, updatedAtText, DashboardUrl(from, to), MissingCampaignNames: missingNames,
             ReportEndDate: to, DashboardLinkLabel: "Открыть сводку за этот период", SourceWarnings: sourceWarnings.ToArray(),
             StoreSpend: expenseRows.Length == days ? expenseRows.Sum() : null,
-            StoreOrderSum: orderRows.Length == days ? orderRows.Sum() : null));
+            StoreOrderSum: orderRows.Length == days ? orderRows.Sum() : null,
+            TotalClicks: stats.Sum(x => (long)x.Clicks), TotalImpressions: stats.Sum(x => (long)x.Impressions)));
     }
 
     private static string? MoscowText(DateTime? utc) => utc.HasValue

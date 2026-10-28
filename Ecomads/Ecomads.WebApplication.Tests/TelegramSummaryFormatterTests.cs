@@ -105,4 +105,34 @@ public sealed class TelegramSummaryFormatterTests
         Assert.Contains("Рекламная сводка за 12.10.2026 – 14.10.2026, МСК", text);
         Assert.Contains("Открыть сводку за этот период: ", text);
     }
+
+    [Fact]
+    public void HtmlSummaryIsBoldEscapedAndStripsToTheSameFacts()
+    {
+        var summary = Sample([new("A&B <i>x</i>", 3900m, 7, 21m)]) with
+        {
+            StoreSpend = 5000m, StoreOrderSum = 50000m, TotalClicks = 16, TotalImpressions = 1000,
+            Previous = new TelegramPrevious(4000m, 40000m, 3000m, 15000m)
+        };
+
+        var html = TelegramSummaryFormatter.FormatHtml(summary);
+        var plain = TelegramHtml.ToPlain(html);
+
+        Assert.Contains("<b>3\u00A0900,00 ₽</b>", html);
+        Assert.Contains("A&amp;B &lt;i&gt;x&lt;/i&gt;", html);
+        Assert.DoesNotContain("<i>", html);
+        Assert.Contains("Общий ДРР: 10,0%", plain);
+        Assert.Contains("CTR: 1,6%", plain);
+        Assert.Contains("▲ +30,0% к пред. дню", plain);
+        Assert.Contains("1. A&B <i>x</i>: 3\u00A0900,00 ₽ · 7 заказов · ДРР 21,0%", plain);
+        Assert.True(html.Length <= TelegramSummaryFormatter.MaxMessageLength);
+    }
+
+    [Fact]
+    public void HtmlSummaryOmitsComparisonWithoutPreviousDay()
+    {
+        var text = TelegramHtml.ToPlain(TelegramSummaryFormatter.FormatHtml(Sample([new("Пледы", 100m, 1, 10m)])));
+
+        Assert.DoesNotContain("к пред. дню", text);
+    }
 }
