@@ -28,7 +28,7 @@ public sealed class TelegramSummaryTests(PostgresFixture postgres)
         await db.SaveChangesAsync();
 
         var bot = new FakeBot();
-        var controller = new TelegramController(db, bot, new WbReportReadinessService(db)) { ControllerContext = new ControllerContext
+        var controller = new TelegramController(db, bot, new WbReportReadinessService(db), new Ecomads.WebApplication.Services.Telegram.TelegramDailySender(db, bot, new WbReportReadinessService(db))) { ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, seller.Id.ToString())], "test")) }
