@@ -190,12 +190,15 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
                 var dayChecked = day.Sources.Where(x => x.CheckedAtUtc.HasValue).Min(x => x.CheckedAtUtc);
                 if (dayChecked.HasValue && (checkedAt == null || dayChecked < checkedAt)) checkedAt = dayChecked;
             }
-            if (notCollected.Count > 0) return (Message: (string?)null, NotCollected: notCollected.ToArray(), MissingCount: missing.Count, Partial: true);
+            if (notCollected.Count > 0) return (Message: (string?)null, NotCollected: notCollected.ToArray(), MissingCount: missing.Count, Partial: true, Card: (TelegramCardData?)null);
             var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId && confirmedIds.Contains(x.Id))
                 .ToListAsync(cancellationToken);
             var text = await BuildPeriodMessageAsync(store, campaigns, startDate, endDate, missing.Values.ToArray(),
                 MoscowText(checkedAt), confirmedDays, sourceWarnings.ToArray(), expensesReady, ordersReady, cancellationToken);
-            return (Message: (string?)text, NotCollected: Array.Empty<DateOnly>(), MissingCount: missing.Count, Partial: missing.Count > 0 || sourceWarnings.Count > 0);
+            var periodDays = endDate.DayNumber - startDate.DayNumber + 1;
+            var card = expensesReady && ordersReady && periodDays is >= 2 and <= 14
+                ? await sender.BuildRangeCardAsync(store, endDate, periodDays, "Реклама за период", MoscowText(checkedAt), cancellationToken) : null;
+            return (Message: (string?)text, NotCollected: Array.Empty<DateOnly>(), MissingCount: missing.Count, Partial: missing.Count > 0 || sourceWarnings.Count > 0, Card: card);
         }, cancellationToken);
         var message = prepared.Message;
         if (message == null)
@@ -206,13 +209,20 @@ public sealed class TelegramController(EcomadsDbContext db, ITelegramBotClient b
                 "Дождитесь проверки рекламы, расхода и заказов после окончания дня или выберите более ранний период." });
         }
         // Period summaries are explicit one-off actions: no per-day duplicate protection and no history row.
+        var periodPicture = prepared.Card == null ? null : TelegramCardRenderer.RenderOrFallback(prepared.Card);
+        var periodButtons = TelegramDailySender.SummaryButtons(DashboardUrl(startDate, endDate));
         var sent = 0;
         var failed = 0;
         foreach (var chat in chats)
         {
             try
             {
-                await bot.SendHtmlAsync(chat.ChatId, message, cancellationToken);
+                if (periodPicture != null)
+                {
+                    try { await bot.SendPhotoAsync(chat.ChatId, periodPicture, $"<b>{System.Net.WebUtility.HtmlEncode(prepared.Card!.StoreName)}</b> · реклама за период, {prepared.Card.DateLabel}", cancellationToken); }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+                }
+                await bot.SendMenuAsync(chat.ChatId, message, periodButtons, cancellationToken);
                 sent++;
             }
             catch (TelegramApiException error)

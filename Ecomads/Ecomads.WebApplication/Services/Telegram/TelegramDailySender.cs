@@ -13,7 +13,7 @@ public sealed record TelegramDailyResult(DateOnly ReportDate, bool Collected, Wb
 /// Shared by the manual button and the automatic worker so both follow exactly the same rules.
 /// </summary>
 public sealed record TelegramSeries(IReadOnlyList<DateOnly> Days, IReadOnlyList<decimal?> Spend,
-    IReadOnlyList<decimal?> Drr, IReadOnlyList<decimal?> PreviousDrr);
+    IReadOnlyList<decimal?> Drr, IReadOnlyList<decimal?> PreviousDrr, IReadOnlyList<decimal?> Orders);
 
 public sealed record TelegramPrepared(WbReportReadiness Readiness, string? Html, TelegramCardData? Card);
 
@@ -204,9 +204,9 @@ public sealed class TelegramDailySender(EcomadsDbContext db, ITelegramBotClient 
         }, ct);
 
     /// <summary>Store spend and DRR (spend / orders) for the 7 days up to the report date, plus DRR of the 7 days before.</summary>
-    public async Task<TelegramSeries> LoadSeriesAsync(Guid storeId, DateOnly last, CancellationToken ct)
+    public async Task<TelegramSeries> LoadSeriesAsync(Guid storeId, DateOnly last, CancellationToken ct, int count = 7)
     {
-        var first = last.AddDays(-13);
+        var first = last.AddDays(-(2 * count - 1));
         var spends = await db.WbStoreDailySpends.AsNoTracking()
             .Where(x => x.StoreId == storeId && x.Date >= first && x.Date <= last)
             .Select(x => new { x.Date, x.Spend }).ToDictionaryAsync(x => x.Date, x => (decimal)x.Spend, ct);
@@ -215,9 +215,26 @@ public sealed class TelegramDailySender(EcomadsDbContext db, ITelegramBotClient 
             .Select(x => new { x.Date, x.OrderSum }).ToDictionaryAsync(x => x.Date, x => (decimal)x.OrderSum, ct);
         decimal? Spend(DateOnly d) => spends.TryGetValue(d, out var v) ? v : null;
         decimal? Drr(DateOnly d) => spends.TryGetValue(d, out var s) && orders.TryGetValue(d, out var o) && o > 0 ? s * 100m / o : null;
-        var days = Enumerable.Range(0, 7).Select(i => last.AddDays(i - 6)).ToList();
+        decimal? Order(DateOnly d) => orders.TryGetValue(d, out var v) ? v : null;
+        var days = Enumerable.Range(0, count).Select(i => last.AddDays(i - (count - 1))).ToList();
         return new TelegramSeries(days, days.Select(Spend).ToList(), days.Select(Drr).ToList(),
-            days.Select(d => Drr(d.AddDays(-7))).ToList());
+            days.Select(d => Drr(d.AddDays(-count))).ToList(), days.Select(Order).ToList());
+    }
+
+    /// <summary>Card for a run of days ending at <paramref name="last"/>. Totals are shown only when every day has data.</summary>
+    public async Task<TelegramCardData?> BuildRangeCardAsync(Store store, DateOnly last, int days, string title,
+        string? updatedAtText, CancellationToken ct)
+    {
+        var series = await LoadSeriesAsync(store.Id, last, ct, days);
+        if (series.Spend.Count(x => x.HasValue) < 2) return null;
+        var whole = series.Spend.All(x => x.HasValue) && series.Orders.All(x => x.HasValue);
+        var spend = whole ? series.Spend.Sum(x => x!.Value) : (decimal?)null;
+        var orderSum = whole ? series.Orders.Sum(x => x!.Value) : (decimal?)null;
+        var drr = spend.HasValue && orderSum > 0 ? spend / orderSum * 100m : null;
+        var first = series.Days[0];
+        var label = first.Month == last.Month ? $"{first.Day}–{RussianDate(last)}" : $"{RussianDate(first)} – {RussianDate(last)}";
+        return new TelegramCardData(store.Name, title, label, updatedAtText, spend, null, orderSum, null, drr, null, null,
+            series.Days, series.Spend, series.Drr, series.PreviousDrr, []);
     }
 
     private static decimal? Percent(decimal? current, decimal? previous) =>
