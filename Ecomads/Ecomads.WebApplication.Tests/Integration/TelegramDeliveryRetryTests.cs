@@ -84,7 +84,7 @@ public sealed class TelegramDeliveryRetryTests(PostgresFixture postgres)
 
     private static TelegramController CreateController(EcomadsDbContext db, FlakyBot bot, Guid sellerId)
     {
-        var controller = new TelegramController(db, bot, new Ecomads.WebApplication.Services.Wb.WbReportReadinessService(db)) { ControllerContext = new ControllerContext
+        var controller = new TelegramController(db, bot, new Ecomads.WebApplication.Services.Wb.WbReportReadinessService(db), new Ecomads.WebApplication.Services.Telegram.TelegramDailySender(db, bot, new Ecomads.WebApplication.Services.Wb.WbReportReadinessService(db))) { ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, sellerId.ToString())], "test")) }

@@ -10,6 +10,8 @@ namespace Ecomads.WebApplication.Services.Telegram;
 public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegramBotClient bot,
     ILogger<TelegramUpdatesWorker> logger) : BackgroundService
 {
+    private bool commandsRegistered;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -41,12 +43,24 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
-        var state = await db.TelegramBotStates.SingleOrDefaultAsync(x => x.Id == 1, cancellationToken);
+        // Each bot has its own update counter, so after switching to another bot the new one starts from zero
+        // instead of inheriting the old bot's position (which would make it ignore new messages).
+        var stateKey = bot.BotId is { } botId ? (int)(botId % 1_000_000_000) + 1000 : 1;
+        var state = await db.TelegramBotStates.SingleOrDefaultAsync(x => x.Id == stateKey, cancellationToken);
         if (state == null)
         {
-            state = new TelegramBotState();
+            state = new TelegramBotState { Id = stateKey };
             db.TelegramBotStates.Add(state);
             await db.SaveChangesAsync(cancellationToken);
+        }
+        var menu = scope.ServiceProvider.GetRequiredService<TelegramBotMenu>();
+        if (!commandsRegistered)
+        {
+            try { await bot.SetCommandsAsync(cancellationToken); commandsRegistered = true; }
+            catch (Exception error) when (error is HttpRequestException or OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                logger.LogWarning("Telegram command list was not updated: {ErrorType}", error.GetType().Name);
+            }
         }
         var updates = await bot.GetUpdatesAsync(state.NextUpdateId, cancellationToken);
         foreach (var update in updates.OrderBy(x => x.UpdateId))
@@ -54,7 +68,7 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
             if (update.UpdateId < state.NextUpdateId) continue;
             try
             {
-                await HandleAsync(db, update, cancellationToken);
+                await HandleAsync(db, menu, update, cancellationToken);
             }
             catch (TelegramApiException error)
             {
@@ -85,10 +99,15 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task HandleAsync(EcomadsDbContext db, TelegramIncoming update, CancellationToken cancellationToken)
+    private async Task HandleAsync(EcomadsDbContext db, TelegramBotMenu menu, TelegramIncoming update, CancellationToken cancellationToken)
     {
         if (!update.IsPrivate || update.ChatId == 0) return;
         var text = update.Text.Trim();
+        if (update.CallbackId != null || !text.StartsWith("/start", StringComparison.OrdinalIgnoreCase) && !text.Equals("/stop", StringComparison.OrdinalIgnoreCase) &&
+            !text.Equals("/help", StringComparison.OrdinalIgnoreCase))
+        {
+            if (await menu.HandleAsync(update, cancellationToken)) return;
+        }
         if (text.StartsWith("/start ", StringComparison.OrdinalIgnoreCase))
         {
             var code = text[7..].Trim();
@@ -117,7 +136,7 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
             chat.IsActive = true;
             link.UsedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(cancellationToken);
-            await bot.SendMessageAsync(update.ChatId, "Чат привязан к EcomAds. Сводка приходит только по кнопке в приложении. /stop — отключить чат.", cancellationToken);
+            await bot.SendMessageAsync(update.ChatId, "Чат привязан к EcomAds. Сводка за вчера приходит сама, когда данные загружены. Меню: /menu. Отключить: /stop.", cancellationToken);
             return;
         }
 
@@ -137,7 +156,7 @@ public sealed class TelegramUpdatesWorker(IServiceScopeFactory scopes, ITelegram
             text.Equals("/start", StringComparison.OrdinalIgnoreCase))
         {
             await bot.SendMessageAsync(update.ChatId,
-                "Для привязки откройте раздел «Кабинеты WB и Telegram» в EcomAds и получите персональную ссылку. /stop — отключить чат.", cancellationToken);
+                "Для привязки откройте раздел «Кабинеты WB и Telegram» в EcomAds и получите персональную ссылку. После привязки: /menu — меню, /summary — сводка за вчера, /stop — отключить сообщения.", cancellationToken);
         }
     }
 }
