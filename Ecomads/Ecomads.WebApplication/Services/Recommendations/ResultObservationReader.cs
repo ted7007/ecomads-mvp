@@ -28,8 +28,10 @@ public sealed class ResultObservationReader(EcomadsDbContext db)
                     var p = JsonSerializer.Deserialize<AdvertisingSettingsPayload>(row.PayloadJson, Json);
                     var nm = card.Subject.NomenclatureId;
                     var minus = p?.Minus?.SingleOrDefault(x => x.NomenclatureId == nm);
-                    var bid = p?.Bids?.SingleOrDefault(x => x.NomenclatureId == nm && x.Cluster == card.Subject.ClusterName)?.BidRubles;
-                    parsed = parsed with { Excluded = minus?.Clusters.Contains(card.Subject.ClusterName ?? ""), Bids = bid.HasValue ? [bid.Value] : null };
+                    var bid = p?.Bids?.SingleOrDefault(x => x.NomenclatureId == nm &&
+                        RecommendationLifecycle.NormalizeCluster(x.Cluster) == RecommendationLifecycle.NormalizeCluster(card.Subject.ClusterName))?.BidRubles;
+                    parsed = parsed with { Excluded = minus?.Clusters.Any(x => RecommendationLifecycle.NormalizeCluster(x) ==
+                        RecommendationLifecycle.NormalizeCluster(card.Subject.ClusterName)), Bids = bid.HasValue ? [bid.Value] : null };
                 } catch (Exception e) when (e is JsonException or InvalidOperationException) { parsed = parsed with { State = "invalid_source" }; }
                 result.Add(parsed);
             }

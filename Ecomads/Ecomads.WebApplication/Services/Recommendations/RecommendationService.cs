@@ -270,7 +270,7 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             // Hash includes coverage/empty results too, avoiding stale "no data" snapshots after imports.
             var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
             {
-                sellerId, campaignId, window, engineVersion = 7,
+                sellerId, campaignId, window, engineVersion = 8,
                 settings.PriceScenario, settings.NoUnitsSpendFloor, settings.HighDrrMinimumUnits,
                 settings.Rule01Enabled, settings.Rule03Enabled, settings.Rule06Enabled, settings.SourcesComparable,
                 checks = checks.Select(x => new { x.Date, x.Result, x.Spend }), intervals,
@@ -293,16 +293,16 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             var knownPairs = intervals.SelectMany(x => x.Pairs).Where(x => x.AdvertId.ToString() == campaign.WbCampaignId).Distinct().ToArray();
             var emptyConfirmed = fullComplete && knownPairs.Length > 0 &&
                 knownPairs.All(pair => RecommendationCoverage.Covers(window, pair.AdvertId, pair.NmId, intervals));
-            var status = cards.Length > 0 ? coverage.Skipped > 0 ? "limited" : "preliminary" : raw.Count == 0 ? emptyConfirmed ? "empty" : "not_ready" : coverage.Skipped > 0 ? "limited" :
-                coverage.Evaluated == 0 ? "unavailable" : cards.Length > 0 ? "preliminary" :
-                allRules.Any(x => x.Enabled && x.ReasonCode == "low_sample") ? "low_sample" : "no_deviations";
+            var status = ReportStatus(raw.Count > 0, emptyConfirmed, allRules);
             var message = status switch
             {
                 "empty" => "За фиксированные 14 дней в загруженной статистике нет поисковых кластеров.",
                 "not_ready" => "Данные за фиксированные 14 дней ещё не готовы. Причины ограничений указаны отдельно.",
+                "limited" when raw.Count == 0 => "Поисковых кластеров за выбранный период нет. Часть доступных проверок не выполнена; причины ограничений указаны отдельно.",
                 "limited" => "Часть объектов не прошла проверку данных. Причины указаны отдельно.",
                 "unavailable" => "Включённые правила недоступны для проверки.",
                 "low_sample" => "Для части объектов мало заказанных единиц для проверки высокого ДРР. Порог расхода без результата проверяется отдельно.",
+                "no_deviations" when raw.Count == 0 => "По выполненным проверкам отклонений не найдено. Поисковых кластеров за выбранный период нет; кластерные правила не оценивались.",
                 "no_deviations" => "По проверенным правилам отклонений не найдено. Данные могут уточняться.",
                 _ => "Предварительные диагностические рекомендации. Данные WB могут уточняться."
             };
@@ -333,6 +333,19 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
         });
     }
 
+    // An empty cluster table does not invalidate completed operational checks (for example, the campaign budget).
+    public static string ReportStatus(bool hasClusters, bool emptyConfirmed, IReadOnlyList<RuleEvaluation> rules)
+    {
+        var enabled = rules.Where(r => r.Enabled).ToArray();
+        var evaluated = enabled.Count(r => r.Status is "triggered" or "not_triggered");
+        var skipped = enabled.Any(r => r.Status == "skipped");
+        if (enabled.Any(r => r.Status == "triggered")) return skipped ? "limited" : "preliminary";
+        if (skipped) return hasClusters || evaluated > 0 ? "limited" : "not_ready";
+        if (!hasClusters && emptyConfirmed) return "empty";
+        if (evaluated == 0) return hasClusters ? "unavailable" : "not_ready";
+        return enabled.Any(r => r.ReasonCode == "low_sample") ? "low_sample" : "no_deviations";
+    }
+
     public async Task<RecommendationResponse?> SnapshotAsync(Guid sellerId, Guid campaignId, Guid runId, CancellationToken ct,
         bool applyPresentation = true)
     {
@@ -349,7 +362,16 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
         var decisions = await db.WbSnapshotDecisions.AsNoTracking().Where(x => x.RunId == report.RunId).ToListAsync(ct);
         var autoReplenishment = report.CampaignId.HasValue && await db.WbCampaignNorms.AsNoTracking()
             .AnyAsync(x => x.CampaignId == report.CampaignId && x.BudgetAutoReplenishmentEnabled, ct);
-        return RecommendationRanking.Apply(ApplyDecisions(report, decisions, WbSyncPlanner.Today(Now), autoReplenishment));
+        if (report.CampaignId == null)
+            return RecommendationRanking.Apply(ApplyDecisions(report, decisions, WbSyncPlanner.Today(Now), autoReplenishment));
+        // Attach fallback decisions without filtering: a later decision on another run takes precedence.
+        var decorated = report with { Cards = report.Cards.Select(card => {
+            var decision = decisions.Where(d => d.EvaluationId == card.EvaluationId && d.RuleId == card.Rule.RuleId &&
+                (autoReplenishment || d.ReasonCode != CampaignRecommendationSettings.AutoReplenishmentReason))
+                .OrderByDescending(d => d.CreatedAtUtc).ThenByDescending(d => d.Id).FirstOrDefault();
+            return card with { Decision = decision == null ? null : new(decision.Status, decision.SnoozeUntil, decision.Reason, decision.Comment, decision.CreatedAtUtc) };
+        }).ToArray() };
+        return RecommendationRanking.Apply(await new RecommendationLifecycle(db, clock ?? TimeProvider.System).ApplyAsync(decorated, autoReplenishment, ct));
     }
 
     public static RecommendationResponse ApplyDecisions(RecommendationResponse report,

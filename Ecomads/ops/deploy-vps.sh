@@ -142,6 +142,13 @@ for backup in "${expired_backups[@]}"; do
   rm -f -- "$ROOT/backups/$backup"
 done
 
+# Remove untagged intermediate images left by multi-stage builds. Do not use
+# --all: tagged release images include the version reserved for rollback.
+# Cleanup failure must not turn a healthy deployment into a reported failure.
+if ! docker image prune --force; then
+  echo "Warning: unable to prune dangling Docker images." >&2
+fi
+
 compose ps
 echo "Deployment completed: $new_image"
 echo "URL: https://ecomads.ru"

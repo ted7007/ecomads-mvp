@@ -44,12 +44,15 @@ public sealed class ResultsReportReader(EcomadsDbContext db, TimeProvider clock)
             return decisions.Where(d => shown.Any(x => x.RunId == d.RunId && x.EvaluationId == d.EvaluationId && x.RuleId == d.RuleId))
                 .OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).FirstOrDefault();
         }
+        bool Accepted(WbResultRecommendation rec) => exposures.Where(e => e.RecommendationId == rec.Id).Any(e =>
+            decisions.Any(d => d.Status == "accepted" && d.RunId == e.RunId && d.EvaluationId == e.EvaluationId && d.RuleId == e.RuleId));
+        bool Snoozed(WbResultRecommendation rec) => Decision(rec) is { Status: "snoozed", SnoozeUntil: { } until } && until > today;
         var chosen = recommendations.Where(x => !x.Legacy && Period(x.FirstShownAtUtc)).ToArray();
         var confirmed = measurements.Where(x => x.Status == "confirmed" && x.ConfirmedAtUtc.HasValue && Period(x.ConfirmedAtUtc.Value)).ToArray();
-        var funnel = new ResultFunnel(chosen.Length, chosen.Count(x => Decision(x)?.Status == "accepted"), chosen.Count(x => x.MeasurementId != null),
+        var funnel = new ResultFunnel(chosen.Length, chosen.Count(Accepted), chosen.Count(x => x.MeasurementId != null),
             chosen.Count(x => measurements.Any(m => m.Id == x.MeasurementId && m.Status == "confirmed")),
-            chosen.Count(x => x.MeasurementId != null && Decision(x)?.Status != "accepted"), chosen.Count(x => Decision(x)?.Status == "snoozed"),
-            chosen.Count(x => Decision(x)?.Status == "irrelevant"), chosen.Count(x => Decision(x) == null),
+            chosen.Count(x => x.MeasurementId != null && !Accepted(x)), chosen.Count(Snoozed),
+            chosen.Count(x => Decision(x)?.Status == "irrelevant"), chosen.Count(x => Decision(x) == null || Decision(x)?.Status == "snoozed" && !Snoozed(x)),
             chosen.Where(x => Decision(x)?.Status == "irrelevant").GroupBy(x => Decision(x)!.Reason ?? "Без причины").ToDictionary(g => g.Key, g => g.Count()));
         var allRows = new List<ResultJournalRow>();
         foreach (var group in recommendations.GroupBy(x => x.MeasurementId ?? x.Id))
@@ -65,17 +68,33 @@ public sealed class ResultsReportReader(EcomadsDbContext db, TimeProvider clock)
                 var card = m == null ? JsonSerializer.Deserialize<RecommendationCard>(exposure.CardJson, ResultsService.Json)! :
                     ResultsService.Members(m).Single(x => x.RecommendationId == rec.Id).Card;
                 var d = Decision(rec);
+                if (m == null && d != null)
+                {
+                    var decided = exposures.SingleOrDefault(e => e.RecommendationId == rec.Id && e.RunId == d.RunId && e.EvaluationId == d.EvaluationId && e.RuleId == d.RuleId);
+                    if (decided != null) card = RecommendationLifecycle.Read(decided);
+                }
                 members.Add(new(rec.Id, card.Rule.RuleId, card.Subject.ClusterName ?? card.Subject.NomenclatureName ?? "Вся кампания",
                     card.Presentation?.Primary.Label ?? card.Rule.Explanation, d?.Status, d?.Reason, d?.SnoozeUntil, rec.FirstShownAtUtc, rec.Legacy));
                 if (m != null) continue;
                 status = rec.Legacy ? "historical" : d?.Status is "snoozed" or "irrelevant" ? d.Status : "pending";
                 reason = rec.Legacy ? "История решения: исходные снимки применения отсутствуют" : "Применение ещё не подтверждено";
+                if (!rec.Legacy && d?.Status == "snoozed" && !Snoozed(rec))
+                { status = "pending"; reason = "Срок отсрочки истёк. При сохранении условия рекомендация снова доступна."; }
+                if (!rec.Legacy && (rec.OtherChangeAtUtc != null || rec.ArchivedAtUtc != null))
+                {
+                    status = "not_evaluated";
+                    reason = rec.OtherChangeAtUtc != null ? "Кластер исключён вместо снижения ставки. Денежный эффект не оценивается." :
+                        "Условие рекомендации отсутствовало три подтверждённые ночные проверки подряд. Архив без оценки экономии.";
+                    continue;
+                }
+                if (!rec.Legacy && d?.Status == "accepted" && !ResultsService.Actionable(card))
+                { reason = "Информационная рекомендация: автоматическое подтверждение действия недоступно."; continue; }
                 if (!rec.Legacy && d?.Status == "accepted" && now >= d.CreatedAtUtc.AddDays(3))
                 {
                     var campaign = await db.Campaigns.AsNoTracking().SingleOrDefaultAsync(x => x.Id == rec.CampaignId && stores.Contains(x.StoreId), ct);
                     var current = campaign == null ? null : (await new ResultObservationReader(db).ReadAsync(campaign, card, now.AddDays(-2), ct)).LastOrDefault(x => x.AtUtc <= now);
                     var baseline = rec.BaselineJson == null ? null : JsonSerializer.Deserialize<ResultSetting>(rec.BaselineJson, ResultsService.Json);
-                    if (current?.State == "ready" && current.AtUtc >= now.AddHours(-24) && baseline != null &&
+                    if (current != null && ResultObservationReader.Known(card, current) && current.AtUtc >= now.AddHours(-24) && baseline != null &&
                         !ResultObservationReader.Applied(card, baseline, current)) { status = "not_applied"; reason = "Принято больше трёх дней назад; изменения пока не обнаружены"; }
                     else reason = "Нет свежего подтверждения применения";
                 }

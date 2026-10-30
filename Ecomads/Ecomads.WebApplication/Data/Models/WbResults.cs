@@ -23,6 +23,10 @@ public sealed class WbResultRecommendation
     public Guid? MeasurementId { get; set; }
     public string? BaselineJson { get; set; }
     public bool Legacy { get; set; }
+    public DateOnly? LastConditionDate { get; set; }
+    public int ClearConditionNights { get; set; }
+    public DateTime? ArchivedAtUtc { get; set; }
+    public DateTime? OtherChangeAtUtc { get; set; }
 }
 
 // One immutable card per displayed calculation, rather than rewriting the evidence of a decision.

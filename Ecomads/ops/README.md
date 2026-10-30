@@ -53,6 +53,11 @@ application version. The deployment keeps the five newest source releases and
 the ten newest database backups. The one-time Excel-era dump is
 `/opt/ecomads/backups/ecomads-old-schema-20260929T231538Z.dump`.
 
+After a successful deployment, dangling (untagged and unused) Docker images
+are pruned to remove intermediate build layers. Tagged images, including the
+rollback version, and all data volumes are preserved. A cleanup error is
+reported as a warning without failing a healthy deployment.
+
 Container logs are archived on the VPS under `/opt/ecomads/logs` before each
 deployment or rollback and daily by `ecomads-log-archive.timer`. Daily archives
 cover the previous 48 hours and overlap. Archives are compressed, readable only

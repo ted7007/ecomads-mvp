@@ -1,8 +1,18 @@
 # Local build verification output
-/artifacts/build-check*/
-/artifacts/pilot-blockers/
-/artifacts/ranking-tests/
-/ops/capacity/__pycache__/
+# Deployment bundles, test runs, screenshots and one-off verification scripts.
+/artifacts/*
+
+# These text files are source specifications referenced by the project docs.
+!/artifacts/spec-audit/
+/artifacts/spec-audit/*
+!/artifacts/spec-audit/*.txt
+
+# Temporary source copies, downloaded references and rendered exports.
+/tmp/
+/output/
+**/TestResults/
+**/__pycache__/
+*.pyc
 
 # One-off local workbook analysis
 /.codex-budget-analysis/

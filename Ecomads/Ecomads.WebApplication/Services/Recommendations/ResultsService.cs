@@ -10,14 +10,14 @@ namespace Ecomads.WebApplication.Services.Recommendations;
 
 public sealed record ResultExposureRequest(Guid RunId, Guid EvaluationId, string RuleId);
 
-public sealed class ResultsService(EcomadsDbContext db, TimeProvider clock)
+public sealed class ResultsService(EcomadsDbContext db, TimeProvider clock, ILogger<ResultsService>? logger = null)
 {
     public static readonly JsonSerializerOptions Json = ResultObservationReader.Json;
     public static string Key(RecommendationCard c) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
         $"{c.Subject.CampaignId}:{c.Subject.ArticleId}:{c.Subject.ClusterName}:{c.Rule.RuleId}")));
     public static ResultMember[] Members(WbResultMeasurement m) => JsonSerializer.Deserialize<ResultMember[]>(m.MembersJson, Json) ?? [];
     private static RecommendationCard Card(WbResultExposure e) => JsonSerializer.Deserialize<RecommendationCard>(e.CardJson, Json)!;
-    private static bool Actionable(RecommendationCard c) => c.Presentation?.Primary.Kind is
+    internal static bool Actionable(RecommendationCard c) => c.Presentation?.Primary.Kind is
         "exclude" or "reduce_bid" or "reduce_article_bid" or "reduce_campaign_bid" or "pause_campaign" or "remove_article" or "top_up_budget";
 
     public async Task<bool> RegisterAsync(Guid seller, IReadOnlyList<ResultExposureRequest> requested, CancellationToken ct)
@@ -37,36 +37,34 @@ public sealed class ResultsService(EcomadsDbContext db, TimeProvider clock)
         {
             await LockedAsync(group.Key, async () => {
                 var now = clock.GetUtcNow().UtcDateTime;
+                var lifecycle = new RecommendationLifecycle(db, clock);
+                var histories = new Dictionary<Guid, List<RecommendationLifecycle.History>>();
+                foreach (var campaignId in group.Select(x => x.Run.CampaignId).Distinct())
+                    histories[campaignId] = (await lifecycle.LoadAsync(campaignId, ct)).ToList();
                 foreach (var (run, card) in group)
                 {
                     var key = Key(card);
-                    var rec = await db.WbResultRecommendations.Where(x => x.StoreId == group.Key && x.SubjectKey == key && !x.Legacy)
-                        .OrderByDescending(x => x.FirstShownAtUtc).FirstOrDefaultAsync(ct);
-                    // Reissued advice needs a later analysis window AND a proven return to the pre-action state.
-                    if (rec?.MeasurementId is { } oldId)
-                    {
-                        var old = await db.WbResultMeasurements.FindAsync([oldId], ct);
-                        var campaign = await db.Campaigns.SingleAsync(x => x.Id == run.CampaignId, ct);
-                        var applied = old == null ? null : Members(old).SingleOrDefault(x => x.RecommendationId == rec.Id);
-                        if (applied != null)
-                        {
-                            var shown = await db.WbResultExposures.SingleAsync(x => x.Id == applied.ExposureId, ct);
-                            var previousEnd = await db.WbRecommendationRuns.Where(x => x.Id == shown.RunId).Select(x => x.EndDate).SingleAsync(ct);
-                            var latest = (await new ResultObservationReader(db).ReadAsync(campaign, applied.Card, now.AddDays(-2), ct)).LastOrDefault(x => x.AtUtc <= now);
-                            var reversed = latest != null && ResultObservationReader.Known(applied.Card, latest) &&
-                                (applied.Card.Rule.RuleId == "R02" ? latest.Budget < applied.Applied.Budget : !ResultObservationReader.Preserved(applied, latest));
-                            if (Actionable(card) && old!.Status != "measuring" && run.EndDate > previousEnd && reversed) rec = null;
-                        }
-                    }
+                    var history = RecommendationLifecycle.Find(histories[run.CampaignId], card);
+                    // A retry for the same immutable exposure always belongs to its original occurrence.
+                    var existingExposure = await db.WbResultExposures.AsNoTracking().FirstOrDefaultAsync(e =>
+                        e.RunId == run.Id && e.EvaluationId == card.EvaluationId && e.RuleId == card.Rule.RuleId, ct);
+                    var rec = existingExposure != null
+                        ? await db.WbResultRecommendations.SingleAsync(x => x.Id == existingExposure.RecommendationId, ct)
+                        : history == null || await lifecycle.NewOccurrenceAsync(history, card, run.EndDate, ct, run.CalculatedAtUtc) ? null
+                        : await db.WbResultRecommendations.SingleAsync(x => x.Id == history.Recommendation.Id, ct);
                     if (rec == null) { rec = new() { Id = Guid.NewGuid(), SellerId = seller, StoreId = run.StoreId, CampaignId = run.CampaignId,
                         CampaignName = await db.Campaigns.Where(x => x.Id == run.CampaignId).Select(x => x.Name).SingleAsync(ct),
-                        SubjectKey = key, FirstShownAtUtc = now, LastShownAtUtc = now }; db.WbResultRecommendations.Add(rec); }
+                        SubjectKey = key, FirstShownAtUtc = now, LastShownAtUtc = now }; db.WbResultRecommendations.Add(rec);
+                        logger?.LogInformation("Recommendation occurrence {RecommendationId} registered for campaign {CampaignId}, rule {RuleId}", rec.Id, run.CampaignId, card.Rule.RuleId); }
                     rec.LastShownAtUtc = now;
                     if (!await db.WbResultExposures.AnyAsync(x => x.RecommendationId == rec.Id && x.RunId == run.Id && x.EvaluationId == card.EvaluationId && x.RuleId == card.Rule.RuleId, ct) &&
                         !db.WbResultExposures.Local.Any(x => x.RecommendationId == rec.Id && x.RunId == run.Id && x.EvaluationId == card.EvaluationId && x.RuleId == card.Rule.RuleId))
                         db.WbResultExposures.Add(new() { Id = Guid.NewGuid(), RecommendationId = rec.Id, RunId = run.Id, EvaluationId = card.EvaluationId,
                             RuleId = card.Rule.RuleId, ShownAtUtc = now, CardJson = JsonSerializer.Serialize(card, Json) });
                     await db.SaveChangesAsync(ct);
+                    var shown = await db.WbResultExposures.AsNoTracking().Where(e => e.RecommendationId == rec.Id).ToArrayAsync(ct);
+                    histories[run.CampaignId].RemoveAll(h => h.Recommendation.Id == rec.Id);
+                    histories[run.CampaignId].Add(new(rec, shown, history?.Recommendation.Id == rec.Id ? history.Decisions : []));
                 }
             }, ct);
         }
@@ -81,12 +79,21 @@ public sealed class ResultsService(EcomadsDbContext db, TimeProvider clock)
         var exposures = await db.WbResultExposures.Where(x => recs.Select(r => r.Id).Contains(x.RecommendationId)).OrderBy(x => x.ShownAtUtc).ToArrayAsync(ct);
         var campaigns = await db.Campaigns.AsNoTracking().Where(x => x.StoreId == storeId).ToDictionaryAsync(x => x.Id, ct);
         var measurements = (await db.WbResultMeasurements.Where(x => x.StoreId == storeId).ToArrayAsync(ct)).ToList();
+        var runIds = exposures.Select(x => x.RunId).Distinct().ToArray();
+        var decisions = await db.WbSnapshotDecisions.AsNoTracking().Where(x => runIds.Contains(x.RunId) && x.Status == "accepted").ToArrayAsync(ct);
         var detectedActions = new List<(WbResultRecommendation Rec, WbResultExposure Exposure, RecommendationCard Card, ResultSetting Before, ResultSetting Applied)>();
-        foreach (var rec in recs.Where(x => x.MeasurementId == null))
+        foreach (var rec in recs.Where(x => x.MeasurementId == null && x.OtherChangeAtUtc == null && x.ArchivedAtUtc == null))
         {
             if (!campaigns.TryGetValue(rec.CampaignId, out var campaign)) continue;
             var versions = exposures.Where(x => x.RecommendationId == rec.Id).ToArray();
             if (versions.Length == 0) continue;
+            var accepted = decisions.Where(d => versions.Any(e => e.RunId == d.RunId && e.EvaluationId == d.EvaluationId && e.RuleId == d.RuleId))
+                .OrderByDescending(d => d.CreatedAtUtc).ThenByDescending(d => d.Id).FirstOrDefault();
+            if (accepted != null)
+            {
+                var acceptedVersion = versions.Single(e => e.RunId == accepted.RunId && e.EvaluationId == accepted.EvaluationId && e.RuleId == accepted.RuleId);
+                if (Actionable(Card(acceptedVersion))) versions = [acceptedVersion];
+            }
             var saved = rec.BaselineJson == null ? null : JsonSerializer.Deserialize<ResultSetting>(rec.BaselineJson, Json);
             var possible = versions.Select(Card).Where(c => c.Presentation != null).SelectMany(c =>
                 new[] { c.Presentation!.Primary }.Concat(c.Presentation.Alternatives).Select(a => c with { Presentation = c.Presentation with { Primary = a } }))
@@ -121,7 +128,24 @@ public sealed class ResultsService(EcomadsDbContext db, TimeProvider clock)
                 var first = found.OrderBy(x => x.Applied.AtUtc).ThenBy(x => x.Card.Presentation!.Primary.Kind == Card(x.Exposure).Presentation!.Primary.Kind ? 0 : 1).First();
                 detectedActions.Add((rec, first.Exposure, first.Card, first.Before, first.Applied));
             }
-            else if (latestBaseline != null) rec.BaselineJson = JsonSerializer.Serialize(latestBaseline, Json);
+            else
+            {
+                if (latestBaseline != null) rec.BaselineJson = JsonSerializer.Serialize(latestBaseline, Json);
+                // Exclusion is a different action from lowering a bid; it does not establish monetary savings.
+                foreach (var version in versions.Where(e => Card(e).Presentation?.Primary.Kind == "reduce_bid"))
+                {
+                    var card = Card(version);
+                    var states = await new ResultObservationReader(db).ReadAsync(campaign, card, rec.FirstShownAtUtc.AddDays(-2), ct, now);
+                    var before = states.LastOrDefault(s => s.AtUtc <= version.ShownAtUtc && s.State == "ready" && s.Excluded.HasValue);
+                    var changed = states.FirstOrDefault(s => s.AtUtc > version.ShownAtUtc && s.State == "ready" && s.Excluded == true);
+                    if (before?.Excluded == false && changed != null)
+                    {
+                        rec.OtherChangeAtUtc = changed.AtUtc;
+                        logger?.LogInformation("Recommendation {RecommendationId}: exclusion detected instead of bid reduction at {AtUtc}", rec.Id, changed.AtUtc);
+                        break;
+                    }
+                }
+            }
         }
         // Process by observation time, independent of row/UUID order in PostgreSQL.
         foreach (var found in detectedActions.OrderBy(x => x.Applied.AtUtc).ThenBy(x => x.Rec.Id))
@@ -144,6 +168,7 @@ public sealed class ResultsService(EcomadsDbContext db, TimeProvider clock)
                 var member = new ResultMember(rec.Id, version.Id, card, baseline, current);
                 ongoing.MembersJson = JsonSerializer.Serialize(Members(ongoing).Append(member).ToArray(), Json);
                 rec.MeasurementId = ongoing.Id;
+                logger?.LogInformation("Recommendation {RecommendationId} applied: action {Action}, measurement {MeasurementId}, observation {ObservationId}", rec.Id, card.Presentation!.Primary.Kind, ongoing.Id, current.Id);
         }
         await db.SaveChangesAsync(ct);
         foreach (var m in measurements)
@@ -209,6 +234,9 @@ public sealed class ResultsService(EcomadsDbContext db, TimeProvider clock)
             await action(); await tx.CommitAsync(ct);
         });
     }
+
+    public Task ObserveConditionsAsync(Guid store, RecommendationResponse report, CancellationToken ct) =>
+        LockedAsync(store, () => new RecommendationLifecycle(db, clock, logger).ObserveConditionsAsync(report, ct), ct);
 
     private async Task ImportLegacyAsync(Guid store, CancellationToken ct)
     {

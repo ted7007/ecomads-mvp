@@ -87,7 +87,7 @@ export function DashboardRecommendations({ data, campaigns, filters }: { data: S
         name={names.get(card.subject.campaignId) ?? 'Кампания WB'} to={campaignLink(card.subject.campaignId)} />)}
     </Box> : null}
     {remaining > 0 ? <Typography variant="caption" color="text.secondary">Ещё {remaining} рекомендаций — на экранах кампаний.</Typography> : null}
-    {!visible.length ? <Alert severity={allClear ? 'success' : 'info'}>{allClear ? 'Все кампании в норме. По выполненным проверкам отклонений не найдено.' :
+    {!visible.length ? <Alert severity={allClear ? 'success' : 'info'}>{allClear ? 'По выполненным проверкам отклонений не найдено.' :
       !data.enabled ? 'Рекомендации отключены или нет подключённых кабинетов.' : budgetHidden ? 'Рекомендаций для показа нет. Советы о бюджете скрыты для кампаний с отмеченным автопополнением. Изменить отметку можно в «Нормах».' : 'Рекомендаций пока нет. Данные или проверки могут быть неполными; подробности — на экранах кампаний.'}</Alert> : null}
   </Stack>;
 }

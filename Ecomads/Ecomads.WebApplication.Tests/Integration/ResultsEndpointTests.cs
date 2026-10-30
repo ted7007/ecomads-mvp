@@ -21,7 +21,7 @@ using Xunit;
 namespace Ecomads.WebApplication.Tests.Integration;
 
 [Collection(PostgresCollection.Name)]
-public class ResultsEndpointTests(PostgresFixture postgres)
+public partial class ResultsEndpointTests(PostgresFixture postgres)
 {
     private static readonly DateOnly Detection = new(2026, 10, 10);
     private static DateTime At(DateOnly day, int hour = 12) => day.ToDateTime(new TimeOnly(hour, 0), DateTimeKind.Utc);

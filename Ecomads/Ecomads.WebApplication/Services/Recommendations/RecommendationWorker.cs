@@ -69,10 +69,16 @@ public sealed class RecommendationWorker(IServiceScopeFactory scopes, IOptions<R
                         if (queued) break;
                     }
                 }
+                var reports = new List<RecommendationResponse>();
                 foreach (var campaign in campaigns)
-                    await scope.ServiceProvider.GetRequiredService<RecommendationService>().CalculateAsync(store.SellerId, campaign.Id, window, ct);
+                {
+                    var report = await scope.ServiceProvider.GetRequiredService<RecommendationService>().CalculateAsync(store.SellerId, campaign.Id, window, ct);
+                    if (report != null) reports.Add(report);
+                }
                 if (options.Value.ResultsEnabled)
                     await scope.ServiceProvider.GetRequiredService<ResultsService>().RunStoreAsync(store.Id, ct);
+                foreach (var report in reports)
+                    await scope.ServiceProvider.GetRequiredService<ResultsService>().ObserveConditionsAsync(store.Id, report, ct);
             }
             catch (Exception error) when (error is not OperationCanceledException)
             {

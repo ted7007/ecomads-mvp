@@ -42,7 +42,7 @@ public sealed class WbSyncVisibilityController(EcomadsDbContext db) : Controller
             }
             var success = await db.WbSyncJobs.AsNoTracking().Where(x => x.StoreId == storeId &&
                 x.Kind == kind && x.Status == "completed")
-                .OrderByDescending(x => x.CompletedAtUtc).FirstOrDefaultAsync(cancellationToken);
+                .OrderByDescending(x => x.CompletedAtUtc ?? x.UpdatedAtUtc).FirstOrDefaultAsync(cancellationToken);
             var kindActive = activeJobs.FirstOrDefault(x => x.Kind == kind);
             sources.Add(new { kind, lastJob = last == null ? null : View(last),
                 activeJob = kindActive == null ? null : View(kindActive),

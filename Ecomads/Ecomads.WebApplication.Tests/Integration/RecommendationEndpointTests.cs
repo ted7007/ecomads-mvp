@@ -143,6 +143,10 @@ public sealed partial class RecommendationEndpointTests(PostgresFixture postgres
         Assert.Equal(HttpStatusCode.OK, savedResponse.StatusCode);
         using var saved = JsonDocument.Parse(await savedResponse.Content.ReadAsStringAsync());
         Assert.Equal(2, saved.RootElement.GetProperty("cards").EnumerateArray().Count(c => c.GetProperty("decision").ValueKind != JsonValueKind.Null));
+        using var retried = await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = ids, ruleId = "R03", status = "accepted", comment = "manual" });
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        using (var scope = factory.Services.CreateScope())
+            Assert.Equal(2, scope.ServiceProvider.GetRequiredService<EcomadsDbContext>().WbSnapshotDecisions.Count(x => x.RunId == run));
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(decisionUrl, new { evaluationIds = ids, ruleId = "R03", status = "snoozed" })).StatusCode);
         using var summary = JsonDocument.Parse(await client.GetStringAsync($"/api/wb/recommendations/summary?startDate=2026-10-01&endDate=2026-10-01&storeId={store.Id}"));
         Assert.Equal(5, summary.RootElement.GetProperty("top").GetArrayLength());
