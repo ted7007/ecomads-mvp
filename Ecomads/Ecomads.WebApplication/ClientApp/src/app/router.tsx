@@ -1,6 +1,12 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { RequireAuth } from '../shared/auth/RequireAuth';
 import { appRoutes } from './routes';
+import { captureAttribution } from '../shared/auth/attribution';
+import { trackPage } from '../shared/analytics/metrika';
+
+// Observe the original URL before the router can redirect it.
+captureAttribution(window.location.href);
+trackPage(window.location.href);
 
 export const router = createBrowserRouter(
   [

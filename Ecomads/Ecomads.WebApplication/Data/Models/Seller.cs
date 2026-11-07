@@ -29,6 +29,10 @@ public class Seller
     
     public DateTime? LastLoginAt { get; set; }
 
+    public string? UtmSource { get; set; }
+
+    public DateTime? UtmCapturedAtUtc { get; set; }
+
     public bool IsDemoUser { get; set; }
 
     public UserAccessType AccessType { get; set; } = UserAccessType.Regular;

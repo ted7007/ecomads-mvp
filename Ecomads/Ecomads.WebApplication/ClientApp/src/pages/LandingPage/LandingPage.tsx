@@ -3,19 +3,16 @@ import { useLocation } from 'react-router-dom';
 import { BrandLogo } from '../../shared/ui/BrandLogo';
 import { safeReturnTo, withReturnTo } from '../../shared/auth/returnTo';
 import { DemoDecision, LandingFaq, LandingFooter } from './LandingInteractions';
-import { startLandingMetrika } from './metrika';
 import '../../shared/assets/fonts/golos-text.css';
 import './landing.css';
 
 export function LandingPage() {
-  useEffect(startLandingMetrika, []);
   const location = useLocation();
   const returnTo = safeReturnTo(new URLSearchParams(location.search).get('returnTo'));
   const loginUrl = withReturnTo('/login', returnTo);
   useEffect(() => { document.title = 'EcomAds — ИИ-маркетолог для рекламы Wildberries'; }, []);
   return (
 <div id="top" className="landing-page tlight" style={{"background": "var(--bg)", "minHeight": "100vh", "display": "flex", "flexDirection": "column", "alignItems": "center"}}>
-  <noscript><div><img src="https://mc.yandex.ru/watch/113819247" style={{ position: 'absolute', left: '-9999px' }} alt="" /></div></noscript>
 
   <header style={{"width": "100%", "maxWidth": "1200px", "boxSizing": "border-box", "padding": "20px 24px", "display": "flex", "alignItems": "center", "justifyContent": "space-between", "gap": "16px", "flexWrap": "wrap"}}>
     <a href="#top" aria-label="ecomads — на главную" style={{"display": "flex", "alignItems": "center", "gap": "9px", "color": "var(--ink)"}}><BrandLogo /></a>

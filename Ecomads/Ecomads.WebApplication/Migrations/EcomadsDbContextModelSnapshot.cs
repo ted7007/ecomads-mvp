@@ -426,6 +426,15 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("phone");
 
+                    b.Property<DateTime?>("UtmCapturedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("utm_captured_at_utc");
+
+                    b.Property<string>("UtmSource")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("utm_source");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Email")

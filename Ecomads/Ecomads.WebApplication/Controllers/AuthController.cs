@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Ecomads.WebApplication.Auth;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
@@ -77,6 +78,7 @@ public class AuthController : ControllerBase
 
         var now = DateTime.UtcNow;
         var demoExpiresAtUtc = now.AddDays(3);
+        var attribution = RegistrationAttribution.Parse(request.Attribution, now);
 
         // Создаем demo-user вместо regular-пользователя до открытия продукта
         var seller = new Seller
@@ -89,6 +91,8 @@ public class AuthController : ControllerBase
             Email = request.Email,
             PasswordHash = _authService.HashPassword(request.Password),
             CreatedAt = now,
+            UtmSource = attribution?.Source,
+            UtmCapturedAtUtc = attribution?.CapturedAtUtc,
             IsDemoUser = true,
             AccessType = UserAccessType.Demo,
             DemoStatus = DemoAccessStatus.Active,
@@ -199,6 +203,8 @@ public class LoginRequest
 /// </summary>
 public class RegisterRequest
 {
+    public JsonElement? Attribution { get; set; }
+
     [RegularExpression("^(one|two-five|over-five|agency)$")]
     public string? Stores { get; set; }
 

@@ -3,7 +3,10 @@ const tagUrl = `https://mc.yandex.ru/metrika/tag.js?id=${counterId}`;
 
 type Metrika = ((...args: unknown[]) => void) & { a?: unknown[][]; l?: number };
 
-export function startLandingMetrika() {
+let previousUrl: string | undefined;
+
+export function trackPage(url: string) {
+  if (url === previousUrl) return;
   const target = window as Window & { ym?: Metrika };
   if (!target.ym) {
     const queue: Metrika = (...args) => { (queue.a ??= []).push(args); };
@@ -16,10 +19,12 @@ export function startLandingMetrika() {
     script.src = tagUrl;
     document.head.appendChild(script);
   }
-  target.ym(counterId, 'init', {
+  if (previousUrl) {
+    target.ym(counterId, 'hit', url, { referer: previousUrl, title: document.title });
+  } else target.ym(counterId, 'init', {
     ssr: true, webvisor: true, clickmap: true, ecommerce: 'dataLayer',
-    referrer: document.referrer, url: location.href,
+    referrer: document.referrer, url,
     accurateTrackBounce: true, trackLinks: true,
   });
-  return () => { target.ym?.(counterId, 'destruct'); };
+  previousUrl = url;
 }

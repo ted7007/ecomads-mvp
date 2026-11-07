@@ -181,6 +181,8 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.Phone).HasMaxLength(50).HasColumnName("phone");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at");
+            entity.Property(e => e.UtmSource).HasMaxLength(128).HasColumnName("utm_source");
+            entity.Property(e => e.UtmCapturedAtUtc).HasColumnName("utm_captured_at_utc");
             entity.Property(e => e.IsDemoUser).HasColumnName("is_demo_user").HasDefaultValue(false);
             entity.Property(e => e.AccessType).HasColumnName("access_type").HasDefaultValue(UserAccessType.Regular);
             entity.Property(e => e.DemoStatus).HasColumnName("demo_status").HasDefaultValue(DemoAccessStatus.None);

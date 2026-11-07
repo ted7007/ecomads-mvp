@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { httpClient } from '../api/httpClient';
 import { currentUserSchema, tokenResponseSchema } from './authSchemas';
 import type { AuthTokenResponse, CurrentUser } from './authTypes';
+import { getAttribution, type Attribution } from './attribution';
 
 export type LoginRequest = {
   email: string;
@@ -9,6 +10,7 @@ export type LoginRequest = {
 };
 
 export type RegisterRequest = {
+  attribution?: Attribution;
   name: string;
   stores?: string | null;
   budget?: string | null;
@@ -30,7 +32,7 @@ export async function login(request: LoginRequest): Promise<AuthTokenResponse> {
 export async function register(request: RegisterRequest): Promise<AuthTokenResponse> {
   const response = await httpClient<unknown>('/api/auth/register', {
     method: 'POST',
-    body: request,
+    body: { ...request, attribution: getAttribution() },
     skipAuth: true
   });
 
