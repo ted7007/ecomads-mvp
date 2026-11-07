@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { BrandLogo } from '../../shared/ui/BrandLogo';
 import { safeReturnTo, withReturnTo } from '../../shared/auth/returnTo';
-import { PilotForm, DemoDecision, LandingFaq, LandingFooter } from './LandingInteractions';
+import { DemoDecision, LandingFaq, LandingFooter } from './LandingInteractions';
 import '../../shared/assets/fonts/golos-text.css';
 import './landing.css';
 
@@ -24,29 +24,19 @@ export function LandingPage() {
     </nav>
     <div style={{"display": "flex", "alignItems": "center", "gap": "10px"}}>
       <a className="btns" href={loginUrl} style={{"height": "40px", "fontSize": "15px", "padding": "0 16px"}}>Войти</a>
-      <a className="btnp" href="#pilot" style={{"height": "40px", "fontSize": "15px", "padding": "0 16px"}}>Попасть в пилот</a>
+      <a className="btnp" href="/register" style={{"height": "40px", "fontSize": "15px", "padding": "0 16px"}}>Начать бесплатно</a>
     </div>
   </header>
 
-  <section style={{"width": "100%", "maxWidth": "1200px", "boxSizing": "border-box", "padding": "56px 24px 88px", "display": "flex", "flexWrap": "wrap", "alignItems": "center", "gap": "56px"}}>
-    <div style={{"flex": "1 1 460px", "minWidth": "0", "display": "flex", "flexDirection": "column", "gap": "24px"}}>
-      <span style={{"alignSelf": "flex-start", "display": "inline-flex", "alignItems": "center", "gap": "8px", "fontSize": "14px", "fontWeight": "600", "padding": "6px 12px", "borderRadius": "999px", "background": "var(--good-bg)", "border": "1px solid var(--good-bd)", "color": "var(--good)"}}>
-        <span style={{"width": "8px", "height": "8px", "borderRadius": "50%", "background": "var(--good)"}}></span>
-        Идёт набор в бесплатный пилот
-      </span>
-      <h1 className="h1" style={{"fontSize": "54px", "lineHeight": "1.06", "fontWeight": "800", "letterSpacing": "-0.03em"}}>ИИ-маркетолог для внутренней рекламы Wildberries</h1>
-      <p style={{"fontSize": "20px", "lineHeight": "1.5", "color": "var(--ink2)", "maxWidth": "560px"}}>Каждое утро показывает, где реклама тратит бюджет впустую, что можно масштабировать и с чего начать. Не ещё один отчёт, а список конкретных действий.</p>
-      <div style={{"display": "flex", "flexWrap": "wrap", "gap": "12px"}}>
-        <a className="btnp" href="#pilot">Попасть в пилот</a>
-        <a className="btns" href="#how">Как это работает</a>
-      </div>
-      <div style={{"display": "flex", "flexWrap": "wrap", "gap": "8px 20px", "fontSize": "14px", "color": "var(--mut)"}}>
-        <span>Подключение по API-токену WB</span>
-        <span>С подпиской «Джем» и без</span>
-        <span>Сводка в Telegram</span>
+  <section className="landing-hero">
+    <div className="landing-hero-copy">
+      <h1 className="h1">ИИ-маркетолог для рекламы Wildberries</h1>
+      <p>Находите лишние расходы и получайте рекомендации по рекламе каждый день.</p>
+      <div>
+        <a className="btnp" href="/register">Начать бесплатно</a>
+        <p className="pilot-note">Бесплатный демо-доступ на 3 дня</p>
       </div>
     </div>
-
     <div style={{"flex": "1 1 420px", "minWidth": "0", "display": "flex", "flexDirection": "column", "gap": "14px"}}>
       <div style={{"background": "var(--card)", "border": "1px solid var(--line)", "borderRadius": "24px", "padding": "20px", "display": "flex", "flexDirection": "column", "gap": "14px", "boxShadow": "var(--shadow)"}}>
         <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "12px"}}>
@@ -228,34 +218,13 @@ export function LandingPage() {
     </div>
   </section>
 
-  <section id="pilot" style={{"width": "100%", "maxWidth": "1200px", "boxSizing": "border-box", "padding": "0 24px 96px", "display": "flex", "flexWrap": "wrap", "gap": "32px"}}>
-    <div style={{"flex": "1 1 420px", "minWidth": "0", "display": "flex", "flexDirection": "column", "gap": "20px"}}>
-      <span style={{"fontSize": "14px", "fontWeight": "600", "color": "var(--acc)", "textTransform": "uppercase", "letterSpacing": ".06em"}}>Пилот</span>
-      <h2 className="h2" style={{"fontSize": "38px", "lineHeight": "1.15", "fontWeight": "800", "letterSpacing": "-0.02em"}}>Ищем первых пользователей</h2>
-      <p style={{"fontSize": "17px", "lineHeight": "1.5", "color": "var(--ink2)"}}>Продукт на стадии пилота. Приглашаем участников бесплатно в обмен на честную обратную связь. Оставьте заявку — команда обсудит участие и поможет с подключением.</p>
-      <div style={{"display": "flex", "flexWrap": "wrap", "gap": "16px"}}>
-        <div style={{"flex": "1 1 220px", "minWidth": "0", "display": "flex", "flexDirection": "column", "gap": "10px"}}>
-          <b style={{"fontSize": "16px"}}>Вы получаете</b>
-          <ul style={{"margin": "0", "padding": "0 0 0 20px", "display": "flex", "flexDirection": "column", "gap": "8px", "fontSize": "15px", "lineHeight": "1.45", "color": "var(--ink2)"}}>
-            <li>Бесплатный доступ на время пилота</li>
-            <li>Ежедневную сводку и рекомендации по вашему кабинету</li>
-            <li>Прямую связь с командой</li>
-          </ul>
-        </div>
-        <div style={{"flex": "1 1 220px", "minWidth": "0", "display": "flex", "flexDirection": "column", "gap": "10px"}}>
-          <b style={{"fontSize": "16px"}}>Мы просим</b>
-          <ul style={{"margin": "0", "padding": "0 0 0 20px", "display": "flex", "flexDirection": "column", "gap": "8px", "fontSize": "15px", "lineHeight": "1.45", "color": "var(--ink2)"}}>
-            <li>Подключить кабинет WB</li>
-            <li>Отмечать решения по рекомендациям</li>
-            <li>Будем просить короткую обратную связь о том, что работает, а что нет</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-
-    <div style={{"flex": "1 1 420px", "minWidth": "0", "background": "var(--card)", "border": "1px solid var(--line)", "borderRadius": "24px", "padding": "28px", "display": "flex", "flexDirection": "column", "gap": "16px", "boxShadow": "var(--shadow)"}}>
-      <PilotForm />
-    </div>
+  <section id="pilot" className="landing-start">
+    <h2 className="h2">Как начать</h2>
+    <ol>
+      <li>Создайте аккаунт и получите демо-доступ на 3 дня.</li>
+      <li>Подключите кабинет Wildberries с помощью API-токена.</li>
+      <li>Когда данные загрузятся, откройте аналитику и рекомендации.</li>
+    </ol>
   </section>
 
   <section id="faq" style={{"width": "100%", "maxWidth": "860px", "boxSizing": "border-box", "padding": "0 24px 96px", "display": "flex", "flexDirection": "column", "gap": "24px"}}>
@@ -271,7 +240,7 @@ export function LandingPage() {
         <h2 className="h2" style={{"fontSize": "32px", "lineHeight": "1.2", "fontWeight": "800", "letterSpacing": "-0.02em", "color": "#FFFFFF"}}>Перестаньте искать проблемы в таблицах</h2>
         <p style={{"fontSize": "17px", "lineHeight": "1.5", "color": "#FFFFFF"}}>Подключите кабинет и получайте готовый список действий каждое утро.</p>
       </div>
-      <a href="#pilot" style={{"display": "inline-flex", "alignItems": "center", "height": "48px", "padding": "0 24px", "borderRadius": "999px", "background": "#FFFFFF", "color": "#4A1BA6", "fontSize": "16px", "fontWeight": "700"}}>Попасть в пилот</a>
+      <a href="/register" style={{"display": "inline-flex", "alignItems": "center", "height": "48px", "padding": "0 24px", "borderRadius": "999px", "background": "#FFFFFF", "color": "#4A1BA6", "fontSize": "16px", "fontWeight": "700"}}>Начать бесплатно</a>
     </div>
   </section>
 

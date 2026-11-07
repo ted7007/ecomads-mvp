@@ -10,6 +10,9 @@ export type LoginRequest = {
 
 export type RegisterRequest = {
   name: string;
+  stores?: string | null;
+  budget?: string | null;
+  jam?: string | null;
   email: string;
   password: string;
 };

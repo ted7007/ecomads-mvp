@@ -44,5 +44,9 @@ public class Seller
     public DateTime? MvpAccessGrantedAtUtc { get; set; }
     
     // Навигационные свойства
+    public string? DemoStoresSegment { get; set; }
+    public string? DemoBudgetSegment { get; set; }
+    public string? DemoJamSegment { get; set; }
+
     public virtual ICollection<Store> Stores { get; set; } = new List<Store>();
 }

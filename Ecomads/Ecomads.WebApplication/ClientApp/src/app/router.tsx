@@ -4,6 +4,14 @@ import { appRoutes } from './routes';
 
 export const router = createBrowserRouter(
   [
+    ...(['privacy', 'consent', 'cookies'] as const).map(slug => ({
+      path: '/legal/' + slug,
+      lazy: async () => {
+        const { LegalPage } = await import('../pages/LegalPage/LegalPage');
+        return { Component: () => <LegalPage slug={slug} /> };
+      }
+    })),
+    { path: appRoutes.register, lazy: async () => ({ Component: (await import('../pages/LoginPage/LoginPage')).LoginPage }) },
     { path: appRoutes.site, lazy: async () => ({ Component: (await import('../pages/LandingPage/LandingPage')).LandingPage }) },
     {
       path: appRoutes.login,

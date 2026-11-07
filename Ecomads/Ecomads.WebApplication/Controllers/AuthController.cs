@@ -83,6 +83,9 @@ public class AuthController : ControllerBase
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
+            DemoStoresSegment = string.IsNullOrEmpty(request.Stores) ? null : request.Stores,
+            DemoBudgetSegment = string.IsNullOrEmpty(request.Budget) ? null : request.Budget,
+            DemoJamSegment = string.IsNullOrEmpty(request.Jam) ? null : request.Jam,
             Email = request.Email,
             PasswordHash = _authService.HashPassword(request.Password),
             CreatedAt = now,
@@ -196,6 +199,16 @@ public class LoginRequest
 /// </summary>
 public class RegisterRequest
 {
+    [RegularExpression("^(one|two-five|over-five|agency)$")]
+    public string? Stores { get; set; }
+
+    [RegularExpression("^(under-100k|100k-500k|500k-1m|over-1m)$")]
+    public string? Budget { get; set; }
+
+    [RegularExpression("^(yes|no|unknown)$")]
+    public string? Jam { get; set; }
+
+
     /// <summary>
     /// Имя пользователя
     /// </summary>

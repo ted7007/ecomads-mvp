@@ -1,6 +1,7 @@
 export const appRoutes = {
   root: '/',
   login: '/login',
+  register: '/register',
   site: '/site',
   pilotApplications: '/admin/pilot-applications',
   demoFeedback: '/demo-feedback',

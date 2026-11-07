@@ -133,7 +133,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
       <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1, flexShrink: 0 }}>
       <ListItemButton
         component="a"
-        href="https://t.me/ecomads_mvp01"
+        href="https://t.me/ecomads_official?direct"
         rel="noopener noreferrer"
         target="_blank"
         sx={{ minHeight: 42, px: 1.5, borderRadius: ui.radius.control, color: 'text.secondary' }}
@@ -141,7 +141,7 @@ export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNa
         <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
           <TelegramIcon fontSize="small" />
         </ListItemIcon>
-        <ListItemText primary="Группа в Telegram" primaryTypographyProps={{ fontSize: 13, lineHeight: 1.2 }} />
+        <ListItemText primary="Напишите в Telegram" primaryTypographyProps={{ fontSize: 13, lineHeight: 1.2 }} />
       </ListItemButton>
 
       <ListItemButton onClick={logout} sx={{ minHeight: 42, px: 1.5, borderRadius: ui.radius.control, color: 'text.secondary' }}>

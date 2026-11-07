@@ -1,10 +1,27 @@
 # Ecomads production deployment
 
 The production stack runs Caddy, the ASP.NET/React application, and PostgreSQL.
-Production moved to `31.207.76.37` on 2026-10-24 (Asia/Vladivostok).
-The deployment SSH alias is `ecomads-new`; `my-vps` remains the old VPN VPS.
-DNS switching is pending with the domain operator; meanwhile the old Caddy
-proxies to the new VPS over verified HTTPS.
+
+## Current target (verified 2026-11-07)
+
+Production temporarily runs at `152.234.253.9`; the A record for `ecomads.ru`
+and SSH access were verified on 2026-11-07. The local `ecomads-new` SSH alias
+still points to the previous server, `31.207.76.37`. Do not use that alias
+without overriding its hostname:
+
+```powershell
+Resolve-DnsName ecomads.ru -Type A -Server 1.1.1.1
+ssh -o Hostname=152.234.253.9 ecomads-new "hostname; cat /opt/ecomads/.current-image"
+```
+
+Preserve SSH host-key verification. Recheck DNS and the running release before
+each deployment. The PowerShell helpers below still default to the stale alias;
+do not run them unchanged. Use the existing `/opt/ecomads/deploy-vps.sh` on the
+verified server. For a narrow change, copy the current production release and
+apply only the requested changes, avoiding unrelated local work.
+
+Update this section and the root `AGENTS.md` together after the next move.
+The following migration record describes the earlier infrastructure:
 See [the migration record](MIGRATION-2026-10-24.md) for checkpoints and rollback.
 PostgreSQL is available only inside the private Docker network. Secrets stay in
 `/opt/ecomads/.env` on the VPS and are not uploaded by deployments.
