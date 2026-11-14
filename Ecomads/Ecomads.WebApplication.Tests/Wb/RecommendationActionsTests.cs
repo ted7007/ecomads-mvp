@@ -55,7 +55,17 @@ public sealed class RecommendationActionsTests
         Assert.Equal(75m, Select(control: Manual with { MinimumBid = 74, BidStep = 5 }).Primary.TargetBid);
         Assert.Null(Select(control: Manual with { BidStep = null }).Primary.TargetBid);
         Assert.Null(Select(control: Manual with { CurrentBid = null }).Primary.TargetBid);
-        Assert.Equal("watch", Select(control: Manual with { MinimumBid = 100 }).Primary.Kind);
+        Assert.Equal("bid_at_minimum", Select(control: Manual with { MinimumBid = 100, BidStep = null }).Primary.Kind);
+        Assert.Equal("Снизьте ставку: 400 → 350 ₽", Select(control: Manual with { CurrentBid = 400, MinimumBid = 350 }).Primary.Label);
+        Assert.Equal(12.5m, Select(control: Manual with { CurrentBid = 400, MinimumBid = 350 }).Primary.ReductionPercent);
+        Assert.Equal("watch", Select(control: Manual with { MinimumBid = 99, BidStep = 10 }).Primary.Kind);
+        Assert.Equal("cluster_minimum_unknown", Select(control: Manual with { MinimumBid = null }).Primary.Kind);
+        var exclusion = Select("R03", control: Manual with { MinimumBid = 100 }, facts: Facts(0));
+        Assert.Equal("exclude", exclusion.Primary.Kind);
+        Assert.Empty(exclusion.Alternatives);
+        var exclusionWithUnknownMinimum = Select("R03", control: Manual with { MinimumBid = null }, facts: Facts(0));
+        Assert.Equal("exclude", exclusionWithUnknownMinimum.Primary.Kind);
+        Assert.Empty(exclusionWithUnknownMinimum.Alternatives);
     }
     [Fact]
     public void KeyClustersNeverExcludeEvenForR03()
@@ -126,7 +136,7 @@ public sealed class RecommendationActionsTests
     }
 
     [Fact]
-    public void ImportedArticleBidAppliesWithoutClusterOverrideAndCpcIsExplicitlyUnsupported()
+    public void ImportedArticleBidDoesNotReplaceClusterBidAndCpcIsExplicitlyUnsupported()
     {
         var now = DateTime.UtcNow;
         var campaign = new Ecomads.WebApplication.Services.Wb.WbCampaignInfo(123, "C", 9, "cpm", [1, 2],
@@ -136,7 +146,7 @@ public sealed class RecommendationActionsTests
         var row = new WbAdvertisingSettings { Status = "ready", BidType = "manual", PaymentType = "cpm",
             ReceivedAtUtc = now, PayloadJson = System.Text.Json.JsonSerializer.Serialize(payload, json) };
         var control = AdvertisingSettingsPayload.Control(row, "1", "cluster", now);
-        Assert.Equal(125m, control.CurrentBid); Assert.False(control.Excluded);
+        Assert.Null(control.CurrentBid); Assert.False(control.Excluded);
         Assert.Equal("ready", control.Status);
         Assert.Equal("unknown", AdvertisingSettingsPayload.Control(row, "2", "cluster", now).Status);
         row.PayloadJson = System.Text.Json.JsonSerializer.Serialize(payload with { Bids = [new("1", "cluster", 150m)] }, json);

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Ecomads.WebApplication.Auth;
+using Ecomads.WebApplication.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -20,6 +21,46 @@ namespace Ecomads.WebApplication.Tests.Integration;
 [Collection(PostgresCollection.Name)]
 public sealed class RegistrationAttributionTests(PostgresFixture postgres)
 {
+    private static readonly RegistrationDocuments Documents = new();
+
+    [Fact]
+    public async Task PublicRegistrationRequiresConsentToTheCurrentDocuments()
+    {
+        await using var db = await postgres.CreateMigratedDbContextAsync();
+        using var factory = new Factory(db.Database.GetConnectionString()!);
+        using var client = factory.CreateClient();
+        using var documentsResponse = await client.GetAsync("/api/legal/registration");
+        documentsResponse.EnsureSuccessStatusCode();
+        using var documents = JsonDocument.Parse(await documentsResponse.Content.ReadAsStringAsync());
+        var version = documents.RootElement.GetProperty("version").GetString();
+        Assert.Equal(Documents.Version, version);
+        Assert.Contains("Редакция 1.1", documents.RootElement.GetProperty("privacy").GetString());
+
+        var request = Request("consent@example.test", null);
+        request.Remove("personalDataConsent");
+        using var missing = await client.PostAsJsonAsync("/api/auth/register", request);
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        request["personalDataConsent"] = false;
+        using var declined = await client.PostAsJsonAsync("/api/auth/register", request);
+        Assert.Equal(HttpStatusCode.BadRequest, declined.StatusCode);
+        request["personalDataConsent"] = true;
+        request["registrationDocumentsVersion"] = "old-edition";
+        using var stale = await client.PostAsJsonAsync("/api/auth/register", request);
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        Assert.Empty(await db.Sellers.ToListAsync());
+        Assert.Empty(await db.Stores.ToListAsync());
+
+        request["registrationDocumentsVersion"] = version;
+        using var accepted = await client.PostAsJsonAsync("/api/auth/register", request);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        var seller = await db.Sellers.SingleAsync();
+        Assert.Equal(seller.CreatedAt, seller.RegistrationConsentAtUtc);
+        Assert.Equal(DateTimeKind.Utc, seller.RegistrationConsentAtUtc!.Value.Kind);
+        Assert.Equal(version, seller.RegistrationConsentVersion);
+        Assert.Equal("registration-checkbox", seller.RegistrationConsentMethod);
+        Assert.Equal(documents.RootElement.GetProperty("consent").GetString(), seller.RegistrationConsentText);
+    }
+
     [Fact]
     public async Task RegistrationSavesSourceAndLoginCannotReplaceIt()
     {
@@ -122,6 +163,8 @@ public sealed class RegistrationAttributionTests(PostgresFixture postgres)
         Assert.Equal(id, seller.Id);
         Assert.Null(seller.UtmSource);
         Assert.Null(seller.UtmCapturedAtUtc);
+        Assert.Null(seller.RegistrationConsentAtUtc);
+        Assert.Null(seller.RegistrationConsentText);
         await migrator.MigrateAsync("20261105044443_AddDemoRegistrationSegments");
         Assert.Equal(1, await db.Sellers.CountAsync());
     }
@@ -129,7 +172,8 @@ public sealed class RegistrationAttributionTests(PostgresFixture postgres)
     private static Dictionary<string, object?> Request(string email, object? attribution) => new()
     {
         ["name"] = "Registration test", ["email"] = email, ["password"] = "password123",
-        ["attribution"] = attribution
+        ["attribution"] = attribution,
+        ["personalDataConsent"] = true, ["registrationDocumentsVersion"] = Documents.Version
     };
 
     private sealed class Factory(string connection) : WebApplicationFactory<Program>

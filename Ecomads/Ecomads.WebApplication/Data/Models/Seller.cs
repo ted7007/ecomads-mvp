@@ -26,6 +26,11 @@ public class Seller
     public string? Phone { get; set; }
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public DateTime? RegistrationConsentAtUtc { get; set; }
+    public string? RegistrationConsentVersion { get; set; }
+    public string? RegistrationConsentMethod { get; set; }
+    public string? RegistrationConsentText { get; set; }
     
     public DateTime? LastLoginAt { get; set; }
 

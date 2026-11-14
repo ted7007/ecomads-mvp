@@ -31,6 +31,11 @@ Side effects:
 - Store JWT in `localStorage.ecomads_token`.
 - Store user in `localStorage.ecomads_user`.
 
+### `GET /api/legal/registration`
+
+Публичный запрос возвращает тексты `privacy` и `consent` и их общую `version`.
+Форма использует эту версию при отправке согласия.
+
 ### `POST /api/auth/register`
 
 Request:
@@ -39,11 +44,14 @@ Request:
 {
   "name": "User Name",
   "email": "user@example.com",
-  "password": "password"
+  "password": "password",
+  "personalDataConsent": true,
+  "registrationDocumentsVersion": "<version из GET /api/legal/registration>"
 }
 ```
 
-Response shape is equivalent to login token response.
+Response shape is equivalent to login token response. The server returns
+`400` if consent is missing or false and `409` if the document version is stale.
 
 ### `GET /api/auth/me`
 

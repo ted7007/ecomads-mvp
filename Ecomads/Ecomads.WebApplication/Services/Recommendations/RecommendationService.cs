@@ -101,13 +101,13 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
         {
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
             var campaign = await db.Campaigns.AsNoTracking().Where(x => x.Id == campaignId && x.Store.SellerId == sellerId)
-                .Select(x => new { x.StoreId, x.WbCampaignId, x.Name, x.WbStatus, Connected = x.Store.ApiKey != null }).SingleOrDefaultAsync(ct);
+                .Select(x => new { x.StoreId, x.WbCampaignId, x.Name, x.WbStatus, x.Store.ApiKey }).SingleOrDefaultAsync(ct);
             if (campaign == null) return null;
             var settings = options.Value;
             RecommendationResponse Empty(bool enabled, string status, string message) => new(enabled,
-                campaign.Connected, null, 3, window, null, status, message, [], [], [], new(0, 0, 0, 0), [], campaignId, campaign.Name);
+                campaign.ApiKey != null, null, 3, window, null, status, message, [], [], [], new(0, 0, 0, 0), [], campaignId, campaign.Name);
             if (!settings.Enabled) return Empty(false, "disabled", "Расчёт рекомендаций отключён в настройках сервиса.");
-            if (!campaign.Connected) return Empty(true, "not_connected", "Подключите кабинет WB.");
+            if (campaign.ApiKey == null) return Empty(true, "not_connected", "Подключите кабинет WB.");
 
             batch ??= await LoadAsync([campaignId], [campaign.StoreId], window, ct);
             WbSourceQuality? LatestQuality(string kind, string entity, DateOnly day) => batch.SourceQuality
@@ -266,11 +266,12 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                 batch.Catalog, batch.Articles.Where(x => x.CampaignId == campaignId).ToArray(),
                 batch.CampaignStats.Where(x => x.CampaignId == campaignId).ToArray(), batch.Checks.Where(x => x.CampaignId == campaignId).ToArray(),
                 batch.SourceQuality.Where(x => x.StoreId == campaign.StoreId).ToArray(), batch.Operational.Where(x => x.StoreId == campaign.StoreId).ToArray(),
-                advertising, storeNorm, campaignNorm, evaluations, window, now, settings.Rule01Enabled));
+                advertising, storeNorm, campaignNorm, evaluations, window, now, settings.Rule01Enabled,
+                AdvertisingSettingsSync.TokenVersion(campaign.ApiKey)));
             // Hash includes coverage/empty results too, avoiding stale "no data" snapshots after imports.
             var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
             {
-                sellerId, campaignId, window, engineVersion = 8,
+                sellerId, campaignId, window, engineVersion = 10,
                 settings.PriceScenario, settings.NoUnitsSpendFloor, settings.HighDrrMinimumUnits,
                 settings.Rule01Enabled, settings.Rule03Enabled, settings.Rule06Enabled, settings.SourcesComparable,
                 checks = checks.Select(x => new { x.Date, x.Result, x.Spend }), intervals,
@@ -282,7 +283,8 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
             if (existing != null) return await WithDecisionsAsync(JsonSerializer.Deserialize<RecommendationResponse>(existing.SnapshotJson, Json)!, ct);
             var runId = Guid.NewGuid();
             evaluations = evaluations.Select(x => x with { EvaluationId = Guid.NewGuid() }).ToList();
-            var cards = evaluations.SelectMany(x => x.Rules.Where(rule => rule.Status == "triggered")
+            var cards = evaluations.Where(x => BidReduction.ShouldGenerateCard(x.Presentation))
+                .SelectMany(x => x.Rules.Where(rule => rule.Status == "triggered")
                 .Select(rule => new RecommendationCard(x.EvaluationId, x.Subject, rule, x.Facts, x.Norm, x.Economy,
                       window.EndDate > today.AddDays(-2) || !x.Quality.Complete || (x.Subject.Scope == "cluster" && x.Presentation?.Control?.Status != "ready"), x.Presentation)))
                 .ToArray();
@@ -306,6 +308,8 @@ public sealed class RecommendationService(EcomadsDbContext db, IOptions<Recommen
                 "no_deviations" => "По проверенным правилам отклонений не найдено. Данные могут уточняться.",
                 _ => "Предварительные диагностические рекомендации. Данные WB могут уточняться."
             };
+            if (cards.Length == 0 && evaluations.Any(x => !BidReduction.ShouldGenerateCard(x.Presentation)))
+                message = "На этот период нет рекомендаций к выполнению.";
             var response = new RecommendationResponse(true, true, runId, 3, window, now, status, message,
                 cards, evaluations, table.OrderByDescending(x => x.Spend).ThenBy(x => x.NomenclatureId, StringComparer.Ordinal)
                     .ThenBy(x => x.ClusterName, StringComparer.Ordinal).ToArray(), coverage, RecommendationActions.Packages(cards), campaignId, campaignNorm?.CustomName ?? campaign.Name);

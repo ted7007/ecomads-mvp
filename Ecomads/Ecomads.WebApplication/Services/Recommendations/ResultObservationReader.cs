@@ -53,8 +53,17 @@ public sealed class ResultObservationReader(EcomadsDbContext db)
                         var p = JsonSerializer.Deserialize<WbCampaignInfo[]>(row.PayloadJson, Json)?.SingleOrDefault(x => x.Id.ToString() == campaign.WbCampaignId);
                         var bid = p?.ArticleBids?.SingleOrDefault(x => x.NmId.ToString() == card.Subject.NomenclatureId);
                         // Keep placement identity: never compare a search bid with a recommendation bid.
+                        decimal[]? bids = bid == null ? null : card.Presentation?.Primary.Placement switch
+                        {
+                            "search" => [bid.SearchRubles ?? -1],
+                            "recommendation" => [bid.RecommendationRubles ?? -1],
+                            "combined" when bid.SearchRubles == null || bid.RecommendationRubles == null ||
+                                bid.SearchRubles == bid.RecommendationRubles => [bid.SearchRubles ?? bid.RecommendationRubles ?? -1],
+                            "combined" => null,
+                            _ => new[] { bid.SearchRubles ?? -1, bid.RecommendationRubles ?? -1 }
+                        };
                         parsed = parsed with { Status = p?.Status, Member = p == null ? null : p.NomenclatureIds.Any(x => x.ToString() == card.Subject.NomenclatureId),
-                            Bids = bid == null ? null : [bid.SearchRubles ?? -1, bid.RecommendationRubles ?? -1] };
+                            Bids = bids };
                     }
                 } catch (Exception e) when (e is JsonException or InvalidOperationException) { parsed = parsed with { State = "invalid_source" }; }
                 result.Add(parsed);

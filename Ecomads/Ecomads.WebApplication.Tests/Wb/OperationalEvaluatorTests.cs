@@ -19,7 +19,7 @@ public sealed class OperationalEvaluatorTests
     };
     private IReadOnlyList<ClusterEvaluation> Evaluate(int orders = 3, int units = 1, decimal spend = 1000, decimal revenue = 1000,
         string mode = "profit", bool bid = true, bool launch = false, bool failure = false,
-        IReadOnlyList<ClusterEvaluation>? clusters = null, bool incomplete = false, bool stockEnabled = true)
+        IReadOnlyList<ClusterEvaluation>? clusters = null, bool incomplete = false, bool stockEnabled = true, long minimum = 7000)
     {
         var metadata = new WbCampaignInfo(123, "C", 9, "cpm", [1, 2], BidType: "unified",
             ArticleBids: bid ? [new(1, 100, null)] : [], CanChangeArticles: true);
@@ -34,11 +34,16 @@ public sealed class OperationalEvaluatorTests
             Date = window.StartDate.AddDays(i).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
             Spend = i == 0 ? spend : 1, Revenue = i == 0 ? revenue : 1, Orders = i == 0 ? orders : 0,
             OrderedProducts = i == 0 ? units : 0, RecommendationFieldsVerified = true }).ToArray();
-        var settings = new WbAdvertisingSettings { CampaignId = campaign, PayloadJson = JsonSerializer.Serialize(new AdvertisingSettingsPayload([], [], metadata, now.AddMinutes(-20)), new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+        var bidSnapshot = new ProductBidSnapshot("test", now.AddMinutes(-20),
+            new(123, "cpm", ["combined"], bid ? [new(1, "search", 10000)] : []),
+            now.AddMinutes(-20), ["combined"], "cpm", [new(1, "combined", minimum)]);
+        var settings = new WbAdvertisingSettings { CampaignId = campaign, PayloadJson = JsonSerializer.Serialize(
+            new AdvertisingSettingsPayload([], [], metadata, now.AddMinutes(-20), bidSnapshot), new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
         return OperationalEvaluator.Evaluate(store, campaign, "123", 9,
             [new() { Id = article, StoreId = store, WbNomenclatureId = "1", Name = "Product" }], stats,
             [], incomplete ? checks.Skip(1).ToArray() : checks, [], snapshots, settings, null,
-            new() { CampaignId = campaign, Version = 7, RecommendationMode = mode, LaunchDate = launch ? window.StartDate : null }, clusters ?? [], window, now, stockEnabled);
+            new() { CampaignId = campaign, Version = 7, RecommendationMode = mode, LaunchDate = launch ? window.StartDate : null },
+            clusters ?? [], window, now, stockEnabled, "test");
     }
 
     [Fact]
@@ -64,7 +69,8 @@ public sealed class OperationalEvaluatorTests
         Assert.Equal("triggered", r.Rules[0].Status);
         Assert.Equal("reduce_article_bid", r.Presentation!.Primary.Kind);
         Assert.Equal(30m, r.Presentation.Primary.ReductionPercent);
-        Assert.Null(r.Presentation.Primary.TargetBid);
+        Assert.Equal(70m, r.Presentation.Primary.TargetBid);
+        Assert.Equal("bid_at_minimum", Evaluate(minimum: 10000).Single(x => x.Rules[0].RuleId == "R07").Presentation!.Primary.Kind);
         Assert.Equal("not_triggered", Evaluate(orders: 2, units: 100).Single(x => x.Rules[0].RuleId == "R07").Rules[0].Status);
     }
 

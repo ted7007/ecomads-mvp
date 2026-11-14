@@ -13,7 +13,7 @@ public static class OperationalEvaluator
         IReadOnlyList<WbSourceQuality> quality, IReadOnlyList<WbOperationalSnapshot> snapshots,
         WbAdvertisingSettings? settings, WbStoreNorms? storeNorm, WbCampaignNorms? campaignNorm,
         IReadOnlyList<ClusterEvaluation> clusters,
-        RecommendationWindow window, DateTime now, bool stockEnabled = false)
+        RecommendationWindow window, DateTime now, bool stockEnabled = false, string? tokenVersion = null)
     {
         var result = new List<ClusterEvaluation>();
         var today = WbSyncPlanner.Today(now);
@@ -58,12 +58,15 @@ public static class OperationalEvaluator
         }
         WbCampaignInfo? metadata = Payload<WbCampaignInfo[]>("advertising")?.FirstOrDefault(x => x.Id.ToString() == wbId);
         var metadataEvidence = Evidence("advertising");
+        ProductBidSnapshot? productBids = null;
         // Read the metadata cached by the existing import only if it is still recent.
         if (settings != null)
         {
             try
             {
                 var p = JsonSerializer.Deserialize<AdvertisingSettingsPayload>(settings.PayloadJson, Json);
+                if (p?.ProductBids is { } bids && bids.TokenVersion == tokenVersion)
+                    productBids = bids;
                 if (p?.Campaign is not null && p.CampaignReceivedAtUtc > (Source("advertising")?.RequestedAtUtc ?? DateTime.MinValue))
                 {
                     metadata = p.Campaign;
@@ -101,9 +104,10 @@ public static class OperationalEvaluator
                 current.Sum(x => x.Carts), current.Sum(x => x.Orders), current.All(x => x.OrderedProducts.HasValue) ? current.Sum(x => x.OrderedProducts) : null,
                 current.Sum(x => x.OrderedProducts) > 0 ? current.Sum(x => x.Revenue) / current.Sum(x => x.OrderedProducts) : null);
             var bid = metadata?.ArticleBids?.FirstOrDefault(x => x.NmId.ToString() == article.WbNomenclatureId);
-            var pointBidAvailable = bid?.SearchRubles > 0 || bid?.RecommendationRubles > 0;
-            decimal? currentBid = bid?.SearchRubles == bid?.RecommendationRubles ? bid?.SearchRubles :
-                bid?.SearchRubles is null ? bid?.RecommendationRubles : bid?.RecommendationRubles is null ? bid?.SearchRubles : null;
+            var pointBidAvailable = bid?.SearchRubles > 0 || bid?.RecommendationRubles > 0 ||
+                productBids?.Current?.Bids.Any(x => x.NmId.ToString() == article.WbNomenclatureId) == true;
+            (RecommendationAction Primary, IReadOnlyList<RecommendationAction> Alternatives) ReduceArticle(decimal percent) =>
+                BidReduction.ForProduct(percent, productBids, metadata, article.WbNomenclatureId, now);
             var inCampaign = membershipFresh && members.Contains(article.WbNomenclatureId);
             if (stockEnabled)
             {
@@ -118,7 +122,8 @@ public static class OperationalEvaluator
                 stockSources.Take(2).All(x => x.Fresh(now)) && inCampaign, mode,
                 metadata?.NomenclatureIds.Count == 1, metadata?.CanChangeArticles == true,
                 pointBidAvailable);
-            var stockAction = stock.Action.Kind == "reduce_article_bid" ? OperationalRules.Reduce(30, currentBid, null, null, "article") : stock.Action;
+            var (stockAction, stockAlternatives) = stock.Action.Kind == "reduce_article_bid"
+                ? ReduceArticle(30) : (stock.Action, Array.Empty<RecommendationAction>());
             var stockText = stock.Reason switch
             {
                 "out_of_stock" => "Доступный остаток FBW/FBO + FBS равен нулю, реклама продолжает расходовать бюджет.",
@@ -134,7 +139,7 @@ public static class OperationalEvaluator
             };
             var stockDetails = new OperationalDetails("stock", spendWindow, stockSources, fbw, fbs, stock.StockDays,
                 recentSpend / 3, units / 14m, BlockGrowth: stock.BlockGrowth);
-            var stockPresentation = new RecommendationPresentation(stockAction, [], null, false, recentSpend / 3 * 7,
+            var stockPresentation = new RecommendationPresentation(stockAction, stockAlternatives, null, false, recentSpend / 3 * 7,
                 stock.Status == "skipped" ? [new(stock.Reason, stockText)] : [], [], stock.Warning, Details: stockDetails, Priority: stock.Priority);
             result.Add(Build("R01", 1, stock.Status, stock.Reason, stockText, subject,
                 facts with { Spend = recentSpend }, norm, stockPresentation, stock.Status != "skipped", 7));
@@ -156,12 +161,13 @@ public static class OperationalEvaluator
             var blockedExclusions = clusters.Any(x => x.Subject.ArticleId == article.Id && x.Rules.Any(r => r.Status == "triggered" && r.RuleId is "R03" or "R06") &&
                 x.Presentation?.Primary.Kind == "exclude" && x.Presentation.Control?.Excluded != true);
             var action = new RecommendationAction("check_product", "Проверьте цену и карточку товара", Level: "article");
+            IReadOnlyList<RecommendationAction> alternatives = [];
             if (blockedExclusions) restrictions.Add(new("exclude_first", "Сначала исключите проблемные кластеры. Решение «Принял» не подтверждает изменение в WB."));
             else if (pointBidAvailable && state == "triggered")
-                action = OperationalRules.Reduce(drr > 0 ? (1 - norm.Value / drr.Value) * 100 : 0, currentBid, null, null, "article");
+                (action, alternatives) = ReduceArticle(drr > 0 ? (1 - norm.Value / drr.Value) * 100 : 0);
             else if (state == "triggered") restrictions.Add(new("scope_unknown", "Точечная ставка товара не подтверждена. Общее снижение может затронуть эффективные товары; оно не предлагается."));
             var details = new OperationalDetails("high_article_drr", window, [metadataEvidence], AffectedArticles: [article.WbNomenclatureId]);
-            var presentation = new RecommendationPresentation(action, [], null, false, facts.Spend / Math.Max(1, availableDays.Count) * 7, restrictions, [],
+            var presentation = new RecommendationPresentation(action, alternatives, null, false, facts.Spend / Math.Max(1, availableDays.Count) * 7, restrictions, [],
                 "ДРР товара рассчитан по фактической рекламной сумме заказов; минимум задан числом заказов O.", Details: details);
             var evaluation = Build("R07", 3, state, protectedLaunch ? "launch" : !currentVerified ? "incomplete_data" : !inCampaign ? "membership" : "article_high_drr",
                 state == "skipped" ? string.Join(" ", restrictions.Select(x => x.Label)) : state == "triggered" ? "ДРР товара при единой ставке превышает порог режима." : "Проверка ДРР товара при единой ставке.",

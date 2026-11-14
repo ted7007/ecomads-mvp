@@ -181,6 +181,10 @@ public class EcomadsDbContext : DbContext
             entity.Property(e => e.Phone).HasMaxLength(50).HasColumnName("phone");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at");
+            entity.Property(e => e.RegistrationConsentAtUtc).HasColumnName("registration_consent_at_utc");
+            entity.Property(e => e.RegistrationConsentVersion).HasMaxLength(64).HasColumnName("registration_consent_version");
+            entity.Property(e => e.RegistrationConsentMethod).HasMaxLength(32).HasColumnName("registration_consent_method");
+            entity.Property(e => e.RegistrationConsentText).HasColumnName("registration_consent_text");
             entity.Property(e => e.UtmSource).HasMaxLength(128).HasColumnName("utm_source");
             entity.Property(e => e.UtmCapturedAtUtc).HasColumnName("utm_captured_at_utc");
             entity.Property(e => e.IsDemoUser).HasColumnName("is_demo_user").HasDefaultValue(false);

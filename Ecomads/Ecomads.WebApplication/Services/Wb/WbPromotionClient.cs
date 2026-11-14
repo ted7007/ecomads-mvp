@@ -33,9 +33,16 @@ public sealed record WbCampaignInfo(
     IReadOnlyList<WbArticleBid>? ArticleBids = null, bool CanChangeArticles = false);
 
 public sealed record WbNormQueryPair(long AdvertId, long NmId);
+public sealed record WbProductBid(long NmId, string Placement, long Kopecks);
+public sealed record WbProductBidCampaign(long AdvertId, string PaymentType, IReadOnlyList<string> Placements,
+    IReadOnlyList<WbProductBid> Bids);
 
 public interface IWbPromotionClient
 {
+    Task<IReadOnlyList<WbProductBidCampaign>> GetProductBidsAsync(string token, IReadOnlyList<long> campaignIds,
+        CancellationToken ct) => throw new NotSupportedException();
+    Task<IReadOnlyList<WbProductBid>> GetMinimumBidsAsync(string token, long campaignId, IReadOnlyList<long> articles,
+        string paymentType, IReadOnlyList<string> placements, CancellationToken ct) => throw new NotSupportedException();
     Task<JsonDocument> GetClusterSettingsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs, bool minus,
         CancellationToken ct) => throw new NotSupportedException("Cluster settings unavailable");
     Task<IReadOnlyList<WbCampaignInfo>> GetCampaignsAsync(string token, CancellationToken cancellationToken);
@@ -49,6 +56,68 @@ public interface IWbPromotionClient
 
 public sealed class WbPromotionClient(HttpClient httpClient, TimeProvider? clock = null) : IWbPromotionClient
 {
+    public async Task<IReadOnlyList<WbProductBidCampaign>> GetProductBidsAsync(string token,
+        IReadOnlyList<long> campaignIds, CancellationToken ct)
+    {
+        if (campaignIds.Count is < 1 or > 50) throw new ArgumentOutOfRangeException(nameof(campaignIds));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/advert/v3/adverts?advertIds=" + string.Join(",", campaignIds));
+        using var doc = await ReadBidResponseAsync(request, token, ct);
+        var result = new Dictionary<long, WbProductBidCampaign>();
+        foreach (var advert in doc.RootElement.GetProperty("adverts").EnumerateArray())
+        {
+            var id = advert.GetProperty("advertId").GetInt64();
+            if (!campaignIds.Contains(id)) throw new JsonException("WB вернул незапрошенную кампанию.");
+            if (advert.GetProperty("currency").GetString() != "RUB" || advert.GetProperty("status").GetInt32() is not (9 or 11))
+                continue;
+            var settings = advert.GetProperty("settings");
+            var payment = settings.GetProperty("paymentType").GetString() ?? throw new JsonException();
+            var placements = settings.GetProperty("placements").EnumerateArray().Select(x =>
+                x.GetString() ?? throw new JsonException()).Distinct().ToArray();
+            if (!result.TryAdd(id, new(id, payment, placements, ParseProductBids(advert.GetProperty("nms"), "nmId", false))))
+                throw new JsonException("Повторная кампания в ответе WB.");
+        }
+        return result.Values.ToArray();
+    }
+
+    public async Task<IReadOnlyList<WbProductBid>> GetMinimumBidsAsync(string token, long campaignId,
+        IReadOnlyList<long> articles, string paymentType, IReadOnlyList<string> placements, CancellationToken ct)
+    {
+        if (articles.Count is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(articles));
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/advert/v1/bids/min");
+        request.Content = JsonContent.Create(new { advert_id = campaignId, nm_ids = articles, payment_type = paymentType, placement_types = placements });
+        using var doc = await ReadBidResponseAsync(request, token, ct);
+        return ParseProductBids(doc.RootElement.GetProperty("bids"), "nm_id", true)
+            .Where(x => articles.Contains(x.NmId) && placements.Contains(x.Placement)).ToArray();
+    }
+
+    private static IReadOnlyList<WbProductBid> ParseProductBids(JsonElement articles, string idField, bool currencyPerBid)
+    {
+        var result = new Dictionary<(long, string), WbProductBid>();
+        foreach (var article in articles.EnumerateArray())
+        {
+            var id = article.GetProperty(idField).GetInt64();
+            foreach (var bid in article.GetProperty("bids").EnumerateArray())
+            {
+                if (currencyPerBid && bid.GetProperty("currency").GetString() != "RUB") continue;
+                var placement = bid.GetProperty("type").GetString() ?? throw new JsonException();
+                var amount = bid.GetProperty("value").GetInt64();
+                if (!result.TryAdd((id, placement), new(id, placement, amount)))
+                    throw new JsonException("Повторная ставка товара в ответе WB.");
+            }
+        }
+        return result.Values.Where(x => x.Kopecks > 0).ToArray();
+    }
+
+    private async Task<JsonDocument> ReadBidResponseAsync(HttpRequestMessage request, string token, CancellationToken ct)
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new WbApiException(response.StatusCode, GetRetryAfter(response, (clock ?? TimeProvider.System).GetUtcNow()));
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        return await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+    }
+
     public async Task<JsonDocument> GetClusterSettingsAsync(string token, IReadOnlyList<WbNormQueryPair> pairs,
         bool minus, CancellationToken ct)
     {

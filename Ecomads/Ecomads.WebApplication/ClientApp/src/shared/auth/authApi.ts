@@ -10,6 +10,8 @@ export type LoginRequest = {
 };
 
 export type RegisterRequest = {
+  personalDataConsent: boolean;
+  registrationDocumentsVersion: string;
   attribution?: Attribution;
   name: string;
   stores?: string | null;

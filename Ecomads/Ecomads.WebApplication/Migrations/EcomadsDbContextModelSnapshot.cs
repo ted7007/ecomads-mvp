@@ -426,6 +426,24 @@ namespace Ecomads.WebApplication.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("phone");
 
+                    b.Property<DateTime?>("RegistrationConsentAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("registration_consent_at_utc");
+
+                    b.Property<string>("RegistrationConsentMethod")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("registration_consent_method");
+
+                    b.Property<string>("RegistrationConsentText")
+                        .HasColumnType("text")
+                        .HasColumnName("registration_consent_text");
+
+                    b.Property<string>("RegistrationConsentVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("registration_consent_version");
+
                     b.Property<DateTime?>("UtmCapturedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("utm_captured_at_utc");

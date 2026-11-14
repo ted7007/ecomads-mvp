@@ -136,8 +136,14 @@ public sealed class RecommendationLifecycle(EcomadsDbContext db, TimeProvider cl
             if (decision is { Status: "accepted" } && card.Presentation != null)
             {
                 var accepted = Read(history.Exposures.Single(e => e.RunId == decision.RunId && e.EvaluationId == decision.EvaluationId && e.RuleId == decision.RuleId));
-                if (accepted.Presentation != null)
-                    presented = card with { Presentation = card.Presentation with { Primary = accepted.Presentation.Primary, Alternatives = accepted.Presentation.Alternatives } };
+                if (accepted.Presentation is { } previous)
+                {
+                    // An accepted bid remains in the exposure history. The current card uses the
+                    // live bid calculation so an older percentage cannot return to the task list.
+                    var primary = previous.Primary.Kind is "reduce_bid" or "reduce_article_bid" or "reduce_campaign_bid"
+                        ? card.Presentation.Primary : previous.Primary;
+                    presented = card with { Presentation = card.Presentation with { Primary = primary } };
+                }
             }
             cards.Add(presented with { Decision = decision == null ? null : new(decision.Status, decision.SnoozeUntil, decision.Reason, decision.Comment, decision.CreatedAtUtc) });
         }

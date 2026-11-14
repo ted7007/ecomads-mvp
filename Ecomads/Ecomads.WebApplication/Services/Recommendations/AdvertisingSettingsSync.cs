@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Ecomads.WebApplication.Data;
 using Ecomads.WebApplication.Data.Models;
 using Ecomads.WebApplication.Services.Wb;
@@ -25,15 +27,18 @@ public sealed class AdvertisingSettingsSync(EcomadsDbContext db, IWbPromotionCli
                 var payload = JsonSerializer.Deserialize<AdvertisingSettingsPayload>(row.PayloadJson, Json);
                 if (payload?.Campaign is not { } advert || advert.Id.ToString() != campaign.WbCampaignId ||
                     payload.CampaignReceivedAtUtc < now.AddHours(-24) || payload.CampaignReceivedAtUtc == null) continue;
-                if (advert.Status is not (9 or 11) || advert.PaymentType != "cpm" || advert.BidType is not ("manual" or "unified")) continue;
+                if (advert.Status is not (9 or 11) || advert.PaymentType is not ("cpm" or "cpc") ||
+                    advert.BidType is not ("manual" or "unified")) continue;
                 if (advert.NomenclatureIds.Count is > 0 and <= 100) candidates.Add((row, payload));
             }
             catch (JsonException) { /* One malformed metadata row must not break other campaigns. */ }
         }
+        await RefreshProductBidsAsync(store, candidates, now, ct);
         // Rotate whole campaigns, oldest attempt first. One batch per 12-minute basic-token window.
         var selected = new List<(WbAdvertisingSettings Row, AdvertisingSettingsPayload Payload)>();
         var pairs = new List<WbNormQueryPair>();
-        foreach (var candidate in candidates.OrderBy(x => x.Row.AttemptedAtUtc).ThenBy(x => x.Row.CampaignId))
+        foreach (var candidate in candidates.Where(x => x.Payload.Campaign!.PaymentType == "cpm")
+            .OrderBy(x => x.Row.AttemptedAtUtc).ThenBy(x => x.Row.CampaignId))
         {
             var advert = candidate.Payload.Campaign!;
             var campaignPairs = advert.NomenclatureIds.Distinct().Select(n => new WbNormQueryPair(advert.Id, n)).ToArray();
@@ -110,4 +115,88 @@ public sealed class AdvertisingSettingsSync(EcomadsDbContext db, IWbPromotionCli
                 ReceivedAtUtc = row.Status == "ready" ? row.ReceivedAtUtc : null, State = row.Status, PayloadJson = row.PayloadJson });
         await db.SaveChangesAsync(ct);
     }
+
+    internal static string TokenVersion(string protectedToken) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(protectedToken)));
+
+    private async Task RefreshProductBidsAsync(Store store,
+        List<(WbAdvertisingSettings Row, AdvertisingSettingsPayload Payload)> candidates, DateTime now, CancellationToken ct)
+    {
+        if (candidates.Count == 0) return;
+        var version = TokenVersion(store.ApiKey!);
+        ProductBidSnapshot? Cached(int index) => candidates[index].Payload.ProductBids is { } snapshot &&
+            snapshot.TokenVersion == version ? snapshot : null;
+        void Save(int index, ProductBidSnapshot snapshot)
+        {
+            var (row, old) = candidates[index];
+            var payload = old with { ProductBids = snapshot };
+            row.PayloadJson = JsonSerializer.Serialize(payload, Json);
+            candidates[index] = (row, payload);
+        }
+
+        async Task<T?> Read<T>(string method, Func<string, Task<T>> fetch) where T : class
+        {
+            try { return await fetch(tokens.Unprotect(store.ApiKey!)); }
+            catch (Exception error) when (!ct.IsCancellationRequested &&
+                error is WbApiException or HttpRequestException or IOException or JsonException or InvalidOperationException
+                    or KeyNotFoundException or FormatException or OperationCanceledException or NotSupportedException or CryptographicException)
+            {
+                if (error is WbApiException { RetryAfter: { } retry })
+                    await WbRateLimits.DeferUntilAsync(db, store.Id, method, 0, now.Add(retry), ct);
+                logger.LogWarning("WB {Method} unavailable for store {StoreId}: {ErrorType}, HTTP {StatusCode}",
+                    method, store.Id, error.GetType().Name, error is WbApiException wb ? (int?)wb.StatusCode : null);
+                return null;
+            }
+        }
+
+        var indexes = Enumerable.Range(0, candidates.Count).ToArray();
+        var currentBatch = indexes.Where(i => !(Cached(i)?.CurrentAttemptedAtUtc >= now.AddMinutes(-45)))
+            .OrderBy(i => Cached(i)?.CurrentAttemptedAtUtc).ThenBy(i => candidates[i].Row.CampaignId).Take(50).ToArray();
+        const string currentMethod = "product_bid_current";
+        if (currentBatch.Length > 0 && await WbRateLimits.TryReserveAsync(db, store.Id, currentMethod, 0, now, ct))
+        {
+            var ids = currentBatch.Select(i => candidates[i].Payload.Campaign!.Id).ToArray();
+            var response = await Read(currentMethod, token => client.GetProductBidsAsync(token, ids, ct));
+            var currentById = (response ?? []).ToDictionary(x => x.AdvertId);
+            for (var n = 0; n < ids.Length; n++)
+            {
+                var i = currentBatch[n];
+                var prior = Cached(i) ?? new(version, now, null);
+                currentById.TryGetValue(ids[n], out var current);
+                Save(i, prior with { CurrentAttemptedAtUtc = now, Current = current });
+            }
+        }
+
+        const string minimumMethod = "product_bid_minimum";
+        var selected = indexes.Where(i =>
+            {
+                var snapshot = Cached(i);
+                var current = snapshot?.Current;
+                return current != null && snapshot!.CurrentAttemptedAtUtc >= now.AddHours(-1) &&
+                    current.PaymentType == candidates[i].Payload.Campaign!.PaymentType &&
+                    ProductBidPlacements(current).Length > 0 &&
+                    (snapshot.MinimumAttemptedAtUtc == null || snapshot.MinimumAttemptedAtUtc <= now.AddHours(-1) &&
+                        (snapshot.Minimums is not { Count: > 0 } || snapshot.MinimumAttemptedAtUtc <= now.AddHours(-12) ||
+                         snapshot.MinimumPaymentType != current.PaymentType ||
+                         !(snapshot.MinimumPlacements ?? []).SequenceEqual(ProductBidPlacements(current))));
+            })
+            .OrderBy(i => Cached(i)?.MinimumAttemptedAtUtc).ThenBy(i => candidates[i].Row.CampaignId).Select(i => (int?)i)
+            .FirstOrDefault();
+        if (selected is { } index && await WbRateLimits.TryReserveAsync(db, store.Id, minimumMethod, 0, now, ct))
+        {
+            var snapshot = Cached(index)!;
+            var advert = candidates[index].Payload.Campaign!;
+            var placements = ProductBidPlacements(snapshot.Current!);
+            var minimums = await Read(minimumMethod, token => client.GetMinimumBidsAsync(token, advert.Id,
+                advert.NomenclatureIds.Distinct().ToArray(), snapshot.Current!.PaymentType, placements, ct));
+            Save(index, snapshot with { MinimumAttemptedAtUtc = now, MinimumPlacements = placements,
+                MinimumPaymentType = snapshot.Current!.PaymentType, Minimums = minimums });
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    internal static string[] ProductBidPlacements(WbProductBidCampaign current) =>
+        current.Placements.Select(x => x == "recommendations" ? "recommendation" : x)
+            .Where(x => x is "search" or "recommendation" or "combined").Distinct()
+            .OrderBy(x => x, StringComparer.Ordinal).ToArray();
 }

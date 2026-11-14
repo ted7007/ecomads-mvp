@@ -135,7 +135,7 @@ done
 
 mapfile -t expired_backups < <(
   find "$ROOT/backups" -mindepth 1 -maxdepth 1 -type f -name 'ecomads-*.dump' \
-    ! -name 'ecomads-old-schema-*.dump' -printf '%f\n' | sort -r | tail -n +11
+    ! -name 'ecomads-old-schema-*.dump' -printf '%f\n' | sort -r | tail -n +4
 )
 for backup in "${expired_backups[@]}"; do
   [[ "$backup" =~ ^ecomads-[A-Za-z0-9._-]+\.dump$ ]] || continue

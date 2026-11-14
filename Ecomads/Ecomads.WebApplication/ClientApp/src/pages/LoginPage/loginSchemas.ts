@@ -6,6 +6,7 @@ export const loginFormSchema = z.object({
 });
 
 export const registerFormSchema = z.object({
+  personalDataConsent: z.boolean().refine(Boolean, 'Подтвердите согласие на обработку персональных данных'),
   stores: z.enum(['', 'one', 'two-five', 'over-five', 'agency']),
   budget: z.enum(['', 'under-100k', '100k-500k', '500k-1m', 'over-1m']),
   jam: z.enum(['', 'yes', 'no', 'unknown']),

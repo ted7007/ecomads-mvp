@@ -171,7 +171,7 @@ public sealed class WbSyncPlanner(EcomadsDbContext db, IWbPromotionClient wb, IW
             source.BidType = advert.BidType;
             source.PaymentType = advert.PaymentType;
             source.PayloadJson = JsonSerializer.Serialize(new Services.Recommendations.AdvertisingSettingsPayload(
-                payload?.Bids ?? [], payload?.Minus ?? [], advert, now), json);
+                payload?.Bids ?? [], payload?.Minus ?? [], advert, now, payload?.ProductBids), json);
         }
         store.CampaignsRefreshedAtUtc = now;
         await db.SaveChangesAsync(ct);

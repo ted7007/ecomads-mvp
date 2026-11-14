@@ -3,7 +3,7 @@ namespace Ecomads.WebApplication.Services.Recommendations;
 public sealed record AdvertisingControl(string Status, string? BidType = null, string? PaymentType = null,
     bool? Excluded = null, decimal? CurrentBid = null, decimal? MinimumBid = null, decimal? BidStep = null, DateTime? ReceivedAtUtc = null);
 public sealed record RecommendationAction(string Kind, string Label, decimal? ReductionPercent = null,
-    decimal? TargetBid = null, string Level = "cluster");
+    decimal? TargetBid = null, string Level = "cluster", string? Placement = null);
 public sealed record RecommendationRestriction(string Code, string Label);
 public sealed record RecommendationPresentation(RecommendationAction Primary, IReadOnlyList<RecommendationAction> Alternatives,
     decimal? KeyShare, bool IsKey, decimal WeeklySpend, IReadOnlyList<RecommendationRestriction> Restrictions,
@@ -45,25 +45,12 @@ public static class RecommendationActions
         bool actionable = quality.Complete && quality.FieldsVerified && quality.SourcesComparable &&
             window.EndDate <= today.AddDays(-2) && !LaunchProtected(launch, window, today);
         var manual = control.BidType == "manual" && control.PaymentType == "cpm";
-        if (manual && (control.CurrentBid is null or <= 0 || control.MinimumBid is null or <= 0 || control.BidStep is null or <= 0))
-            restrictions.Add(new("bid_constraints_unknown", "Точная сумма ставки недоступна: текущая ставка, минимум или шаг WB не подтверждены. Снижение указано в процентах."));
         if (rule.RuleId == "R06" && control.BidType == "unified" && !key && economy.Drr < 2 * norm.Value)
             restrictions.Add(new("unified_below_exclusion", "Единая ставка: для исключения неключевого кластера нужен ДРР не ниже 2 × нормы. Пока наблюдать."));
         if (control.Status == "ready" && !manual && control.BidType != "unified")
             restrictions.Add(new("unsupported_control", "Доступный способ управления ставкой этого кластера не подтверждён."));
-        RecommendationAction Reduce(decimal pct)
-        {
-            decimal? target = null;
-            if (control.CurrentBid > 0 && control.MinimumBid > 0 && control.BidStep > 0)
-            {
-                // Round upwards so neither the minimum nor the 30% bound can be violated.
-                var raw = Math.Max(control.MinimumBid.Value, control.CurrentBid.Value * (1 - pct / 100));
-                var candidate = decimal.Ceiling(raw / control.BidStep.Value) * control.BidStep.Value;
-                if (candidate < control.CurrentBid) target = candidate;
-                else return new("watch", "Ставка уже на минимуме; наблюдать");
-            }
-            return new("reduce_bid", target.HasValue ? $"Снизьте ставку до {target:0.##} ₽" : $"Снизьте ставку на {pct:0.##}%", pct, target);
-        }
+        RecommendationAction Reduce(decimal pct) =>
+            BidReduction.Calculate(pct, control.CurrentBid, control.MinimumBid, control.BidStep, "reduce_bid", "cluster");
         if (rule.RuleId == "R03")
         {
             clickEvidence ??= RecommendationClickEvidence.Calculate(
@@ -74,7 +61,7 @@ public static class RecommendationActions
             if (eligible && clickEvidence.Result == "sufficient")
             {
                 primary = new("exclude", "Исключите кластер");
-                if (manual) alternatives.Add(Reduce(30));
+                if (manual && Reduce(30) is { Kind: "reduce_bid" } reduction) alternatives.Add(reduction);
             }
             else if (eligible && clickEvidence.Result == "insufficient")
             {

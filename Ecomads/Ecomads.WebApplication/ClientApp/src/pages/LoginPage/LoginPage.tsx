@@ -2,16 +2,17 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import TelegramIcon from '@mui/icons-material/Telegram';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import '../../shared/assets/fonts/golos-text.css';
-import { Alert, Box, Button, Card, CardContent, Container, Link, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Checkbox, Container, FormControl, FormControlLabel, FormHelperText, Link, Stack, TextField, Typography } from '@mui/material';
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { appRoutes } from '../../app/routes';
 import { login, register } from '../../shared/auth/authApi';
 import { clearAuth, persistAuthResponse } from '../../shared/auth/tokenStorage';
 import { useSession, SessionStatus } from '../../shared/auth/useSession';
 import { safeReturnTo, withReturnTo } from '../../shared/auth/returnTo';
-import { LegalLinks } from '../LegalPage/LegalLinks';
+import { legalTitles } from '../LegalPage/LegalLinks';
+import { useRegistrationDocuments } from '../LegalPage/useRegistrationDocuments';
 import { BrandLogo } from '../../shared/ui/BrandLogo';
 import { loginFormSchema, registerFormSchema, type LoginFormValues, type RegisterFormValues } from './loginSchemas';
 
@@ -179,7 +180,10 @@ const segmentFields = [
 ] as const;
 
 function RegisterForm({ setError, onSuccess }: AuthFormProps) {
+  const { data: documents, isError: documentsFailed, refetch } = useRegistrationDocuments();
+  const documentQuery = documents ? `?version=${documents.version}` : '';
   const {
+    control,
     formState: { errors, isSubmitting },
     handleSubmit,
     register: registerField
@@ -191,15 +195,23 @@ function RegisterForm({ setError, onSuccess }: AuthFormProps) {
       password: '',
       stores: '',
       budget: '',
-      jam: ''
+      jam: '',
+      personalDataConsent: false
     }
   });
 
   const submit = handleSubmit(async (values) => {
+    if (!documents) return;
     setError(null);
 
     try {
-      const response = await register({ ...values, stores: values.stores || null, budget: values.budget || null, jam: values.jam || null });
+      const response = await register({
+        ...values,
+        registrationDocumentsVersion: documents.version,
+        stores: values.stores || null,
+        budget: values.budget || null,
+        jam: values.jam || null
+      });
       persistAuthResponse(response);
       onSuccess();
     } catch (error) {
@@ -248,9 +260,43 @@ function RegisterForm({ setError, onSuccess }: AuthFormProps) {
           {options.map(([value, title]) => <option key={value} value={value}>{title}</option>)}
         </TextField>
       ))}
-      <Typography color="text.secondary" variant="body2">Документы готовятся к публикации.</Typography>
-      <LegalLinks />
-      <Button disabled={isSubmitting} fullWidth size="large" type="submit" variant="contained">
+      {documents ? (
+        <Box>
+          <Link href={`/legal/privacy${documentQuery}`} target="_blank" rel="noopener noreferrer" variant="body2">
+            {legalTitles.privacy}
+          </Link>
+          <FormControl error={Boolean(errors.personalDataConsent)} fullWidth>
+            <Controller name="personalDataConsent" control={control} render={({ field }) => (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={field.value}
+                    disabled={isSubmitting}
+                    inputRef={field.ref}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    onChange={(_, checked) => field.onChange(checked)}
+                    inputProps={{
+                      'aria-required': true,
+                      'aria-invalid': Boolean(errors.personalDataConsent),
+                      'aria-describedby': errors.personalDataConsent ? 'registration-consent-error' : undefined
+                    }}
+                  />
+                }
+                label={<span>Даю <Link href={`/legal/consent${documentQuery}`} target="_blank" rel="noopener noreferrer">согласие на обработку персональных данных</Link></span>}
+              />
+            )} />
+            {errors.personalDataConsent && (
+              <FormHelperText id="registration-consent-error" role="alert">{errors.personalDataConsent.message}</FormHelperText>
+            )}
+          </FormControl>
+        </Box>
+      ) : documentsFailed ? (
+        <Alert severity="error" action={<Button color="inherit" onClick={() => void refetch()}>Повторить</Button>}>
+          Не удалось загрузить документы для регистрации.
+        </Alert>
+      ) : <Typography role="status" variant="body2">Загружаем документы…</Typography>}
+      <Button disabled={isSubmitting || !documents} fullWidth size="large" type="submit" variant="contained">
         {isSubmitting ? 'Создаём аккаунт…' : 'Начать бесплатно'}
       </Button>
     </Stack>

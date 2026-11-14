@@ -1,4 +1,4 @@
-import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { RecommendationCard } from '../api/clusterRecommendationApi';
@@ -6,7 +6,7 @@ import { saveSnapshotDecision } from '../api/clusterRecommendationApi';
 import { formatMoney } from '../lib/formatMoney';
 import { moscowToday } from '../../pages/DashboardPage/components/PeriodFilter';
 import { RecommendationExposure } from './RecommendationExposure';
-import { recommendationLimitation, recommendationMoney } from '../lib/recommendationPresentation';
+import { recommendationAction, recommendationDates, recommendationDetailActionNotes, recommendationDetailCalculation, recommendationDetailReason, recommendationPeriod, recommendationTitle } from '../lib/recommendationPresentation';
 
 const labels: Record<string, string> = { accepted: 'Принял', snoozed: 'Отложено', irrelevant: 'Не актуально' };
 export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, compact = false }: {
@@ -33,9 +33,12 @@ export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, comp
         sx={compact ? { flex: { xs: 1, md: 'initial' }, px: 1, minWidth: 0, fontSize: 12, whiteSpace: 'nowrap' } : undefined}
         disabled={!evaluationIds.length} onClick={() => { setStatus(key); setReasonType('other'); save.reset(); }}>{label === 'Отложено' ? 'Отложить' : label}</Button>)}</Stack>
     <Dialog open={Boolean(status)} onClose={() => !save.isPending && setStatus('')} fullWidth maxWidth="sm">
-      <DialogTitle>{labels[status]} · выбрано: {evaluationIds.length}</DialogTitle>
+      <DialogTitle>{status === 'snoozed' ? 'Отложить' : labels[status]}{evaluationIds.length > 1 ? ` · выбрано: ${evaluationIds.length}` : ''}</DialogTitle>
       <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-        <Typography variant="body2">{autoReplenishment ? 'Рекомендации о пополнении бюджета этой кампании будут скрыты. Вернуть их можно в разделе «Нормы».' : 'Решение сохранится для этих цифр и действия. Изменения в рекламе WB выполняются вручную.'}</Typography>
+        <Typography variant="body2">{autoReplenishment ? 'Рекомендации о пополнении бюджета этой кампании будут скрыты. Вернуть их можно в разделе «Нормы».'
+          : status === 'accepted' ? 'Отметим рекомендацию как принятую. Изменения в WB вносятся вручную.'
+          : status === 'snoozed' ? 'Рекомендация будет отложена до выбранной даты.'
+          : 'Сохраним причину, по которой рекомендация не актуальна.'}</Typography>
         {status === 'snoozed' ? <TextField type="date" label="Отложить до" InputLabelProps={{ shrink: true }} value={date} onChange={e => setDate(e.target.value)} required /> : null}
         {status === 'irrelevant' && ruleId === 'R02' ? <TextField select label="Причина" value={reasonType} onChange={e => setReasonType(e.target.value)}>
           <MenuItem value="budget_auto_replenishment">Включено автопополнение</MenuItem><MenuItem value="other">Другая причина</MenuItem>
@@ -49,55 +52,53 @@ export function DecisionButtons({ campaignId, runId, evaluationIds, ruleId, comp
   </>;
 }
 
-export function ClusterRecommendationCard({ card, runId, showDecisionButtons = true }: { card: RecommendationCard; runId: string | null; showDecisionButtons?: boolean }) {
+export function ClusterRecommendationCard({ card, runId, window, quality }: {
+  card: RecommendationCard; runId: string | null;
+  window: Parameters<typeof recommendationDates>[0];
+  quality?: Parameters<typeof recommendationDetailActionNotes>[1];
+}) {
   const p = card.presentation;
-  const money = recommendationMoney(card);
-  const limitation = recommendationLimitation(card);
+  const action = recommendationAction(card);
+  const notes = recommendationDetailActionNotes(card, quality);
+  const calculation = recommendationDetailCalculation(card);
   const details = p?.details;
-  const titles: Record<string, string> = { R01: 'Реклама и остаток товара', R02: 'Бюджета кампании осталось меньше дня', R03: 'Расход без заказанных единиц', R06: 'ДРР кластера выше нормы', R07: 'ДРР товара при единой ставке выше нормы' };
-  const sources: Record<string, string> = { stocks_fbw: 'Остатки FBW/FBO', stocks_fbs: 'Остатки FBS', demand: 'Заказы по всем каналам', advertising: 'Состав кампании и ставки', budgets: 'Бюджет кампании', balance: 'Общий баланс' };
-  const number = (v: number | null | undefined) => v == null ? '—' : v.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
-  return <Stack spacing={.75} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
+  const watching = p?.primary.kind === 'watch' && card.subject.scope === 'cluster' && p.control?.excluded !== true &&
+    !p.restrictions.some(r => r.code === 'excluded');
+  return <Stack spacing={1.5} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 2 }}>
     <RecommendationExposure runId={runId} evaluationId={card.evaluationId} ruleId={card.rule.ruleId} />
     <Stack direction="row" gap={1} useFlexGap flexWrap="wrap" alignItems="center">
-      <Typography fontWeight={700}>{titles[card.rule.ruleId] ?? card.rule.explanation}</Typography>
+      <Typography fontWeight={700}>{recommendationTitle(card)}</Typography>
       {card.preliminary ? <Chip size="small" label="Предварительно" color="warning" variant="outlined" /> : null}
-      {p?.isKey ? <Chip size="small" label={`Ключевой · ${((p.keyShare ?? 0) * 100).toFixed(1)}%`} /> : null}
       {card.decision ? <Chip size="small" color={card.decision.status === 'accepted' ? 'success' : card.decision.status === 'snoozed' ? 'info' : 'default'} variant="outlined" label={`${labels[card.decision.status] ?? card.decision.status}${card.decision.snoozeUntil ? ` до ${card.decision.snoozeUntil}` : ''}`} /> : null}
     </Stack>
-    <Typography>{card.subject.scope === 'campaign' ? 'Вся кампания' : `${card.subject.clusterName ? `${card.subject.clusterName} · ` : ''}артикул ${card.subject.nomenclatureId}`}</Typography>
-    {details ? <>
-      <Typography variant="body2">Данные за {details.window.startDate} — {details.window.endDate}, МСК.</Typography>
-      {details.kind === 'stock' ? <>
-        <Typography variant="body2">Доступно FBW/FBO: {number(details.fbw)} · FBS: {number(details.fbs)} · запаса на {number(details.stockDays)} дн.</Typography>
-        <Typography variant="body2">Заказанные единицы по всем каналам за 14 дней: в среднем {number(details.dailyUnits)} в день. Рекламный расход за последние 3 полных дня: в среднем {formatMoney(details.dailySpend)} в день.</Typography>
-        {details.blockGrowth ? <Typography variant="body2">Усиление рекламы ограничено остатком.</Typography> : null}
-      </> : details.kind === 'budget' ? <>
-        <Typography variant="body2">Бюджет {formatMoney(details.budget)} · хватит на {number(details.budgetDays)} дн. · пополнение {formatMoney(details.topUp)}.</Typography>
-        <Typography variant="body2">В среднем в день: расход {formatMoney(details.dailySpend)}, заказы {number(details.dailyUnits)}. ДРР {number(card.economy.drr == null ? null : card.economy.drr * 100)}% при норме {number(card.norm.value * 100)}%.</Typography>
-        <Typography variant="body2">Общий баланс счёта: {details.balance == null ? 'не подтверждён' : formatMoney(details.balance)}.</Typography>
-      </> : <>
-        <Typography variant="body2">Расход {formatMoney(card.facts.spend)} · сумма рекламных заказов {formatMoney(card.economy.estimatedOrderSum)} · заказы O: {number(card.facts.orders)}.</Typography>
-        <Typography variant="body2">Фактический ДРР {number(card.economy.drr == null ? null : card.economy.drr * 100)}% · норма {number(card.norm.value * 100)}%. Затронутые товары: {details.affectedArticles?.join(', ')}.</Typography>
-      </>}
-      {details.sources.map(s => <Typography key={s.source} variant="caption" color="text.secondary">{sources[s.source] ?? s.source}: {s.state === 'ready' ? 'получено' : s.state === 'collecting' ? 'загрузка не завершена' : 'данные недоступны'}{s.receivedAtUtc ? ` ${new Date(s.receivedAtUtc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК` : ''}{s.errorCode ? ` (${s.errorCode})` : ''}.</Typography>)}
-    </> : <>
-    <Typography variant="body2">Расход {formatMoney(card.facts.spend)} · {card.facts.clicks ?? '—'} кликов · заказанные единицы {card.facts.orderedProducts ?? '—'} · норма ДРР {(card.norm.value * 100).toFixed(2)}%.</Typography>
-    {card.rule.ruleId === 'R03' ? <Typography variant="body2">ДЦЗ {card.economy.allowedSpendPerUnit == null ? '—' : formatMoney(card.economy.allowedSpendPerUnit)}</Typography> : null}
-    <Typography variant="body2">{card.rule.ruleId === 'R03' ? `Порог расхода ${formatMoney(card.rule.threshold ?? 0)}` : `Оценочный ДРР ${number(card.economy.drr == null ? null : card.economy.drr * 100)}% · сценарный диапазон ${number(card.economy.drrMin == null ? null : card.economy.drrMin * 100)} — ${number(card.economy.drrMax == null ? null : card.economy.drrMax * 100)}% · с одной дополнительной единицей ${number(card.economy.drrPlusOne == null ? null : card.economy.drrPlusOne * 100)}%`}</Typography>
-    </>}
-    <Typography fontWeight={700}>{p?.primary.label ?? card.rule.explanation}</Typography>
-    {money ? <Tooltip title={money.explanation}><Typography variant="body2" fontWeight={700}>{card.preliminary ? 'Предварительно · ' : ''}{money.text}</Typography></Tooltip> : null}
-    {limitation ? <Typography variant="body2" color="text.secondary">{limitation}</Typography> : null}
-    {p?.alternatives.map(a => <Typography key={a.kind} variant="body2">или {a.label.toLocaleLowerCase('ru-RU')}</Typography>)}
-    {p?.warning ? <Typography variant="body2">{p.warning}</Typography> : null}
-    {p?.restrictions.map(r => <Typography key={r.code} variant="body2" color="text.secondary">{r.label}</Typography>)}
-    {p?.diagnostics.map(d => <Tooltip key={d.code} title={d.basis}><Typography variant="body2">{d.label}</Typography></Tooltip>)}
-    {p && card.subject.scope === 'cluster' ? <Typography variant="body2">Расход кластера ≈ {formatMoney(p.weeklySpend)} в неделю</Typography> : null}
-    {p?.control?.receivedAtUtc ? <Typography variant="caption" color="text.secondary">Настройки WB получены {new Date(p.control.receivedAtUtc).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК.</Typography> : null}
-    <Typography variant="caption" color="text.secondary">{!details ? 'Сумма заказов кластера оценена по средней цене единицы товара за доступные подтверждённые дни в окне 14 дней. ' : ''}Данные WB могут уточняться, в том числе после D−2.</Typography>
+    <Typography>{[card.subject.clusterName ?? card.subject.nomenclatureName, card.subject.nomenclatureId && `артикул ${card.subject.nomenclatureId}`].filter(Boolean).join(' · ') || 'Вся кампания'}</Typography>
+    <Typography variant="caption" color="text.secondary">{recommendationPeriod(card, window)}</Typography>
+    <Stack spacing={.5}>
+      <Typography component="h3" variant="subtitle2">Почему появился совет</Typography>
+      <Typography variant="body2">{recommendationDetailReason(card)}</Typography>
+      {details?.kind === 'stock' && card.rule.reasonCode !== 'out_of_stock' && details.fbw != null && details.fbs != null ?
+        <Typography variant="caption" color="text.secondary">На складах WB: {details.fbw.toLocaleString('ru-RU')}, у продавца: {details.fbs.toLocaleString('ru-RU')}.</Typography> : null}
+    </Stack>
+    {notes.length || action || (details?.kind === 'budget' && details.balance != null) ? <Stack spacing={.5}>
+      <Typography component="h3" variant="subtitle2">{watching && notes.length ? 'Почему пока наблюдаем' : 'Что делать'}</Typography>
+      {notes.map(message => <Typography key={message} variant="body2">{message}</Typography>)}
+      {action && !(watching && notes.length) ? <Typography variant="body2">{action}</Typography> : null}
+      {details?.kind === 'budget' && details.balance != null ?
+        <Typography variant="body2">На рекламном счёте: {formatMoney(details.balance, Number.isInteger(details.balance) ? 0 : 2)}.</Typography> : null}
+    </Stack> : null}
+    {p?.alternatives.map((alternative, index) => {
+      const text = recommendationAction(card, alternative);
+      return text ? <Typography key={index} variant="body2">{alternative.kind === p.primary.kind ? 'Дополнительно' : 'Другой вариант'}: {text}</Typography> : null;
+    })}
+    {calculation ? <Accordion disableGutters elevation={0} slotProps={{ transition: { unmountOnExit: true } }}
+      sx={{ borderTop: '1px solid', borderColor: 'divider', '&::before': { display: 'none' } }}>
+      <AccordionSummary expandIcon="⌄" sx={{ px: 0 }}>{calculation.title}</AccordionSummary>
+      <AccordionDetails sx={{ px: 0 }}>
+        {calculation.lines.map(line => <Typography key={line} variant="body2">{line}</Typography>)}
+      </AccordionDetails>
+    </Accordion> : null}
     {card.decision?.reason ? <Typography variant="body2">Причина: {card.decision.reason}</Typography> : null}
     {card.decision?.comment ? <Typography variant="body2">Комментарий: {card.decision.comment}</Typography> : null}
-    {showDecisionButtons && runId && p ? <DecisionButtons campaignId={card.subject.campaignId} runId={runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}
+    {runId && p ? <DecisionButtons campaignId={card.subject.campaignId} runId={runId} evaluationIds={[card.evaluationId]} ruleId={card.rule.ruleId} /> : null}
   </Stack>;
 }

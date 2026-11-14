@@ -15,7 +15,7 @@ const subject = z.object({ storeId: z.string().uuid(), campaignId: z.string().uu
 const rule = z.object({ ruleId: z.string(), ruleVersion: z.number(), group: z.number(), enabled: z.boolean(),
   status: z.enum(['triggered', 'not_triggered', 'skipped', 'disabled']), reasonCode: z.string(), explanation: z.string(),
   threshold: z.number().nullable(), actionKind: z.string(), tier: z.string() });
-const action = z.object({ kind: z.string(), label: z.string(), reductionPercent: z.number().nullable(), targetBid: z.number().nullable(), level: z.string() });
+const action = z.object({ kind: z.string(), label: z.string(), reductionPercent: z.number().nullable(), targetBid: z.number().nullable(), level: z.string(), placement: z.string().nullish() });
 const operationalDetails = z.object({ kind: z.string(), window: z.object({ startDate: z.string(), endDate: z.string() }),
   sources: z.array(z.object({ snapshotId: z.string().nullable(), source: z.string(), state: z.string(), requestedAtUtc: z.string().nullable(), receivedAtUtc: z.string().nullable(), errorCode: z.string().nullable() })),
   fbw: z.number().nullable(), fbs: z.number().nullable(), stockDays: z.number().nullable(), dailySpend: z.number().nullable(), dailyUnits: z.number().nullable(),

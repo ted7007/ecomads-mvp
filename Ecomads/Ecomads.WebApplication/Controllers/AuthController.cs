@@ -65,11 +65,17 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     [EnableRateLimiting("register")]
     [AllowAnonymous]
-    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request, [FromServices] RegistrationDocuments documents)
     {
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
-        
+
+        if (!request.PersonalDataConsent)
+            return BadRequest(new { message = "Для регистрации необходимо согласие на обработку персональных данных." });
+
+        if (!string.Equals(request.RegistrationDocumentsVersion, documents.Version, StringComparison.Ordinal))
+            return Conflict(new { message = "Документы обновились. Перезагрузите страницу и подтвердите согласие заново." });
+
         // Проверяем, что пользователь с таким email еще не существует
         if (await _dbContext.Sellers.AnyAsync(s => s.Email.ToLower() == request.Email.ToLower()))
         {
@@ -91,6 +97,10 @@ public class AuthController : ControllerBase
             Email = request.Email,
             PasswordHash = _authService.HashPassword(request.Password),
             CreatedAt = now,
+            RegistrationConsentAtUtc = now,
+            RegistrationConsentVersion = documents.Version,
+            RegistrationConsentMethod = "registration-checkbox",
+            RegistrationConsentText = documents.Consent,
             UtmSource = attribution?.Source,
             UtmCapturedAtUtc = attribution?.CapturedAtUtc,
             IsDemoUser = true,
@@ -204,6 +214,8 @@ public class LoginRequest
 public class RegisterRequest
 {
     public JsonElement? Attribution { get; set; }
+    public bool PersonalDataConsent { get; set; }
+    public string? RegistrationDocumentsVersion { get; set; }
 
     [RegularExpression("^(one|two-five|over-five|agency)$")]
     public string? Stores { get; set; }

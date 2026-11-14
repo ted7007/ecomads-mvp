@@ -118,6 +118,7 @@ builder.Services.AddDbContext<EcomadsDbContext>(options =>
     }));
 
 builder.Services.AddControllers();
+builder.Services.AddSingleton(new RegistrationDocuments());
 builder.Services.Configure<PilotApplicationOptions>(builder.Configuration.GetSection("PilotApplications"));
 builder.Services.AddSingleton<PilotApplicationAccess>();
 builder.Services.AddHostedService<PilotApplicationRetention>();
@@ -193,6 +194,11 @@ app.Use(async (context, next) =>
 });
 
 app.MapControllers();
+app.MapGet("/api/legal/registration", (HttpContext context, RegistrationDocuments documents) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(documents);
+}).AllowAnonymous();
 app.MapHealthChecks("/health");
 app.MapFallbackToFile("/{*path:nonfile}", "index.html");
 

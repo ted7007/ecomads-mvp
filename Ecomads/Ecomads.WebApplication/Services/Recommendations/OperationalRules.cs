@@ -36,7 +36,7 @@ public static class OperationalRules
         if (units == 0) return new("not_triggered", "zero_demand", 4, watch, null, false);
         if (days < 3)
             return new("triggered", "stock_below_3_days", 1, manualBid
-                ? new("reduce_article_bid", "Снизьте ставку товара на 30%", 30, Level: "article")
+                ? new("reduce_article_bid", "Проверьте ставку товара", Level: "article")
                 : removable ? new("remove_article", "Временно уберите товар из рекламы", Level: "article")
                 : new("check_product", "Проверьте рекламу товара: запас меньше трёх дней", Level: "article"), days, true);
         if (days < 7) return new("triggered", "stock_below_7_days", 3,
@@ -56,19 +56,5 @@ public static class OperationalRules
         var topUp = Math.Max(0, 3 * daily - budget.Value);
         return new(days < 1 ? "triggered" : "not_triggered", days < 1 ? "budget_below_day" : "budget_sufficient",
             days, days < 1 ? decimal.Ceiling(topUp * 100) / 100 : null, balance.HasValue && balance < topUp);
-    }
-
-    public static RecommendationAction Reduce(decimal percent, decimal? bid, decimal? minimum, decimal? step, string level)
-    {
-        percent = Math.Clamp(percent, 0, 30);
-        if (percent <= 0) return new("watch", "Снижение ставки не требуется", Level: level);
-        decimal? target = null;
-        if (bid > 0 && minimum > 0 && step > 0)
-        {
-            var candidate = decimal.Ceiling(Math.Max(minimum.Value, bid.Value * (1 - percent / 100)) / step.Value) * step;
-            if (candidate >= bid) return new("watch", "Ставка уже на минимуме; снижение недоступно", Level: level);
-            target = candidate;
-        }
-        return new("reduce_" + level + "_bid", target.HasValue ? $"Снизьте ставку до {target:0.##} ₽" : $"Снизьте ставку на {percent:0.##}%", percent, target, level);
     }
 }

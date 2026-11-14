@@ -151,9 +151,9 @@ function CampaignContent({ id }: { id: string }) {
         : <Alert severity="info">Подключите кабинет WB для просмотра кластеров.</Alert>}
     </CardContent></Card>
     {clusterReport.isError && clusterReport.data ? <ErrorState title="Не удалось обновить рекомендации" onRetry={() => void clusterReport.refetch()} /> : null}
-    {clusterReport.isError && !clusterReport.data ? <Alert severity="error">Не удалось рассчитать рекомендации за 14 дней.
+    {clusterReport.isError && !clusterReport.data ? <Alert severity="error">Не удалось загрузить рекомендации.
       <Link component="button" onClick={() => void clusterReport.refetch()}>Повторить</Link></Alert> :
-      clusterReport.isLoading ? <LoadingState title="Проверяем рекомендации за 14 дней" /> :
+      clusterReport.isLoading ? <LoadingState title="Загружаем рекомендации" /> :
         clusterReport.data?.enabled ? <ClusterRecommendations key={clusterReport.data.runId ?? id} campaignId={id} report={clusterReport.data} /> : <Typography variant="body2" color="text.secondary">Рекомендации отключены или кабинет не подключён.</Typography>}
 
     <Card><CardContent>

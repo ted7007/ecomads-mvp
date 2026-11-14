@@ -137,9 +137,12 @@ test('normal registration API reads current attribution and excludes expired dat
     } };
   runInNewContext(apiBundle.outputFiles[0].text, context);
   context.auth.captureAttribution('https://ecomads.ru/site?utm_source=A&secret=private');
-  const credentials = { name: 'User', email: 'user@example.test', password: 'password' };
+  const credentials = { name: 'User', email: 'user@example.test', password: 'password',
+    personalDataConsent: true, registrationDocumentsVersion: 'a'.repeat(64) };
   await context.auth.register(credentials);
   assert.deepEqual(requests[0].body.attribution, { utm_source: 'A', captured_at_utc: new Date(now).toISOString() });
+  assert.equal(requests[0].body.personalDataConsent, true);
+  assert.equal(requests[0].body.registrationDocumentsVersion, credentials.registrationDocumentsVersion);
   await context.auth.login({ email: credentials.email, password: credentials.password });
   assert.equal(requests[1].body.attribution, undefined);
   time += 30 * day;

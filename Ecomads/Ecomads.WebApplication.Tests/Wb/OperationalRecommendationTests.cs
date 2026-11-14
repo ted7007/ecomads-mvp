@@ -73,16 +73,6 @@ public sealed class OperationalRecommendationTests
     }
 
     [Fact]
-    public void ExactBidsNeedAllConstraintsAndNeverReduceBeyondThirtyPercent()
-    {
-        Assert.Equal(30, OperationalRules.Reduce(80, 100, null, 1, "article").ReductionPercent);
-        Assert.Null(OperationalRules.Reduce(80, 100, null, 1, "article").TargetBid);
-        Assert.Equal(75m, OperationalRules.Reduce(80, 100, 74, 5, "article").TargetBid);
-        Assert.Equal("watch", OperationalRules.Reduce(30, 10, 10, 1, "article").Kind);
-        Assert.Equal(71m, OperationalRules.Reduce(30, 101, 1, 1, "article").TargetBid);
-    }
-
-    [Fact]
     public void SnapshotFreshnessIncludesBoundaryAndRejectsFutureOrFailure()
     {
         var now = DateTime.UtcNow;

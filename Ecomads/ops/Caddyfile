@@ -1,11 +1,11 @@
 {
     servers {
-        trusted_proxies static 31.76.53.166/32
+        trusted_proxies static 152.234.253.9/32 31.76.53.166/32
         trusted_proxies_strict
     }
 }
 
-http://31.207.76.37 {
+http://48.102.213.83 {
     redir https://ecomads.ru{uri} permanent
 }
 

@@ -78,6 +78,27 @@ public sealed partial class RecommendationEndpointTests(PostgresFixture postgres
         Assert.Equal(0, row.GetProperty("orderedProducts").GetInt32());
         Assert.Equal(JsonValueKind.Null, row.GetProperty("estimatedDrr").ValueKind);
         var runId = body.GetProperty("runId").GetString();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<EcomadsDbContext>();
+            db.WbAdvertisingSettings.Add(new()
+            {
+                CampaignId = campaign.Id, Status = "ready", BidType = "manual", PaymentType = "cpm",
+                ReceivedAtUtc = DateTime.UtcNow,
+                PayloadJson = """
+                    {"bids":[{"nomenclatureId":"1","cluster":"zero","bidRubles":350}],
+                    "minus":[{"nomenclatureId":"1","clusters":[]}]}
+                    """
+            });
+            await db.SaveChangesAsync();
+        }
+        using var hidden = JsonDocument.Parse(await client.GetStringAsync(url));
+        Assert.Empty(hidden.RootElement.GetProperty("cards").EnumerateArray());
+        var cluster = Assert.Single(hidden.RootElement.GetProperty("evaluations").EnumerateArray(),
+            e => e.GetProperty("subject").GetProperty("clusterName").GetString() == "zero");
+        Assert.Equal("cluster_minimum_unknown", cluster.GetProperty("presentation").GetProperty("primary").GetProperty("kind").GetString());
+        using var summary = JsonDocument.Parse(await client.GetStringAsync($"/api/wb/recommendations/summary?storeId={store.Id}"));
+        Assert.Empty(summary.RootElement.GetProperty("top").EnumerateArray());
         var normUrl = $"/api/wb/norms/campaigns/{campaign.Id}";
         var retired = await client.PutAsJsonAsync($"{normUrl}/articles/{article.Id}", new { targetDrr = 40 });
         Assert.True(retired.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed);

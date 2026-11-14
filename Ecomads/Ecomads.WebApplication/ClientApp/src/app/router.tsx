@@ -10,7 +10,7 @@ trackPage(window.location.href);
 
 export const router = createBrowserRouter(
   [
-    ...(['privacy', 'consent', 'cookies'] as const).map(slug => ({
+    ...(['privacy', 'consent'] as const).map(slug => ({
       path: '/legal/' + slug,
       lazy: async () => {
         const { LegalPage } = await import('../pages/LegalPage/LegalPage');
